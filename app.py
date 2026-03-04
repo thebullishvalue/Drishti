@@ -2,7 +2,7 @@
 TATTVA (तत्त्व) – Essence Matrix
 Advanced Feature Truth Engine | A Pragyam Product Family Member
 
-Refined premium dark-mode UI adopting the Nirnay design system.
+Refined premium dark-mode UI adopting the Nirnay & Aarambh design systems.
 Dream Engine backend – Stability • Clustering • Bootstrap • CV R²
 """
 
@@ -21,6 +21,7 @@ from sklearn.metrics import r2_score
 from sklearn.cluster import SpectralClustering
 import warnings
 import datetime
+import re
 
 warnings.filterwarnings("ignore")
 
@@ -35,12 +36,12 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-VERSION = "v5.3.0 - Pragyam Unified"
+VERSION = "v5.4.0 - Aarambh Unified"
 PRODUCT_NAME = "Tattva"
 COMPANY = "Hemrek Capital"
 
 # ══════════════════════════════════════════════════════════════════════════════
-# PRAGYAM DESIGN SYSTEM CSS (Exact Nirnay Implementation)
+# PRAGYAM DESIGN SYSTEM CSS
 # ══════════════════════════════════════════════════════════════════════════════
 
 st.markdown("""
@@ -141,7 +142,7 @@ st.markdown("""
     
     .metric-card {
         background-color: var(--bg-card);
-        padding: 1.25rem;
+        padding: 1.5rem;
         border-radius: 12px;
         border: 1px solid var(--border-color);
         box-shadow: 0 0 15px rgba(var(--primary-rgb), 0.08);
@@ -209,7 +210,7 @@ st.markdown("""
     .conviction-meter { height: 8px; background: var(--bg-elevated); border-radius: 4px; overflow: hidden; margin-top: 0.5rem; }
     .conviction-fill { height: 100%; border-radius: 4px; transition: width 0.3s ease; }
     
-    .sidebar-title { font-size: 0.75rem; font-weight: 700; color: var(--primary-color); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 0.75rem; }
+    .sidebar-title { font-size: 0.75rem; font-weight: 800; color: var(--primary-color); text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 1rem; margin-top: 0.5rem; }
     
     [data-testid="stSidebar"] { background: var(--secondary-background-color); border-right: 1px solid var(--border-color); }
     
@@ -224,6 +225,45 @@ st.markdown("""
     .stProgress > div > div > div { background-color: var(--primary-color) !important; }
 </style>
 """, unsafe_allow_html=True)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# DATA UTILITIES (Aarambh Cached Architecture)
+# ══════════════════════════════════════════════════════════════════════════════
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def load_google_sheet(sheet_url):
+    """Robust Google Sheet loader identical to Aarambh's caching system."""
+    try:
+        sheet_id = re.search(r'/d/([a-zA-Z0-9-_]+)', sheet_url).group(1)
+        gid_match = re.search(r'gid=(\d+)', sheet_url)
+        gid = gid_match.group(1) if gid_match else '0'
+        csv_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
+        df = pd.read_csv(csv_url)
+        return df, None
+    except Exception as e:
+        return None, f"Could not load Google Sheet. Ensure the link is public (Anyone with the link can view). Error details: {str(e)}"
+
+def clean_data(df, target, features, date_col=None):
+    cols = [target] + features
+    if date_col and date_col != "None" and date_col in df.columns:
+        cols.append(date_col)
+        
+    data = df[cols].copy()
+    for col in [target] + features:
+        data[col] = pd.to_numeric(data[col], errors='coerce')
+        
+    data = data.dropna(subset=[target] + features)
+    data = data[np.isfinite(data[[target] + features]).all(axis=1)]
+    
+    if date_col and date_col != "None" and date_col in data.columns:
+        try:
+            data[date_col] = pd.to_datetime(data[date_col], errors='coerce')
+            data = data.dropna(subset=[date_col]).sort_values(date_col)
+        except:
+            pass
+            
+    return data.reset_index(drop=True)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -245,7 +285,6 @@ def bootstrap_mean_std(func, x, y, n=50):
             vals.append(val)
         except:
             pass
-    # Audit Fix: Handle NaN propagation
     return np.nanmean(vals) if vals else 0.0, np.nanstd(vals) if vals else 0.0
 
 def distance_correlation(x, y):
@@ -261,8 +300,7 @@ def distance_correlation(x, y):
     return 0 if dvarx*dvary == 0 else dcov/np.sqrt(dvarx*dvary)
 
 def stability_selection(X, y, n_runs=30):
-    if X.shape[1] == 0:
-        return np.array([])
+    if X.shape[1] == 0: return np.array([])
     N, p = X.shape
     scores = np.zeros(p)
     for _ in range(n_runs):
@@ -273,11 +311,9 @@ def stability_selection(X, y, n_runs=30):
     return scores / n_runs
 
 def cross_val_predictive_power(X, y):
-    if X.shape[1] == 0:
-        return 0.0, 0.0
+    if X.shape[1] == 0: return 0.0, 0.0
     kf = KFold(n_splits=5, shuffle=True, random_state=42)
-    rf_scores = []
-    ridge_scores = []
+    rf_scores, ridge_scores = [], []
     for tr, te in kf.split(X):
         rf = RandomForestRegressor(n_estimators=200, max_depth=8)
         ridge = Ridge(alpha=1.0)
@@ -288,29 +324,17 @@ def cross_val_predictive_power(X, y):
     return np.mean(rf_scores), np.mean(ridge_scores)
 
 def redundancy_clustering(X):
-    # Audit Fix: Prevent clustering crash if < 2 features are selected
-    if X.shape[1] < 2:
-        return np.zeros(X.shape[1])
-        
+    if X.shape[1] < 2: return np.zeros(X.shape[1])
     corr = np.corrcoef(X.T)
-    clustering = SpectralClustering(
-        n_clusters=min(5, X.shape[1]),
-        affinity='precomputed',
-        random_state=42
-    )
-    labels = clustering.fit_predict(np.abs(corr))
-    return labels
+    clustering = SpectralClustering(n_clusters=min(5, X.shape[1]), affinity='precomputed', random_state=42)
+    return clustering.fit_predict(np.abs(corr))
 
 class TattvaEngine:
     def __init__(self, data, target_col, feature_cols, date_col=None):
         self.data = data.copy()
         self.target = target_col
         
-        # Audit Fix: Drop zero-variance features to prevent division-by-zero crashes
-        valid_features = []
-        for f in feature_cols:
-            if self.data[f].std() > 1e-6:
-                valid_features.append(f)
+        valid_features = [f for f in feature_cols if self.data[f].std() > 1e-6]
         self.features = valid_features
         
         if len(self.features) == 0:
@@ -336,8 +360,6 @@ class TattvaEngine:
         
         for i, feat in enumerate(self.features):
             x = self.X[:, i]
-            
-            # Safe Pearson and Spearman
             pearson = np.corrcoef(x, self.y)[0,1]
             if np.isnan(pearson): pearson = 0.0
                 
@@ -345,37 +367,24 @@ class TattvaEngine:
             if np.isnan(spear): spear = 0.0
                 
             dcor = distance_correlation(x, self.y)
-            
-            boot_mean, boot_std = bootstrap_mean_std(
-                lambda a,b: np.corrcoef(a,b)[0,1], x, self.y
-            )
+            boot_mean, boot_std = bootstrap_mean_std(lambda a,b: np.corrcoef(a,b)[0,1], x, self.y)
             
             nonlinear_bias = dcor - abs(pearson)
             cluster_penalty = 1 / (1 + np.sum(clusters == clusters[i]))
             
             predictive_strength = (
-                abs(pearson)*0.15 +
-                abs(spear)*0.10 +
-                dcor*0.25 +
-                stability[i]*0.25 +
-                cluster_penalty*0.10 +
-                rf_cv*0.10 +
-                ridge_cv*0.05
+                abs(pearson)*0.15 + abs(spear)*0.10 + dcor*0.25 +
+                stability[i]*0.25 + cluster_penalty*0.10 + rf_cv*0.10 + ridge_cv*0.05
             )
             
             uncertainty_penalty = np.exp(-boot_std) if not np.isnan(boot_std) else 0.5
             composite = predictive_strength * uncertainty_penalty
             
             self.results.append({
-                "Feature": feat,
-                "Pearson": round(pearson,3),
-                "Spearman": round(spear,3),
-                "Distance_Corr": round(dcor,3),
-                "Stability": round(stability[i],3),
-                "Cluster_Label": int(clusters[i]),
-                "NonLinear_Bias": round(nonlinear_bias,3),
-                "Uncertainty": round(boot_std,3),
-                "Composite_Score": round(composite*100,2)
+                "Feature": feat, "Pearson": round(pearson,3), "Spearman": round(spear,3),
+                "Distance_Corr": round(dcor,3), "Stability": round(stability[i],3),
+                "Cluster_Label": int(clusters[i]), "NonLinear_Bias": round(nonlinear_bias,3),
+                "Uncertainty": round(boot_std,3), "Composite_Score": round(composite*100,2)
             })
             
         if progress_callback: progress_callback(90)
@@ -385,14 +394,9 @@ class TattvaEngine:
 
     def get_insights(self):
         df = self.res_df
-        hidden = df[
-            (df["NonLinear_Bias"] > 0.15) &
-            (df["Composite_Score"] > df["Composite_Score"].median())
-        ]["Feature"].tolist()
-        
+        hidden = df[(df["NonLinear_Bias"] > 0.15) & (df["Composite_Score"] > df["Composite_Score"].median())]["Feature"].tolist()
         redundant = df.groupby("Cluster_Label")["Feature"].apply(list)
-        redundant = [group[1:] for group in redundant if len(group) > 1]
-        redundant = [f for sub in redundant for f in sub]
+        redundant = [f for sub in [group[1:] for group in redundant if len(group) > 1] for f in sub]
         
         return {
             "top_feature": df.iloc[0]["Feature"] if not df.empty else "None",
@@ -403,43 +407,7 @@ class TattvaEngine:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# DATA UTILITIES
-# ══════════════════════════════════════════════════════════════════════════════
-
-def load_google_sheet(sheet_url):
-    try:
-        import re
-        sheet_id = re.search(r'/d/([a-zA-Z0-9-_]+)', sheet_url).group(1)
-        gid = re.search(r'gid=(\d+)', sheet_url).group(1) if re.search(r'gid=(\d+)', sheet_url) else '0'
-        csv_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
-        return pd.read_csv(csv_url), None
-    except Exception as e:
-        return None, str(e)
-
-def clean_data(df, target, features, date_col=None):
-    cols = [target] + features
-    if date_col and date_col != "None" and date_col in df.columns:
-        cols.append(date_col)
-        
-    data = df[cols].copy()
-    for col in [target] + features:
-        data[col] = pd.to_numeric(data[col], errors='coerce')
-        
-    data = data.dropna(subset=[target] + features)
-    data = data[np.isfinite(data[[target] + features]).all(axis=1)]
-    
-    if date_col and date_col != "None" and date_col in data.columns:
-        try:
-            data[date_col] = pd.to_datetime(data[date_col], errors='coerce')
-            data = data.dropna(subset=[date_col]).sort_values(date_col)
-        except:
-            pass
-            
-    return data.reset_index(drop=True)
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# CHART UTILITIES (Nirnay-Adopted Aesthetics)
+# CHART UTILITIES
 # ══════════════════════════════════════════════════════════════════════════════
 
 def create_gauge_chart(value, title="Composite Score"):
@@ -459,31 +427,24 @@ def create_gauge_chart(value, title="Composite Score"):
 
 def create_scatter_chart(df):
     fig = go.Figure()
-    
-    # Identify non-linear gems to highlight them
     gems = df[(df["NonLinear_Bias"] > 0.15) & (df["Composite_Score"] > df["Composite_Score"].median())]
     regular = df[~df['Feature'].isin(gems['Feature'])]
     
     fig.add_trace(go.Scatter(
         x=regular['Pearson'].abs(), y=regular['Distance_Corr'], mode='markers',
         marker=dict(size=10, color='#888888', line=dict(color='#2A2A2A', width=1), opacity=0.6),
-        name="Standard Features",
-        text=regular['Feature'], hovertemplate="<b>%{text}</b><br>Linear: %{x:.2f}<br>Non-Linear: %{y:.2f}<extra></extra>"
+        name="Standard Features", text=regular['Feature'], hovertemplate="<b>%{text}</b><br>Linear: %{x:.2f}<br>Non-Linear: %{y:.2f}<extra></extra>"
     ))
-    
     if not gems.empty:
         fig.add_trace(go.Scatter(
             x=gems['Pearson'].abs(), y=gems['Distance_Corr'], mode='markers+text',
             marker=dict(size=14, color='#06b6d4', line=dict(color='#EAEAEA', width=1.5), opacity=0.9),
-            name="Non-Linear Gems",
-            text=gems['Feature'], textposition='top center', textfont=dict(size=10, color='#06b6d4'),
+            name="Non-Linear Gems", text=gems['Feature'], textposition='top center', textfont=dict(size=10, color='#06b6d4'),
             hovertemplate="<b>%{text}</b><br>Linear: %{x:.2f}<br>Non-Linear: %{y:.2f}<extra></extra>"
         ))
-        
     fig.add_shape(type="line", x0=0, y0=0, x1=1, y1=1, line=dict(color="rgba(255,195,0,0.3)", dash="dash"))
     fig.update_layout(
-        template='plotly_dark', paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='#1A1A1A', height=400,
-        margin=dict(l=40, r=10, t=30, b=40),
+        template='plotly_dark', paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='#1A1A1A', height=400, margin=dict(l=40, r=10, t=30, b=40),
         xaxis=dict(title=dict(text='Linear Correlation (|Pearson|)', font=dict(size=11, color='#888888')), showgrid=True, gridcolor='rgba(42,42,42,0.5)', range=[0, 1]),
         yaxis=dict(title=dict(text='Non-Linear Correlation (Distance)', font=dict(size=11, color='#888888')), showgrid=True, gridcolor='rgba(42,42,42,0.5)', range=[0, 1]),
         font=dict(family='Inter', color='#EAEAEA'), legend=dict(orientation="h", y=1.05, x=0)
@@ -493,100 +454,179 @@ def create_scatter_chart(df):
 def create_ranking_chart(df, top_n=15):
     sorted_df = df.head(top_n).sort_values('Composite_Score', ascending=True)
     colors = ['#10b981' if v > 70 else '#f59e0b' if v > 40 else '#888888' for v in sorted_df['Composite_Score']]
-    
-    fig = go.Figure()
-    fig.add_trace(go.Bar(
+    fig = go.Figure(go.Bar(
         y=sorted_df['Feature'], x=sorted_df['Composite_Score'], orientation='h',
         marker=dict(color=colors, line=dict(color='#2A2A2A', width=1)),
         text=[f"{v:.1f}" for v in sorted_df['Composite_Score']], textposition='outside', textfont=dict(size=10, color='#888888')
     ))
-    
     fig.update_layout(
-        template='plotly_dark', paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='#1A1A1A', height=400,
-        margin=dict(l=80, r=50, t=10, b=10),
-        xaxis=dict(showgrid=True, gridcolor='rgba(42,42,42,0.5)', range=[0, 100]),
-        yaxis=dict(showgrid=False, tickfont=dict(size=10)),
+        template='plotly_dark', paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='#1A1A1A', height=400, margin=dict(l=80, r=50, t=10, b=10),
+        xaxis=dict(showgrid=True, gridcolor='rgba(42,42,42,0.5)', range=[0, 100]), yaxis=dict(showgrid=False, tickfont=dict(size=10)),
         font=dict(family='Inter', color='#EAEAEA')
     )
     return fig
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# UI LAYOUT & MAIN APPLICATION
+# UI LAYOUT & MAIN APPLICATION (Aarambh Curated System)
 # ══════════════════════════════════════════════════════════════════════════════
 
 def render_sidebar():
+    """Aarambh structured sidebar with sequential steps."""
     with st.sidebar:
         st.markdown("""
-        <div style="text-align: center; padding: 1rem 0; margin-bottom: 1rem;">
-            <div style="font-size: 1.75rem; font-weight: 800; color: #FFC300;">TATTVA</div>
-            <div style="color: #888888; font-size: 0.75rem; margin-top: 0.25rem;">तत्त्व | Essence Matrix</div>
+        <div style="text-align: center; padding: 1rem 0; margin-bottom: 0.5rem;">
+            <div style="font-size: 2rem; font-weight: 800; color: var(--primary-color); letter-spacing: 2px;">TATTVA</div>
+            <div style="color: var(--text-muted); font-size: 0.75rem; margin-top: 0.25rem; letter-spacing: 1.5px; text-transform: uppercase;">Essence Matrix</div>
         </div>
         """, unsafe_allow_html=True)
+        
         st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
-
-        st.markdown('<div class="sidebar-title">📁 Data Source</div>', unsafe_allow_html=True)
-        source = st.radio("", ["Upload CSV/Excel", "Google Sheets"], horizontal=True, label_visibility="collapsed")
-
-        df = None
-        if source == "Upload CSV/Excel":
-            file = st.file_uploader("", type=["csv", "xlsx"])
+        
+        # --- 1. DATA CONNECTION ---
+        st.markdown('<div class="sidebar-title">1. DATA CONNECTION</div>', unsafe_allow_html=True)
+        source_type = st.radio("Source", ["Google Sheets", "Local Upload"], horizontal=True, label_visibility="collapsed")
+        
+        if source_type == "Google Sheets":
+            sheet_url = st.text_input(
+                "Google Sheet URL", 
+                placeholder="https://docs.google.com/spreadsheets/d/...",
+                help="Paste the full URL of a public Google Sheet (Anyone with link can view)."
+            )
+            if st.button("Synchronize Data", use_container_width=True):
+                if sheet_url:
+                    with st.spinner("Connecting to Google Data..."):
+                        df, err = load_google_sheet(sheet_url)
+                        if err:
+                            st.error(err)
+                        else:
+                            st.session_state['raw_df'] = df
+                            st.session_state['run'] = False
+                            st.toast("Data synchronized successfully!", icon="✅")
+                else:
+                    st.warning("Please enter a valid URL.")
+        else:
+            file = st.file_uploader("Upload CSV/Excel", type=["csv", "xlsx"])
             if file:
-                # Clear run state when new file is uploaded
                 if 'last_file' not in st.session_state or st.session_state['last_file'] != file.name:
                     st.session_state['run'] = False
                     st.session_state['last_file'] = file.name
-                
-                try:
-                    df = pd.read_csv(file) if file.name.endswith(".csv") else pd.read_excel(file)
-                except Exception as e:
-                    st.error(f"File error: {e}")
-        else:
-            url = st.text_input("Google Sheet URL", placeholder="https://docs.google.com/spreadsheets/d/...")
-            if st.button("Load Sheet", use_container_width=True):
-                with st.spinner("Fetching..."):
-                    df, err = load_google_sheet(url)
-                if err:
-                    st.error(err)
-                else:
-                    st.toast("Sheet loaded successfully!", icon="✅")
-                    st.session_state['run'] = False
+                    try:
+                        df = pd.read_csv(file) if file.name.endswith(".csv") else pd.read_excel(file)
+                        st.session_state['raw_df'] = df
+                        st.toast("File loaded successfully!", icon="✅")
+                    except Exception as e:
+                        st.error(f"File error: {e}")
+
+        # Use dataframe from session state if available
+        df = st.session_state.get('raw_df', None)
 
         if df is not None:
-            numeric = df.select_dtypes(include=[np.number]).columns.tolist()
-            if len(numeric) < 2:
-                st.error("Dataset needs at least 2 numeric columns.")
-                st.stop()
-
-            st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
-            st.markdown('<div class="sidebar-title">⚙️ Analysis Setup</div>', unsafe_allow_html=True)
+            numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+            all_cols = df.columns.tolist()
             
-            target = st.selectbox("Target (Y)", numeric)
-            features = st.multiselect("Features (X)", [c for c in numeric if c != target],
-                                     default=[c for c in numeric if c != target][:12])
-            
-            date_col = st.selectbox("Date Column (optional)", ["None"] + list(df.columns))
+            if len(numeric_cols) < 2:
+                st.error("Dataset requires at least 2 numeric columns.")
+            else:
+                st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+                
+                # --- 2. MATRIX CONFIGURATION ---
+                st.markdown('<div class="sidebar-title">2. MATRIX CONFIGURATION</div>', unsafe_allow_html=True)
+                
+                target = st.selectbox("Target Variable (Y)", numeric_cols, index=0)
+                
+                available_features = [c for c in numeric_cols if c != target]
+                default_features = available_features[:15] if len(available_features) > 15 else available_features
+                features = st.multiselect("Candidate Features (X)", available_features, default=default_features)
+                date_col = st.selectbox("Temporal Index (Optional)", ["None"] + all_cols, index=0)
 
-            st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("◈ RUN TRUTH ENGINE", type="primary", use_container_width=True):
-                st.session_state['run'] = True
-                st.session_state['df'] = df
-                st.session_state['target'] = target
-                st.session_state['features'] = features
-                st.session_state['date_col'] = date_col
+                st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+                
+                # --- 3. ENGINE EXECUTION ---
+                st.markdown('<div class="sidebar-title">3. ENGINE EXECUTION</div>', unsafe_allow_html=True)
+                if st.button("◈ EXTRACT ESSENCE", type="primary", use_container_width=True):
+                    st.session_state['run'] = True
+                    st.session_state['target'] = target
+                    st.session_state['features'] = features
+                    st.session_state['date_col'] = date_col
 
         st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
         st.markdown(f"""
-        <div class='info-box'>
-            <p style='font-size: 0.8rem; margin: 0; color: var(--text-muted); line-height: 1.5;'>
-                <strong>Version:</strong> {VERSION}<br>
-                <strong>Engine:</strong> Stability • Clustering • Bootstrap<br>
-                <strong>Focus:</strong> Feature Truth Discovery
-            </p>
+        <div style='text-align: center; color: var(--text-muted); font-size: 0.75rem; line-height: 1.5;'>
+            <strong>{PRODUCT_NAME} {VERSION}</strong><br>
+            A {COMPANY} Product
+        </div>
+        """, unsafe_allow_html=True)
+        
+    return df
+
+def render_landing_page():
+    """Curated Landing Page matching Aarambh's premium layout."""
+    st.markdown("""
+    <div style="padding: 4rem 2rem 3rem; text-align: center; background: radial-gradient(circle at 50% 0%, rgba(255,195,0,0.08) 0%, transparent 70%);">
+        <h1 style="font-size: 4rem; font-weight: 800; margin-bottom: 0.5rem; color: var(--text-primary); letter-spacing: -1px;">
+            TATTVA <span style="color: var(--primary-color);">MATRIX</span>
+        </h1>
+        <p style="font-size: 1.1rem; color: var(--text-muted); font-weight: 500; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 2rem;">
+            Advanced Feature Truth Engine
+        </p>
+        <p style="font-size: 1.15rem; color: var(--text-secondary); max-width: 800px; margin: 0 auto; line-height: 1.7;">
+            Discover the true drivers of your dataset. Tattva strips away noise, multicollinearity, and linear bias to reveal the underlying essence of predictive relationships through multi-dimensional stability selection and spectral clustering.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.markdown("""
+        <div class="metric-card" style="height: 100%; padding: 2rem;">
+            <div style="font-size: 2.5rem; margin-bottom: 1rem;">🧬</div>
+            <h3 style="color: var(--text-primary); font-size: 1.15rem; margin-bottom: 0.75rem;">Spectral Redundancy</h3>
+            <p style="color: var(--text-muted); font-size: 0.95rem; line-height: 1.6;">Identifies collinear and redundant feature groups using advanced spectral clustering on correlation matrices, allowing you to seamlessly drop overlapping signals.</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+    with col2:
+        st.markdown("""
+        <div class="metric-card" style="height: 100%; padding: 2rem;">
+            <div style="font-size: 2.5rem; margin-bottom: 1rem;">⚖️</div>
+            <h3 style="color: var(--text-primary); font-size: 1.15rem; margin-bottom: 0.75rem;">Stability Selection</h3>
+            <p style="color: var(--text-muted); font-size: 0.95rem; line-height: 1.6;">Bootstraps Random Forest models across randomized dataset sub-samples to find truly robust, cycle-agnostic predictors that survive structural regime shifts.</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+    with col3:
+        st.markdown("""
+        <div class="metric-card" style="height: 100%; padding: 2rem;">
+            <div style="font-size: 2.5rem; margin-bottom: 1rem;">🌌</div>
+            <h3 style="color: var(--text-primary); font-size: 1.15rem; margin-bottom: 0.75rem;">Non-Linear Truth</h3>
+            <p style="color: var(--text-muted); font-size: 0.95rem; line-height: 1.6;">Exposes hidden relationships invisible to standard linear Pearson methods by computing Brownian Distance Correlation for advanced structural validation.</p>
         </div>
         """, unsafe_allow_html=True)
 
-    return df
+    st.markdown("""
+    <div style="margin-top: 3.5rem; padding: 2.5rem; background: var(--secondary-background-color); border-radius: 16px; border: 1px solid var(--border-color); box-shadow: 0 0 20px rgba(0,0,0,0.2);">
+        <h3 style="margin-bottom: 2rem; color: var(--text-primary); font-size: 1.3rem; text-align: center;">🚀 Execution Sequence</h3>
+        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 3rem;">
+            <div style="text-align: center;">
+                <div style="width: 40px; height: 40px; border-radius: 50%; background: rgba(255,195,0,0.1); color: var(--primary-color); display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 1.2rem; margin: 0 auto 1rem;">1</div>
+                <h4 style="color: var(--text-primary); font-size: 1.05rem; margin-bottom: 0.5rem;">Connect Data</h4>
+                <p style="color: var(--text-muted); font-size: 0.9rem; line-height: 1.5;">Paste a public Google Sheet URL or upload a local CSV/Excel dataset in the sidebar to initialize the workspace.</p>
+            </div>
+            <div style="text-align: center;">
+                <div style="width: 40px; height: 40px; border-radius: 50%; background: rgba(255,195,0,0.1); color: var(--primary-color); display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 1.2rem; margin: 0 auto 1rem;">2</div>
+                <h4 style="color: var(--text-primary); font-size: 1.05rem; margin-bottom: 0.5rem;">Configure Matrix</h4>
+                <p style="color: var(--text-muted); font-size: 0.9rem; line-height: 1.5;">Define your Target Variable (Y) and select candidate explanatory Features (X) to be analyzed by the engine.</p>
+            </div>
+            <div style="text-align: center;">
+                <div style="width: 40px; height: 40px; border-radius: 50%; background: rgba(255,195,0,0.1); color: var(--primary-color); display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 1.2rem; margin: 0 auto 1rem;">3</div>
+                <h4 style="color: var(--text-primary); font-size: 1.05rem; margin-bottom: 0.5rem;">Extract Essence</h4>
+                <p style="color: var(--text-muted); font-size: 0.9rem; line-height: 1.5;">Click "Extract Essence" to run the mathematical core and generate your multi-dimensional truth matrix.</p>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
 
 def render_header():
@@ -599,20 +639,18 @@ def render_header():
 
 
 def main():
-    df = render_sidebar()
-    render_header()
+    _ = render_sidebar()
 
+    # Show Curated Landing Page if no run has been initiated
     if 'run' not in st.session_state or not st.session_state['run']:
-        st.markdown("""
-        <div class='info-box' style='text-align:center; padding: 4rem 2rem;'>
-            <h3 style='color: var(--text-muted);'>Configure Data Source in Sidebar</h3>
-            <p style='color: var(--text-muted);'>Upload a dataset and select your target and features to reveal the Essence Matrix.</p>
-        </div>
-        """, unsafe_allow_html=True)
+        render_landing_page()
         return
 
+    # Once running, show the regular header
+    render_header()
+
     # Retrieve from session state
-    df = st.session_state['df']
+    df = st.session_state['raw_df']
     target = st.session_state['target']
     features = st.session_state['features']
     date_col = st.session_state['date_col']
@@ -699,7 +737,7 @@ def main():
 
     st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
 
-    # ── Nirnay Styled Tabs ────────────────────────────────────────────────────
+    # ── Tabs ────────────────────────────────────────────────────
     tab1, tab2, tab3, tab4 = st.tabs(["**🎯 Primary Signals**", "**📈 Linear vs Non-Linear**", "**📊 Clusters & Ranking**", "**📋 Truth Matrix**"])
 
     with tab1:
