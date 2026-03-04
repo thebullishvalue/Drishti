@@ -1,4 +1,3 @@
-<DOCUMENT filename="metric.py">
 """
 DRISHTI (दृष्टि) - Deep Feature Matrix | A Hemrek Capital Product
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -869,4 +868,3 @@ def render_footer():
 
 if __name__ == "__main__":
     main()
-</DOCUMENT>
