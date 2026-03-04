@@ -1,5 +1,5 @@
 """
-DRISHTI (दृष्टि) - Deep Feature Matrix | A Hemrek Capital Product
+TATTVA (तत्व) - Deep Feature Matrix | A Hemrek Capital Product
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Advanced mathematical and physics-based correlation analysis.
 Identifies absolute feature utility using Information Theory, 
@@ -35,13 +35,13 @@ except ImportError:
     SKLEARN_AVAILABLE = False
 
 # --- Constants ---
-VERSION = "v2.0.0-Drishti"
-PRODUCT_NAME = "Drishti"
+VERSION = "v2.0.0-Tattva"
+PRODUCT_NAME = "Tattva"
 COMPANY = "Hemrek Capital"
 
 # --- Page Config ---
 st.set_page_config(
-    page_title="DRISHTI | Deep Feature Matrix",
+    page_title="TATTVA | Deep Feature Matrix",
     page_icon="🌌",
     layout="wide",
     initial_sidebar_state="collapsed"
@@ -495,8 +495,8 @@ def main():
     with st.sidebar:
         st.markdown("""
         <div style="text-align: center; padding: 1rem 0; margin-bottom: 1rem;">
-            <div style="font-size: 1.75rem; font-weight: 800; color: #FFC300;">DRISHTI</div>
-            <div style="color: #888888; font-size: 0.75rem; margin-top: 0.25rem;">दृष्टि | Deep Feature Matrix</div>
+            <div style="font-size: 1.75rem; font-weight: 800; color: #FFC300;">TATTVA</div>
+            <div style="color: #888888; font-size: 0.75rem; margin-top: 0.25rem;">तत्व | Deep Feature Matrix</div>
         </div>
         """, unsafe_allow_html=True)
         st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
@@ -533,7 +533,7 @@ def main():
     if df is None:
         st.markdown("""
         <div class="premium-header">
-            <h1>DRISHTI : Deep Feature Matrix</h1>
+            <h1>TATTVA : Deep Feature Matrix</h1>
             <div class="tagline">Extracting absolute mathematical utility from your datasets for predictive modeling.</div>
         </div>
         """, unsafe_allow_html=True)
@@ -578,41 +578,54 @@ def main():
         </div>
         """, unsafe_allow_html=True)
 
-    config_hash = f"{target_col}_{'-'.join(sorted(feature_cols))}_{date_col}"
+    # Calculate current configuration hash
+    current_config_hash = f"{target_col}_{'-'.join(sorted(feature_cols))}_{date_col}"
     
-    if 'drishti_config' not in st.session_state:
-        st.session_state.drishti_config = config_hash
-        st.session_state.is_analyzed = False
+    # Initialize active state
+    if 'active_config' not in st.session_state:
+        st.session_state.active_config = None
+        st.session_state.active_target = None
+        st.session_state.active_features = []
+        st.session_state.active_date = None
         
-    if config_hash != st.session_state.drishti_config:
-        st.session_state.is_analyzed = False
-        st.session_state.drishti_config = config_hash
-        
+    # Update active state only when button is clicked
     if run_analysis_btn:
-        st.session_state.is_analyzed = True
+        st.session_state.active_config = current_config_hash
+        st.session_state.active_target = target_col
+        st.session_state.active_features = feature_cols
+        st.session_state.active_date = date_col
 
-    if not st.session_state.is_analyzed:
+    # Show warning if UI selections differ from active analysis
+    if st.session_state.active_config is not None and current_config_hash != st.session_state.active_config:
+        st.sidebar.warning("⚠️ Selections modified. Click **RUN ANALYSIS** to update the dashboard.")
+
+    # Show landing page if no analysis has been run yet
+    if st.session_state.active_config is None:
         st.markdown("""
         <div class="premium-header">
-            <h1>DRISHTI : Deep Feature Matrix</h1>
+            <h1>TATTVA : Deep Feature Matrix</h1>
             <div class="tagline">Extracting absolute mathematical utility from your datasets for predictive modeling.</div>
         </div>
         """, unsafe_allow_html=True)
-        st.info("👈 System ready. Configure your targets and click **RUN ANALYSIS** in the sidebar to process the feature matrix.")
         render_landing_page()
         render_footer()
         return
 
-    data = clean_data(df, target_col, feature_cols, date_col if date_col != "None" else None)
+    # Use ACTIVE configurations for processing, not live widget states
+    active_target = st.session_state.active_target
+    active_features = st.session_state.active_features
+    active_date = st.session_state.active_date
+
+    data = clean_data(df, active_target, active_features, active_date if active_date != "None" else None)
     if len(data) < 30:
         st.error("Insufficient valid data rows (Need >30 after dropna).")
         return
 
     # Processing Engine
-    cache_key = f"{target_col}_{'-'.join(sorted(feature_cols))}_{len(data)}"
+    cache_key = f"{st.session_state.active_config}_{len(data)}"
     if 'deep_cache' not in st.session_state or st.session_state.deep_cache != cache_key:
         with st.spinner("Initializing Deep Correlation Algorithms... Computing Information Theory and Energy Statistics..."):
-            engine = DeepCorrelationEngine(data, target_col, feature_cols)
+            engine = DeepCorrelationEngine(data, active_target, active_features)
             engine.analyze()
             st.session_state.deep_engine = engine
             st.session_state.deep_cache = cache_key
@@ -628,7 +641,7 @@ def main():
     c1, c2, c3, c4 = st.columns(4)
     
     with c1:
-        st.markdown(f'<div class="metric-card primary"><h4>Primary Predictor</h4><h2>{insights["top_feature"]}</h2><div class="sub-metric">Score: {insights["top_score"]:.1f}/100</div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="metric-card primary"><h4>Primary Predictor</h4><h2>{insights["top_feature"]}</h2><div class="sub-metric">Score: {insights["top_score"]:.2f}/100</div></div>', unsafe_allow_html=True)
     with c2:
         n_hidden = len(insights["hidden_nonlinear"])
         hidden_txt = ", ".join(insights["hidden_nonlinear"]) if n_hidden > 0 else "None detected"
@@ -641,9 +654,14 @@ def main():
     with c4:
         avg_mi = res_df["Mutual_Info"].mean()
         mi_col = "purple" if avg_mi > 0.1 else "warning"
-        st.markdown(f'<div class="metric-card {mi_col}"><h4>System Information Gain</h4><h2>{avg_mi:.3f}</h2><div class="sub-metric">Avg. Mutual Info</div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="metric-card {mi_col}"><h4>System Information Gain</h4><h2>{avg_mi:.2f}</h2><div class="sub-metric">Avg. Mutual Info</div></div>', unsafe_allow_html=True)
 
     st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+
+    # Pre-format global display dataframe to exactly 2 decimals
+    res_df_display = res_df.copy()
+    for col in res_df_display.select_dtypes(include=['float64', 'float32']).columns:
+        res_df_display[col] = res_df_display[col].round(2)
 
     # ═══════════════════════════════════════════════════════════════════════
     # TABS
@@ -661,11 +679,11 @@ def main():
         st.markdown('<p style="color: #888;">The ultimate ranking of feature utility. Combines Linear, Non-Linear, and Tree-based importance, penalized by Multicollinearity.</p>', unsafe_allow_html=True)
         
         fig_bar = px.bar(
-            res_df, x='Composite_Score', y='Feature', orientation='h',
+            res_df_display, x='Composite_Score', y='Feature', orientation='h',
             color='Composite_Score', color_continuous_scale=['#ef4444', '#f59e0b', '#10b981', '#FFC300'],
             hover_data=['Pearson', 'Distance_Corr', 'VIF']
         )
-        fig_bar.update_layout(height=400 + min(len(feature_cols)*15, 400), yaxis={'categoryorder':'total ascending'}, showlegend=False)
+        fig_bar.update_layout(height=400 + min(len(active_features)*15, 400), yaxis={'categoryorder':'total ascending'}, showlegend=False)
         update_chart_theme(fig_bar)
         st.plotly_chart(fig_bar, width='stretch')
         
@@ -722,14 +740,14 @@ def main():
         st.markdown('<p style="color: #888;">Distance Correlation (Y) vs Absolute Pearson (X). Features above the diagonal possess significant Non-Linear relationships invisible to standard statistics.</p>', unsafe_allow_html=True)
         
         fig_scatter = px.scatter(
-            res_df, x='Abs_Pearson', y='Distance_Corr', text='Feature',
+            res_df_display, x='Abs_Pearson', y='Distance_Corr', text='Feature',
             size='Mutual_Info', color='Composite_Score',
             color_continuous_scale='Viridis',
             hover_data=['Spearman']
         )
         
         # Add y=x line
-        max_val = max(res_df['Abs_Pearson'].max(), res_df['Distance_Corr'].max()) + 0.1
+        max_val = max(res_df_display['Abs_Pearson'].max(), res_df_display['Distance_Corr'].max()) + 0.1
         fig_scatter.add_trace(go.Scatter(x=[0, max_val], y=[0, max_val], mode='lines', name='Linear Boundary', line=dict(dash='dash', color='#888')))
         
         fig_scatter.update_traces(textposition='top center')
@@ -741,12 +759,12 @@ def main():
         st.markdown("##### Variance Inflation Factor (VIF)")
         st.markdown('<p style="color: #888;">Shows how much the variance of an estimated regression coefficient increases due to collinearity. Values > 10 indicate problematic redundancy.</p>', unsafe_allow_html=True)
         
-        vif_df = res_df[['Feature', 'VIF']].copy().sort_values('VIF', ascending=False)
+        vif_df = res_df_display[['Feature', 'VIF']].copy().sort_values('VIF', ascending=False)
         colors = ['#ef4444' if v > 10 else '#f59e0b' if v > 5 else '#10b981' for v in vif_df['VIF']]
         
         fig_vif = go.Figure(go.Bar(
             x=vif_df['Feature'], y=vif_df['VIF'],
-            marker_color=colors, text=np.round(vif_df['VIF'], 1), textposition='auto'
+            marker_color=colors, text=vif_df['VIF'], textposition='auto'
         ))
         fig_vif.add_hline(y=10, line_dash="dash", line_color="rgba(239,68,68,0.8)", annotation_text="Critical Limit (10)")
         fig_vif.add_hline(y=5, line_dash="dash", line_color="rgba(245,158,11,0.8)", annotation_text="Warning Limit (5)")
@@ -757,17 +775,12 @@ def main():
 
     with tab5:
         st.markdown("##### Deep Analytics Table")
-        
-        disp_df = res_df.copy()
-        for col in disp_df.columns:
-            if disp_df[col].dtype == 'float64':
-                disp_df[col] = disp_df[col].round(4)
                 
-        disp_df = disp_df[['Feature', 'Composite_Score', 'Pearson', 'Spearman', 'Distance_Corr', 'Mutual_Info', 'RF_Importance', 'VIF']]
+        disp_df = res_df_display[['Feature', 'Composite_Score', 'Pearson', 'Spearman', 'Distance_Corr', 'Mutual_Info', 'RF_Importance', 'VIF']]
         st.dataframe(disp_df, width='stretch', hide_index=True, height=500)
         
         csv_data = disp_df.to_csv(index=False).encode('utf-8')
-        st.download_button("📥 Download Correlation Matrix", csv_data, f"deep_matrix_{target_col}.csv", "text/csv")
+        st.download_button("📥 Download Correlation Matrix", csv_data, f"deep_matrix_{active_target}.csv", "text/csv")
 
     render_footer()
 
