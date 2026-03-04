@@ -1,16 +1,12 @@
 """
-DRISHTI (दृष्टि) - Deep Feature Matrix | A Hemrek Capital Product
+TATTVA (तत्त्व) - Essence Matrix | A Hemrek Capital Product
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Advanced mathematical and physics-based correlation analysis.
-Identifies absolute feature utility using Information Theory, 
-Energy Statistics (Distance Correlation), and Topology.
+Advanced mathematical and physics-based feature essence extraction.
+Reveals fundamental predictive truth using Information Theory, 
+Energy Statistics (Distance Correlation), Game Theory (SHAP), 
+Hybrid Topology, and Directional Causality.
 
-v4.0-Ultimate Edition — Backend now at the absolute frontier of 2026 ML research:
-• SHAP (TreeSHAP game-theoretic exact importance) + Permutation fallback
-• Hybrid Graph Topology (PageRank + Eigenvector Centrality on full dCor network)
-• Granger Causality (directional time-series power when date provided)
-• Rebalanced composite score with SHAP dominance
-Everything else (UI/UX, cards, tabs, charts, styling, displayed columns) 100% untouched.
+v4.0-Ultimate Edition — SHAP + Hybrid Graph + Granger + dCor core
 """
 
 import streamlit as st
@@ -24,14 +20,15 @@ import warnings
 
 warnings.filterwarnings('ignore')
 
-# --- Dependencies ---
+# ────────────────────────────────────────────────────────────────────────────
+# Dependencies
+# ────────────────────────────────────────────────────────────────────────────
 try:
     import statsmodels.api as sm
     from statsmodels.tsa.stattools import grangercausalitytests
+    from statsmodels.stats.outliers_influence import variance_inflation_factor
     STATSMODELS_AVAILABLE = True
 except ImportError:
-    sm = None
-    grangercausalitytests = None
     STATSMODELS_AVAILABLE = False
 
 try:
@@ -43,27 +40,29 @@ try:
 except ImportError:
     SKLEARN_AVAILABLE = False
 
-# SHAP is optional but gives god-tier game-theoretic importance
 try:
     import shap
     SHAP_AVAILABLE = True
 except ImportError:
     SHAP_AVAILABLE = False
 
-# --- Constants ---
+# ────────────────────────────────────────────────────────────────────────────
+# Constants
+# ────────────────────────────────────────────────────────────────────────────
 VERSION = "v4.0-Ultimate"
-PRODUCT_NAME = "Drishti"
+PRODUCT_NAME = "Tattva"
 COMPANY = "Hemrek Capital"
 
-# --- Page Config ---
 st.set_page_config(
-    page_title="DRISHTI | Deep Feature Matrix",
-    page_icon="🌌",
+    page_title="TATTVA | Essence Matrix",
+    page_icon="✦",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
 
-# --- Premium CSS (Nirnay Design System) ---
+# ────────────────────────────────────────────────────────────────────────────
+# Premium CSS (Nirnay Design System) — unchanged
+# ────────────────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
@@ -142,14 +141,6 @@ st.markdown("""
     .metric-card.purple h2 { color: var(--purple); }
     .metric-card.neutral h2 { color: var(--neutral); }
 
-    .signal-card { background: var(--bg-card); border-radius: 16px; border: 2px solid var(--border-color); padding: 1.5rem; position: relative; overflow: hidden; }
-    .signal-card.overvalued { border-color: var(--danger-red); box-shadow: 0 0 30px rgba(239, 68, 68, 0.15); }
-    .signal-card.undervalued { border-color: var(--success-green); box-shadow: 0 0 30px rgba(16, 185, 129, 0.15); }
-    .signal-card.fair { border-color: var(--primary-color); box-shadow: 0 0 30px rgba(255, 195, 0, 0.15); }
-    .signal-card .label { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1.5px; color: var(--text-muted); font-weight: 600; margin-bottom: 0.5rem; }
-    .signal-card .value { font-size: 2.5rem; font-weight: 700; line-height: 1; }
-    .signal-card .subtext { font-size: 0.85rem; color: var(--text-secondary); margin-top: 0.75rem; }
-    
     .guide-box { background: rgba(var(--primary-rgb), 0.05); border-left: 3px solid var(--primary-color); padding: 1rem; border-radius: 8px; margin: 1rem 0; color: var(--text-secondary); font-size: 0.9rem; }
     .guide-box.success { background: rgba(16, 185, 129, 0.05); border-left-color: var(--success-green); }
     .guide-box.danger { background: rgba(239, 68, 68, 0.05); border-left-color: var(--danger-red); }
@@ -160,11 +151,6 @@ st.markdown("""
 
     .section-divider { height: 1px; background: linear-gradient(90deg, transparent 0%, var(--border-color) 50%, transparent 100%); margin: 1.5rem 0; }
     
-    .status-badge { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0.8rem; border-radius: 20px; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
-    .status-badge.buy { background: rgba(16, 185, 129, 0.15); color: var(--success-green); border: 1px solid rgba(16, 185, 129, 0.3); }
-    .status-badge.sell { background: rgba(239, 68, 68, 0.15); color: var(--danger-red); border: 1px solid rgba(239, 68, 68, 0.3); }
-    .status-badge.neutral { background: rgba(136, 136, 136, 0.15); color: var(--neutral); border: 1px solid rgba(136, 136, 136, 0.3); }
-
     .stButton>button { border: 2px solid var(--primary-color); background: transparent; color: var(--primary-color); font-weight: 700; border-radius: 12px; padding: 0.75rem 2rem; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); text-transform: uppercase; letter-spacing: 0.5px; }
     .stButton>button:hover { box-shadow: 0 0 25px rgba(var(--primary-rgb), 0.6); background: var(--primary-color); color: #1A1A1A; transform: translateY(-2px); }
     
@@ -186,41 +172,32 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-# ============================================================================
-# PHYSICS & MATH UTILITIES — ULTIMATE UPGRADE
-# ============================================================================
+# ────────────────────────────────────────────────────────────────────────────
+# Utilities
+# ────────────────────────────────────────────────────────────────────────────
 
 def distance_correlation(x, y):
-    """
-    Computes Energy Statistics Distance Correlation (unchanged).
-    """
     x = np.asarray(x, dtype=float)
     y = np.asarray(y, dtype=float)
-    
     n = len(x)
     if n > 1500:
         idx = np.random.choice(n, 1500, replace=False)
         x = x[idx]
         y = y[idx]
         n = 1500
-        
     A = squareform(pdist(x[:, None]))
     B = squareform(pdist(y[:, None]))
-    
     A_mean_row = np.mean(A, axis=1, keepdims=True)
     A_mean_col = np.mean(A, axis=0, keepdims=True)
     A_mean = np.mean(A)
     A_cent = A - A_mean_row - A_mean_col + A_mean
-    
     B_mean_row = np.mean(B, axis=1, keepdims=True)
     B_mean_col = np.mean(B, axis=0, keepdims=True)
     B_mean = np.mean(B)
     B_cent = B - B_mean_row - B_mean_col + B_mean
-    
     dcov2 = np.sum(A_cent * B_cent) / (n**2)
     dvarx2 = np.sum(A_cent * A_cent) / (n**2)
     dvary2 = np.sum(B_cent * B_cent) / (n**2)
-    
     if dvarx2 > 0 and dvary2 > 0:
         dcor = np.sqrt(dcov2 / np.sqrt(dvarx2 * dvary2))
         return float(np.clip(dcor, 0.0, 1.0))
@@ -228,15 +205,10 @@ def distance_correlation(x, y):
 
 
 def pagerank_centrality(adj, damping=0.85, max_iter=100, tol=1e-6):
-    """
-    Pure-NumPy PageRank centrality on the dCor adjacency matrix.
-    Most advanced graph signal for feature influence in the entire space.
-    """
     n = adj.shape[0]
     deg = adj.sum(axis=0, keepdims=True)
     deg[deg == 0] = 1
-    P = adj / deg  # column-stochastic transition matrix
-    
+    P = adj / deg
     pr = np.ones(n) / n
     for _ in range(max_iter):
         new_pr = damping * (P @ pr) + (1 - damping) / n
@@ -247,34 +219,25 @@ def pagerank_centrality(adj, damping=0.85, max_iter=100, tol=1e-6):
 
 
 def granger_causality_score(x, y, maxlag=4):
-    """
-    Granger causality strength (X → Y) — unchanged from v3.
-    """
-    if len(x) < 30 or not STATSMODELS_AVAILABLE or grangercausalitytests is None:
+    if len(x) < 30 or not STATSMODELS_AVAILABLE:
         return 0.0
     try:
-        dfg = pd.DataFrame({'y': np.asarray(y), 'x': np.asarray(x)}).dropna()
+        dfg = pd.DataFrame({'y': y, 'x': x}).dropna()
         if len(dfg) < 30:
             return 0.0
         results = grangercausalitytests(dfg[['y', 'x']], maxlag=maxlag, verbose=False)
-        pvals = [results[lag][0]['ssr_ftest'][1] for lag in range(1, maxlag + 1)]
+        pvals = [results[lag][0]['ssr_ftest'][1] for lag in range(1, maxlag+1)]
         min_p = min(pvals)
-        score = np.clip(-np.log10(min_p + 1e-12) / 4.0, 0.0, 1.0)
-        return float(score)
+        return float(np.clip(-np.log10(min_p + 1e-12) / 4.0, 0.0, 1.0))
     except:
         return 0.0
 
 
-# ============================================================================
-# DEEP CORRELATION ENGINE — ULTIMATE 2026 IMPLEMENTATION
-# ============================================================================
+# ────────────────────────────────────────────────────────────────────────────
+# Core Engine
+# ────────────────────────────────────────────────────────────────────────────
 
-class DeepCorrelationEngine:
-    """
-    The most advanced feature-utility engine possible in pure Python 2026.
-    Combines: SHAP (game theory), Hybrid Graph Topology (PageRank+Eigen), 
-    Distance Correlation, Mutual Information, Granger Causality, VIF.
-    """
+class TattvaEngine:
     def __init__(self, data, target_col, feature_cols, date_col=None):
         self.data = data.copy()
         self.target = target_col
@@ -288,7 +251,7 @@ class DeepCorrelationEngine:
         else:
             self.X_scaled = self.data[self.features].values
             self.y_scaled = self.data[self.target].values
-            
+
         self.results = []
         self.vif_data = {}
         self.corr_matrix = None
@@ -298,86 +261,74 @@ class DeepCorrelationEngine:
     def analyze(self):
         y = self.data[self.target].values
         X_df = self.data[self.features]
-        
-        # 1. Pearson matrix
+
         self.corr_matrix = self.data[[self.target] + self.features].corr(method='pearson')
-        
-        # 2. VIF
+
         if STATSMODELS_AVAILABLE:
-            X_with_const = sm.add_constant(X_df)
-            for i, col in enumerate(X_with_const.columns):
-                if col == 'const': continue
-                try:
-                    vif = sm.stats.outliers_influence.variance_inflation_factor(X_with_const.values, i)
-                    self.vif_data[col] = vif
-                except:
-                    self.vif_data[col] = np.nan
+            try:
+                X_with_const = sm.add_constant(X_df)
+                for i, col in enumerate(self.features):
+                    self.vif_data[col] = variance_inflation_factor(X_with_const.values, i+1)
+            except:
+                self.vif_data = {f: np.nan for f in self.features}
         else:
             self.vif_data = {f: 1.0 for f in self.features}
-        
-        # 3. Mutual Info
+
         mi_scores = mutual_info_regression(self.X_scaled, self.y_scaled) if SKLEARN_AVAILABLE else np.zeros(len(self.features))
-        
-        # 4. Base RF
-        rf = RandomForestRegressor(n_estimators=200, max_depth=8, random_state=42) if SKLEARN_AVAILABLE else None
-        if rf is not None:
+
+        rf_importance = np.zeros(len(self.features))
+        if SKLEARN_AVAILABLE:
+            rf = RandomForestRegressor(n_estimators=200, max_depth=8, random_state=42)
             rf.fit(self.X_scaled, self.y_scaled)
             rf_importance = rf.feature_importances_
-        else:
-            rf_importance = np.zeros(len(self.features))
 
-        # 5. ULTIMATE: SHAP (TreeSHAP) or Permutation Importance
-        if SKLEARN_AVAILABLE and rf is not None:
+        # SHAP / Permutation
+        adv_imp = np.zeros(len(self.features))
+        if SKLEARN_AVAILABLE:
             if SHAP_AVAILABLE:
                 try:
                     explainer = shap.TreeExplainer(rf)
                     shap_vals = explainer.shap_values(self.X_scaled)
-                    self.shap_importance = np.abs(shap_vals).mean(axis=0)
+                    adv_imp = np.abs(shap_vals).mean(0)
                 except:
-                    self.shap_importance = np.zeros(len(self.features))
-            else:
+                    pass
+            if np.all(adv_imp == 0):
                 try:
-                    perm = permutation_importance(rf, self.X_scaled, self.y_scaled,
-                                                  n_repeats=10, random_state=42, n_jobs=-1)
-                    self.shap_importance = perm.importances_mean
+                    perm = permutation_importance(rf, self.X_scaled, self.y_scaled, n_repeats=10, random_state=42)
+                    adv_imp = perm.importances_mean
                 except:
-                    self.shap_importance = rf_importance.copy()
-        else:
-            self.shap_importance = np.zeros(len(self.features))
+                    adv_imp = rf_importance.copy()
 
-        # 6. ULTIMATE: Hybrid Graph Topology (PageRank + Eigenvector on full dCor network)
+        # Hybrid Topology
         if len(self.features) > 1:
             dcor_mat = np.eye(len(self.features))
             for i in range(len(self.features)):
-                for j in range(i + 1, len(self.features)):
-                    d = distance_correlation(self.X_scaled[:, i], self.X_scaled[:, j])
-                    dcor_mat[i, j] = d
-                    dcor_mat[j, i] = d
+                for j in range(i+1, len(self.features)):
+                    d = distance_correlation(self.X_scaled[:,i], self.X_scaled[:,j])
+                    dcor_mat[i,j] = d
+                    dcor_mat[j,i] = d
             try:
-                # Eigenvector
                 eigenvalues, eigenvectors = np.linalg.eig(dcor_mat)
                 idx = np.argmax(np.real(eigenvalues))
                 eigen_c = np.abs(np.real(eigenvectors[:, idx]))
-                eigen_c /= (np.sum(eigen_c) + 1e-12)
-                
-                # PageRank
+                eigen_c /= np.sum(eigen_c) + 1e-12
+
                 pr_c = pagerank_centrality(dcor_mat)
-                
-                # Hybrid (most robust signal)
+
                 self.topo_scores = (eigen_c + pr_c) / 2
             except:
                 self.topo_scores = np.ones(len(self.features)) / len(self.features)
         else:
             self.topo_scores = np.array([1.0])
 
-        # 7. Granger (time-series only)
+        # Collect results
         for i, feat in enumerate(self.features):
             x = self.data[feat].values
-            pearson = np.corrcoef(x, y)[0, 1] if np.std(x) > 0 else 0
+            pearson = np.corrcoef(x, y)[0,1] if np.std(x) > 0 else 0
             spearman = pd.Series(x).corr(pd.Series(y), method='spearman')
-            dcor = distance_correlation(self.X_scaled[:, i], self.y_scaled)
-            granger_score = granger_causality_score(x, y) if self.date_col is not None else 0.0
-            
+            dcor = distance_correlation(self.X_scaled[:,i], self.y_scaled)
+            granger = granger_causality_score(x, y) if self.date_col else 0.0
+
             self.results.append({
                 'Feature': feat,
                 'Pearson': pearson,
@@ -386,98 +337,91 @@ class DeepCorrelationEngine:
                 'Distance_Corr': dcor,
                 'Mutual_Info': mi_scores[i],
                 'RF_Importance': rf_importance[i],
-                'Advanced_Importance': float(self.shap_importance[i]),   # SHAP / Permutation
+                'Advanced_Importance': adv_imp[i],
                 'VIF': self.vif_data.get(feat, np.nan),
-                'Topological_Centrality': float(self.topo_scores[i]),
-                'Granger_Score': granger_score
+                'Topological_Centrality': self.topo_scores[i],
+                'Granger_Score': granger
             })
-            
+
         self.res_df = pd.DataFrame(self.results)
         self._calculate_composite_score()
-        
+
     def _calculate_composite_score(self):
         df = self.res_df
-        
         def norm(col):
-            if df[col].max() == df[col].min(): return np.zeros(len(df))
-            return (df[col] - df[col].min()) / (df[col].max() - df[col].min())
-        
-        # ULTIMATE WEIGHTS — SHAP now dominates (game theory)
+            mx, mn = df[col].max(), df[col].min()
+            return np.zeros(len(df)) if mx == mn else (df[col] - mn) / (mx - mn)
+
         score = (
-            norm('Abs_Pearson') * 0.05 +
-            norm('Spearman') * 0.05 +
-            norm('Distance_Corr') * 0.18 +
-            norm('Mutual_Info') * 0.15 +
-            norm('RF_Importance') * 0.05 +
-            norm('Advanced_Importance') * 0.25 +      # ← Game-theoretic king
-            norm('Topological_Centrality') * 0.15 +   # ← Hybrid graph
-            norm('Granger_Score') * 0.12
+            norm('Abs_Pearson')        * 0.05 +
+            norm('Spearman')           * 0.05 +
+            norm('Distance_Corr')      * 0.18 +
+            norm('Mutual_Info')        * 0.15 +
+            norm('RF_Importance')      * 0.05 +
+            norm('Advanced_Importance')* 0.25 +
+            norm('Topological_Centrality') * 0.15 +
+            norm('Granger_Score')      * 0.12
         ) * 100
-        
+
         vif_penalty = np.where(df['VIF'] > 10, 0.8, 1.0)
         vif_penalty = np.where(df['VIF'] > 50, 0.5, vif_penalty)
-        
-        self.res_df['Composite_Score'] = score * vif_penalty
-        self.res_df = self.res_df.sort_values('Composite_Score', ascending=False).reset_index(drop=True)
+
+        df['Composite_Score'] = score * vif_penalty
+        self.res_df = df.sort_values('Composite_Score', ascending=False).reset_index(drop=True)
 
     def get_insights(self):
         df = self.res_df
         top_feat = df.iloc[0]['Feature'] if not df.empty else "None"
-        
-        def norm(arr):
-            if np.max(arr) == np.min(arr): return np.zeros_like(arr)
-            return (arr - np.min(arr)) / (np.max(arr) - np.min(arr))
-        
-        df['NonLinear_Bias'] = (norm(df['Distance_Corr'].values) + norm(df['Mutual_Info'].values)) / 2 - norm(df['Abs_Pearson'].values)
-        hidden_gems = df[df['NonLinear_Bias'] > 0.3]['Feature'].tolist()
+        def norm(a): return np.zeros_like(a) if a.max()==a.min() else (a-a.min())/(a.max()-a.min())
+        df['NonLinear_Bias'] = (norm(df['Distance_Corr']) + norm(df['Mutual_Info'])) / 2 - norm(df['Abs_Pearson'])
+        hidden = df[df['NonLinear_Bias'] > 0.3]['Feature'].tolist()
         redundant = df[df['VIF'] > 10]['Feature'].tolist()
-        
         return {
             'top_feature': top_feat,
             'top_score': df.iloc[0]['Composite_Score'] if not df.empty else 0,
-            'hidden_nonlinear': hidden_gems[:3],
+            'hidden_nonlinear': hidden[:3],
             'redundant_features': redundant
         }
 
 
-# ============================================================================
-# DATA UTILITIES (unchanged)
-# ============================================================================
+# ────────────────────────────────────────────────────────────────────────────
+# Data helpers
+# ────────────────────────────────────────────────────────────────────────────
 
 def load_google_sheet(sheet_url):
     try:
         import re
-        sheet_id_match = re.search(r'/d/([a-zA-Z0-9-_]+)', sheet_url)
-        if not sheet_id_match: return None, "Invalid URL"
-        sheet_id = sheet_id_match.group(1)
-        gid_match = re.search(r'gid=(\d+)', sheet_url)
-        gid = gid_match.group(1) if gid_match else '0'
+        sheet_id = re.search(r'/d/([a-zA-Z0-9-_]+)', sheet_url).group(1)
+        gid = re.search(r'gid=(\d+)', sheet_url).group(1) if re.search(r'gid=(\d+)', sheet_url) else '0'
         csv_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
-        df = pd.read_csv(csv_url)
-        return df, None
+        return pd.read_csv(csv_url), None
     except Exception as e:
         return None, str(e)
 
+
 def clean_data(df, target, features, date_col=None):
     cols = [target] + features
-    if date_col and date_col != "None" and date_col in df.columns: cols.append(date_col)
+    if date_col and date_col != "None":
+        cols.append(date_col)
     data = df[cols].copy()
-    for col in [target] + features: data[col] = pd.to_numeric(data[col], errors='coerce')
+    for c in [target] + features:
+        data[c] = pd.to_numeric(data[c], errors='coerce')
     data = data.dropna()
-    numeric_subset = data[[target] + features]
-    is_finite = np.isfinite(numeric_subset).all(axis=1)
-    data = data[is_finite]
-    if date_col and date_col != "None" and date_col in data.columns:
+    data = data[np.isfinite(data[[target] + features]).all(axis=1)]
+    if date_col and date_col != "None":
         try:
             data[date_col] = pd.to_datetime(data[date_col], errors='coerce')
-            data = data.dropna(subset=[date_col])
-            data = data.sort_values(date_col)
-        except: pass
+            data = data.dropna(subset=[date_col]).sort_values(date_col)
+        except:
+            pass
     return data.reset_index(drop=True)
+
 
 def update_chart_theme(fig):
     fig.update_layout(
-        template="plotly_dark", plot_bgcolor="#1A1A1A", paper_bgcolor="#1A1A1A",
+        template="plotly_dark",
+        plot_bgcolor="#1A1A1A",
+        paper_bgcolor="#1A1A1A",
         font=dict(family="Inter", color="#EAEAEA"),
         xaxis=dict(gridcolor="#2A2A2A", zerolinecolor="#3A3A3A"),
         yaxis=dict(gridcolor="#2A2A2A", zerolinecolor="#3A3A3A"),
@@ -490,105 +434,97 @@ def update_chart_theme(fig):
 def render_landing_page():
     st.markdown("<br>", unsafe_allow_html=True)
     col1, col2, col3 = st.columns(3)
-    
     with col1:
         st.markdown("""
         <div class='metric-card purple' style='min-height: 280px; justify-content: flex-start;'>
             <h3 style='color: var(--purple); margin-bottom: 0.5rem;'>🌌 Information Theory</h3>
             <p style='color: var(--text-muted); font-size: 0.9rem; line-height: 1.6;'>
-                Uses Shannon Entropy & Mutual Information to measure the actual "bits" of knowledge a feature provides about the target.
+                Measures the actual "bits" of predictive truth each feature carries.
             </p>
             <br>
             <p style='color: var(--text-secondary); font-size: 0.85rem;'>
                 <strong>Methodology:</strong><br>
-                • Non-parametric density<br>
-                • K-Nearest Neighbors entropy<br>
-                • Captures any dependence
+                • Non-parametric density estimation<br>
+                • K-Nearest Neighbors entropy
             </p>
         </div>
         """, unsafe_allow_html=True)
-    
     with col2:
         st.markdown("""
         <div class='metric-card info' style='min-height: 280px; justify-content: flex-start;'>
             <h3 style='color: var(--info-cyan); margin-bottom: 0.5rem;'>🧬 Energy Statistics</h3>
             <p style='color: var(--text-muted); font-size: 0.9rem; line-height: 1.6;'>
-                Calculates Brownian Distance Correlation. Unlike Pearson, a dCor of 0 implies true mathematical independence between variables.
+                Brownian Distance Correlation — true independence when dCor = 0.
             </p>
             <br>
             <p style='color: var(--text-secondary); font-size: 0.85rem;'>
-                <strong>Key Metrics:</strong><br>
-                • Universal Non-linear detection<br>
-                • Double-centered matrices<br>
+                <strong>Key:</strong><br>
+                • Captures any dependence<br>
                 • Physics-based energy distance
             </p>
         </div>
         """, unsafe_allow_html=True)
-    
     with col3:
         st.markdown("""
         <div class='metric-card primary' style='min-height: 280px; justify-content: flex-start;'>
             <h3 style='color: var(--primary-color); margin-bottom: 0.5rem;'>🕸️ Network Topology</h3>
             <p style='color: var(--text-muted); font-size: 0.9rem; line-height: 1.6;'>
-                Maps multicollinearity and feature redundancy using Variance Inflation Factors (VIF) and correlation network graphs.
+                Maps redundancy & influence using VIF and full dCor graph centrality.
             </p>
             <br>
             <p style='color: var(--text-secondary); font-size: 0.85rem;'>
                 <strong>Outputs:</strong><br>
-                • Redundancy Flags (VIF > 10)<br>
-                • Cluster grouping<br>
-                • Dimensionality reduction hints
+                • Redundancy flags<br>
+                • Hybrid centrality ranking
             </p>
         </div>
         """, unsafe_allow_html=True)
-    
+
     st.markdown("<br>", unsafe_allow_html=True)
-    
     st.markdown("### 🎯 Signal Interpretation")
-    col_s1, col_s2, col_s3 = st.columns(3)
-    
-    with col_s1:
+    c1, c2, c3 = st.columns(3)
+    with c1:
         st.markdown("""
-        <div style='background: rgba(16, 185, 129, 0.1); border: 1px solid var(--success-green); border-radius: 12px; padding: 1.25rem;'>
-            <h4 style='color: var(--success-green); margin-bottom: 0.75rem;'>🟢 High Composite Score</h4>
-            <p style='color: var(--text-muted); font-size: 0.85rem;'>Score > 75</p>
-            <p style='color: var(--text-secondary); font-size: 0.85rem; margin-top: 0.5rem;'>
-                The holy grail. Feature contains immense predictive power with low redundancy. <b>Must include</b> in your downstream ML model.
+        <div style='background: rgba(16,185,129,0.1); border:1px solid var(--success-green); border-radius:12px; padding:1.25rem;'>
+            <h4 style='color:var(--success-green);'>🟢 High Essence Score</h4>
+            <p style='color:var(--text-muted); font-size:0.85rem;'>Score > 75</p>
+            <p style='color:var(--text-secondary); font-size:0.85rem; margin-top:0.5rem;'>
+                Core predictive truth — must keep in models.
             </p>
         </div>
         """, unsafe_allow_html=True)
-    with col_s2:
+    with c2:
         st.markdown("""
-        <div style='background: rgba(6, 182, 212, 0.1); border: 1px solid var(--info-cyan); border-radius: 12px; padding: 1.25rem;'>
-            <h4 style='color: var(--info-cyan); margin-bottom: 0.75rem;'>🔵 Non-Linear Gems</h4>
-            <p style='color: var(--text-muted); font-size: 0.85rem;'>Low Pearson, High MI/dCor</p>
-            <p style='color: var(--text-secondary); font-size: 0.85rem; margin-top: 0.5rem;'>
-                Invisible to standard OLS regression. Use Tree-based (XGBoost) or Neural Networks to extract this value.
+        <div style='background: rgba(6,182,212,0.1); border:1px solid var(--info-cyan); border-radius:12px; padding:1.25rem;'>
+            <h4 style='color:var(--info-cyan);'>🔵 Hidden Non-Linear Value</h4>
+            <p style='color:var(--text-muted); font-size:0.85rem;'>Low Pearson, High dCor/MI</p>
+            <p style='color:var(--text-secondary); font-size:0.85rem; margin-top:0.5rem;'>
+                Invisible to linear models — powerful in trees/NNs.
             </p>
         </div>
         """, unsafe_allow_html=True)
-    with col_s3:
+    with c3:
         st.markdown("""
-        <div style='background: rgba(239, 68, 68, 0.1); border: 1px solid var(--danger-red); border-radius: 12px; padding: 1.25rem;'>
-            <h4 style='color: var(--danger-red); margin-bottom: 0.75rem;'>🔴 Toxic Redundancy</h4>
-            <p style='color: var(--text-muted); font-size: 0.85rem;'>VIF > 10</p>
-            <p style='color: var(--text-secondary); font-size: 0.85rem; margin-top: 0.5rem;'>
-                Feature is highly correlated with other predictors. Including it will destabilize your linear models. <b>Drop it.</b>
+        <div style='background: rgba(239,68,68,0.1); border:1px solid var(--danger-red); border-radius:12px; padding:1.25rem;'>
+            <h4 style='color:var(--danger-red);'>🔴 Redundant / Toxic</h4>
+            <p style='color:var(--text-muted); font-size:0.85rem;'>VIF > 10</p>
+            <p style='color:var(--text-secondary); font-size:0.85rem; margin-top:0.5rem;'>
+                High collinearity — usually drop.
             </p>
         </div>
         """, unsafe_allow_html=True)
 
 
-# ============================================================================
-# MAIN APPLICATION — ONLY ENGINE INSTANTIATION CHANGED
-# ============================================================================
+# ────────────────────────────────────────────────────────────────────────────
+# Main Application
+# ────────────────────────────────────────────────────────────────────────────
 
 def main():
     with st.sidebar:
         st.markdown("""
         <div style="text-align: center; padding: 1rem 0; margin-bottom: 1rem;">
-            <div style="font-size: 1.75rem; font-weight: 800; color: #FFC300;">DRISHTI</div>
-            <div style="color: #888888; font-size: 0.75rem; margin-top: 0.25rem;">दृष्टि | Deep Feature Matrix</div>
+            <div style="font-size: 1.75rem; font-weight: 800; color: #FFC300;">TATTVA</div>
+            <div style="color: #888888; font-size: 0.75rem; margin-top: 0.25rem;">तत्त्व | Essence Matrix</div>
         </div>
         """, unsafe_allow_html=True)
         st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
@@ -604,7 +540,6 @@ def main():
                     df = pd.read_csv(uploaded_file) if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file)
                 except Exception as e:
                     st.error(f"Error: {e}")
-                    return
         else:
             default_url = "https://docs.google.com/spreadsheets/d/1po7z42n3dYIQGAvn0D1-a4pmyxpnGPQ13TrNi3DB5_c/edit?gid=1738251155#gid=1738251155"
             sheet_url = st.text_input("Sheet URL", value=default_url, label_visibility="collapsed")
@@ -614,257 +549,233 @@ def main():
                     if error:
                         st.error(f"Failed: {error}")
                         return
-                    if 'deep_engine' in st.session_state: del st.session_state.deep_engine
-                    if 'deep_cache' in st.session_state: del st.session_state.deep_cache
                     st.session_state['data'] = df
-                    st.toast("Data loaded successfully!", icon="✅")
-            if 'data' in st.session_state: df = st.session_state['data']
-        
+                    if 'tattva_engine' in st.session_state: del st.session_state.tattva_engine
+                    if 'tattva_cache' in st.session_state: del st.session_state.tattva_cache
+                    st.toast("Data loaded!", icon="✅")
+            if 'data' in st.session_state:
+                df = st.session_state['data']
+
         st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
-    
+
     if df is None:
         st.markdown("""
         <div class="premium-header">
-            <h1>DRISHTI : Deep Feature Matrix</h1>
-            <div class="tagline">Extracting absolute mathematical utility from your datasets for predictive modeling.</div>
+            <h1>TATTVA : Essence Matrix</h1>
+            <div class="tagline">Revealing the fundamental predictive truth of your features.</div>
         </div>
         """, unsafe_allow_html=True)
         render_landing_page()
         render_footer()
         return
-    
+
     numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
     all_cols = df.columns.tolist()
-    
+
     if len(numeric_cols) < 2:
-        st.error("Need 2+ numeric columns.")
+        st.error("Need at least 2 numeric columns.")
         return
-    
+
     with st.sidebar:
         st.markdown('<div class="sidebar-title">🎯 Target Configuration</div>', unsafe_allow_html=True)
         target_col = st.selectbox("Target Variable (Y)", numeric_cols, index=0)
-        
+
         available = [c for c in numeric_cols if c != target_col]
         feature_cols = st.multiselect("Predictors (X)", available, default=available[:min(10, len(available))])
-        
+
         if not feature_cols:
-            st.info("👈 Select predictors to analyze")
+            st.info("Select at least one predictor to begin.")
             render_footer()
             return
-            
+
         st.markdown('<div class="sidebar-title">📅 Context (Optional)</div>', unsafe_allow_html=True)
         date_candidates = [c for c in all_cols if 'date' in c.lower() or 'time' in c.lower()]
-        date_col = st.selectbox("Time Axis", ["None"] + all_cols, 
-                                index=all_cols.index(date_candidates[0])+1 if date_candidates else 0)
-        
+        date_col = st.selectbox("Time Axis", ["None"] + all_cols,
+                                index=all_cols.index(date_candidates[0]) + 1 if date_candidates else 0)
+
         st.markdown('<br>', unsafe_allow_html=True)
-        run_analysis_btn = st.button("🚀 RUN ANALYSIS", type="primary", use_container_width=True)
-        
+        if st.button("🚀 RUN ANALYSIS", type="primary"):
+            st.session_state.is_analyzed = True
+
         st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
         st.markdown(f"""
         <div class='info-box'>
             <p style='font-size: 0.8rem; margin: 0; color: var(--text-muted); line-height: 1.5;'>
                 <strong>Version:</strong> {VERSION}<br>
-                <strong>Engine:</strong> SHAP Game Theory + Hybrid Graph Topology + Brownian dCor + Granger
+                <strong>Engine:</strong> SHAP • Hybrid Topology • dCor • Granger
             </p>
         </div>
         """, unsafe_allow_html=True)
 
-    config_hash = f"{target_col}_{'-'.join(sorted(feature_cols))}_{date_col}"
-    
-    if 'drishti_config' not in st.session_state:
-        st.session_state.drishti_config = config_hash
+    if 'is_analyzed' not in st.session_state:
         st.session_state.is_analyzed = False
-        
-    if config_hash != st.session_state.drishti_config:
-        st.session_state.is_analyzed = False
-        st.session_state.drishti_config = config_hash
-        
-    if run_analysis_btn:
-        st.session_state.is_analyzed = True
 
     if not st.session_state.is_analyzed:
         st.markdown("""
         <div class="premium-header">
-            <h1>DRISHTI : Deep Feature Matrix</h1>
-            <div class="tagline">Extracting absolute mathematical utility from your datasets for predictive modeling.</div>
+            <h1>TATTVA : Essence Matrix</h1>
+            <div class="tagline">Revealing the fundamental predictive truth of your features.</div>
         </div>
         """, unsafe_allow_html=True)
-        st.info("👈 System ready. Configure your targets and click **RUN ANALYSIS** in the sidebar to process the feature matrix.")
         render_landing_page()
         render_footer()
         return
 
     data = clean_data(df, target_col, feature_cols, date_col if date_col != "None" else None)
     if len(data) < 30:
-        st.error("Insufficient valid data rows (Need >30 after dropna).")
+        st.error("Not enough clean rows (need ≥ 30 after cleaning).")
         return
 
-    cache_key = f"{target_col}_{'-'.join(sorted(feature_cols))}_{len(data)}"
-    if 'deep_cache' not in st.session_state or st.session_state.deep_cache != cache_key:
-        with st.spinner("Initializing God-Tier Engine... Computing SHAP, Hybrid Graph Topology, Energy Statistics & Granger Causality..."):
-            engine = DeepCorrelationEngine(data, target_col, feature_cols, date_col if date_col != "None" else None)
+    cache_key = f"{target_col}_{sorted(feature_cols)}_{len(data)}"
+    if 'tattva_cache' not in st.session_state or st.session_state.tattva_cache != cache_key:
+        with st.spinner("Extracting feature essence — SHAP, topology, causality..."):
+            engine = TattvaEngine(data, target_col, feature_cols, date_col if date_col != "None" else None)
             engine.analyze()
-            st.session_state.deep_engine = engine
-            st.session_state.deep_cache = cache_key
-            
-    engine = st.session_state.deep_engine
+            st.session_state.tattva_engine = engine
+            st.session_state.tattva_cache = cache_key
+
+    engine = st.session_state.tattva_engine
     res_df = engine.res_df
     insights = engine.get_insights()
 
-    # TOP METRICS — unchanged
     st.markdown("<br>", unsafe_allow_html=True)
     c1, c2, c3, c4 = st.columns(4)
-    
     with c1:
-        st.markdown(f'<div class="metric-card primary"><h4>Primary Predictor</h4><h2>{insights["top_feature"]}</h2><div class="sub-metric">Score: {insights["top_score"]:.1f}/100</div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="metric-card primary"><h4>Primary Essence</h4><h2>{insights["top_feature"]}</h2><div class="sub-metric">Score: {insights["top_score"]:.1f}/100</div></div>', unsafe_allow_html=True)
     with c2:
         n_hidden = len(insights["hidden_nonlinear"])
-        hidden_txt = ", ".join(insights["hidden_nonlinear"]) if n_hidden > 0 else "None detected"
+        txt = ", ".join(insights["hidden_nonlinear"])[:25] + "..." if n_hidden else "None"
         col = "info" if n_hidden > 0 else "neutral"
-        st.markdown(f'<div class="metric-card {col}"><h4>Non-Linear Hidden Signals</h4><h2>{n_hidden}</h2><div class="sub-metric">{hidden_txt[:25]}{"..." if len(hidden_txt)>25 else ""}</div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="metric-card {col}"><h4>Hidden Non-Linear Gems</h4><h2>{n_hidden}</h2><div class="sub-metric">{txt}</div></div>', unsafe_allow_html=True)
     with c3:
         n_red = len(insights["redundant_features"])
-        red_col = "danger" if n_red > 0 else "success"
-        st.markdown(f'<div class="metric-card {red_col}"><h4>Toxic Redundancy (VIF>10)</h4><h2>{n_red}</h2><div class="sub-metric">Features to drop</div></div>', unsafe_allow_html=True)
+        col = "danger" if n_red > 0 else "success"
+        st.markdown(f'<div class="metric-card {col}"><h4>Redundant (VIF>10)</h4><h2>{n_red}</h2><div class="sub-metric">Consider dropping</div></div>', unsafe_allow_html=True)
     with c4:
         avg_mi = res_df["Mutual_Info"].mean()
-        mi_col = "purple" if avg_mi > 0.1 else "warning"
-        st.markdown(f'<div class="metric-card {mi_col}"><h4>System Information Gain</h4><h2>{avg_mi:.3f}</h2><div class="sub-metric">Avg. Mutual Info</div></div>', unsafe_allow_html=True)
+        col = "purple" if avg_mi > 0.1 else "warning"
+        st.markdown(f'<div class="metric-card {col}"><h4>Information Gain</h4><h2>{avg_mi:.3f}</h2><div class="sub-metric">Average MI</div></div>', unsafe_allow_html=True)
 
     st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
 
-    # TABS — 100% identical
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "**🎯 Synthesis Dashboard**",
-        "**🧬 Correlation Matrix**",
-        "**🌌 Physics & Information**",
-        "**🕸️ VIF Topology**",
-        "**📋 Raw Analytics**"
+        "**🎯 Essence Ranking**",
+        "**🧬 Correlations**",
+        "**🌌 Advanced Dependence**",
+        "**🕸️ Topology & VIF**",
+        "**📋 Full Table**"
     ])
 
     with tab1:
-        st.markdown("##### Composite Predictive Power Score")
-        st.markdown('<p style="color: #888;">The ultimate ranking of feature utility. Combines Linear, Non-Linear, and Tree-based importance, penalized by Multicollinearity.</p>', unsafe_allow_html=True)
-        
+        st.markdown("##### Composite Essence Score")
         fig_bar = px.bar(
             res_df, x='Composite_Score', y='Feature', orientation='h',
-            color='Composite_Score', color_continuous_scale=['#ef4444', '#f59e0b', '#10b981', '#FFC300'],
-            hover_data=['Pearson', 'Distance_Corr', 'VIF']
+            color='Composite_Score', color_continuous_scale=['#ef4444','#f59e0b','#10b981','#FFC300'],
+            hover_data=['Pearson','Distance_Corr','VIF']
         )
-        fig_bar.update_layout(height=400 + min(len(feature_cols)*15, 400), yaxis={'categoryorder':'total ascending'}, showlegend=False)
+        fig_bar.update_layout(
+            height=400 + min(len(feature_cols)*15, 400),
+            yaxis={'categoryorder':'total ascending'},
+            showlegend=False
+        )
         update_chart_theme(fig_bar)
-        st.plotly_chart(fig_bar, use_container_width=True)
-        
+        st.plotly_chart(fig_bar, width='stretch')
+
         col1, col2 = st.columns(2)
         with col1:
             if insights["redundant_features"]:
                 st.markdown(f"""
                 <div class="guide-box danger">
-                    <strong>⚠️ Data Leakage / Collinearity Warning</strong><br>
-                    The following features exhibit massive collinearity (VIF > 10). They are measuring the exact same variance. 
-                    <b>Action:</b> Pick the one with the highest Composite Score and drop the rest.<br><br>
-                    <i>{", ".join(insights["redundant_features"])}</i>
+                    <strong>⚠️ High Collinearity Detected</strong><br>
+                    Features: {", ".join(insights["redundant_features"])}<br>
+                    Pick highest scoring one — drop others.
                 </div>
                 """, unsafe_allow_html=True)
             else:
                 st.markdown("""
                 <div class="guide-box success">
-                    <strong>✅ Clean Topology</strong><br>
-                    No severe multicollinearity detected. Feature space is orthogonal and stable for OLS/Linear regression.
+                    <strong>✓ Clean structure</strong><br>
+                    No severe multicollinearity detected.
                 </div>
                 """, unsafe_allow_html=True)
-                
         with col2:
             if insights["hidden_nonlinear"]:
                 st.markdown(f"""
                 <div class="guide-box info">
-                    <strong>🌌 Non-Linear Goldmine</strong><br>
-                    These features have low linear correlation (Pearson) but high Distance Correlation or Mutual Info. 
-                    Linear models will miss them, but complex models (XGBoost/Neural Nets) will extract immense value.<br><br>
-                    <i>{", ".join(insights["hidden_nonlinear"])}</i>
+                    <strong>🌌 Non-linear value detected</strong><br>
+                    Features: {", ".join(insights["hidden_nonlinear"])}<br>
+                    Strong in trees / neural nets.
                 </div>
                 """, unsafe_allow_html=True)
 
     with tab2:
-        st.markdown("##### Full Correlation Heatmap (Pearson Linear)")
-        corr_matrix = engine.corr_matrix
-        
-        fig_heat = go.Figure(data=go.Heatmap(
-            z=corr_matrix.values,
-            x=corr_matrix.columns,
-            y=corr_matrix.columns,
+        st.markdown("##### Pearson Correlation Heatmap")
+        fig_heat = go.Figure(go.Heatmap(
+            z=engine.corr_matrix.values,
+            x=engine.corr_matrix.columns,
+            y=engine.corr_matrix.columns,
             colorscale='RdBu',
             zmin=-1, zmax=1,
-            text=np.round(corr_matrix.values, 2),
+            text=np.round(engine.corr_matrix.values, 2),
             texttemplate="%{text}",
             hoverinfo="x+y+z"
         ))
         fig_heat.update_layout(height=600, width=600)
         update_chart_theme(fig_heat)
-        st.plotly_chart(fig_heat, use_container_width=True)
+        st.plotly_chart(fig_heat, width='stretch')
 
     with tab3:
-        st.markdown("##### Advanced Dependence Mapping (Physics vs Stats)")
-        st.markdown('<p style="color: #888;">Distance Correlation (Y) vs Absolute Pearson (X). Features above the diagonal possess significant Non-Linear relationships invisible to standard statistics.</p>', unsafe_allow_html=True)
-        
+        st.markdown("##### Physics vs Linear Dependence")
         fig_scatter = px.scatter(
             res_df, x='Abs_Pearson', y='Distance_Corr', text='Feature',
             size='Mutual_Info', color='Composite_Score',
             color_continuous_scale='Viridis',
             hover_data=['Spearman']
         )
-        
-        max_val = max(res_df['Abs_Pearson'].max(), res_df['Distance_Corr'].max()) + 0.1
-        fig_scatter.add_trace(go.Scatter(x=[0, max_val], y=[0, max_val], mode='lines', name='Linear Boundary', line=dict(dash='dash', color='#888')))
-        
-        fig_scatter.update_traces(textposition='top center')
-        fig_scatter.update_layout(height=600, xaxis_title="Abs Pearson (Linear Stats)", yaxis_title="Distance Correlation (Energy Stats)")
+        maxv = max(res_df['Abs_Pearson'].max(), res_df['Distance_Corr'].max()) + 0.1
+        fig_scatter.add_trace(go.Scatter(x=[0,maxv], y=[0,maxv], mode='lines', line=dict(dash='dash', color='#888')))
+        fig_scatter.update_layout(height=600, xaxis_title="Abs Pearson", yaxis_title="Distance Correlation")
         update_chart_theme(fig_scatter)
-        st.plotly_chart(fig_scatter, use_container_width=True)
+        st.plotly_chart(fig_scatter, width='stretch')
 
     with tab4:
         st.markdown("##### Variance Inflation Factor (VIF)")
-        st.markdown('<p style="color: #888;">Shows how much the variance of an estimated regression coefficient increases due to collinearity. Values > 10 indicate problematic redundancy.</p>', unsafe_allow_html=True)
-        
-        vif_df = res_df[['Feature', 'VIF']].copy().sort_values('VIF', ascending=False)
-        colors = ['#ef4444' if v > 10 else '#f59e0b' if v > 5 else '#10b981' for v in vif_df['VIF']]
-        
+        vif_df = res_df[['Feature','VIF']].sort_values('VIF', ascending=False)
+        colors = ['#ef4444' if v>10 else '#f59e0b' if v>5 else '#10b981' for v in vif_df['VIF']]
         fig_vif = go.Figure(go.Bar(
             x=vif_df['Feature'], y=vif_df['VIF'],
-            marker_color=colors, text=np.round(vif_df['VIF'], 1), textposition='auto'
+            marker_color=colors,
+            text=np.round(vif_df['VIF'],1),
+            textposition='auto'
         ))
-        fig_vif.add_hline(y=10, line_dash="dash", line_color="rgba(239,68,68,0.8)", annotation_text="Critical Limit (10)")
-        fig_vif.add_hline(y=5, line_dash="dash", line_color="rgba(245,158,11,0.8)", annotation_text="Warning Limit (5)")
-        
-        fig_vif.update_layout(height=450, yaxis_title="VIF Score", xaxis_title="Feature")
+        fig_vif.add_hline(y=10, line_dash="dash", line_color="rgba(239,68,68,0.8)", annotation_text="Critical (10)")
+        fig_vif.add_hline(y=5, line_dash="dash", line_color="rgba(245,158,11,0.8)", annotation_text="Warning (5)")
+        fig_vif.update_layout(height=450, yaxis_title="VIF", xaxis_title="Feature")
         update_chart_theme(fig_vif)
-        st.plotly_chart(fig_vif, use_container_width=True)
+        st.plotly_chart(fig_vif, width='stretch')
 
     with tab5:
-        st.markdown("##### Deep Analytics Table")
-        
-        disp_df = res_df.copy()
-        for col in disp_df.columns:
-            if disp_df[col].dtype == 'float64':
-                disp_df[col] = disp_df[col].round(4)
-                
-        disp_df = disp_df[['Feature', 'Composite_Score', 'Pearson', 'Spearman', 'Distance_Corr', 'Mutual_Info', 'RF_Importance', 'VIF']]
-        st.dataframe(disp_df, width='stretch', hide_index=True, height=500)
-        
-        csv_data = disp_df.to_csv(index=False).encode('utf-8')
-        st.download_button("📥 Download Correlation Matrix", csv_data, f"deep_matrix_{target_col}.csv", "text/csv")
+        st.markdown("##### Complete Essence Table")
+        disp = res_df.copy()
+        for c in disp.columns:
+            if disp[c].dtype == 'float64':
+                disp[c] = disp[c].round(4)
+        disp = disp[['Feature','Composite_Score','Pearson','Spearman','Distance_Corr','Mutual_Info','RF_Importance','VIF']]
+        st.dataframe(disp, width='stretch', hide_index=True, height=500)
+
+        csv = disp.to_csv(index=False).encode('utf-8')
+        st.download_button("📥 Download Essence Matrix", csv, f"tattva_{target_col}.csv", "text/csv")
 
     render_footer()
 
+
 def render_footer():
-    from datetime import timezone, timedelta, datetime
-    utc_now = datetime.now(timezone.utc)
-    ist_now = utc_now + timedelta(hours=5, minutes=30)
-    current_time_ist = ist_now.strftime("%Y-%m-%d %H:%M:%S IST")
-    
+    from datetime import datetime, timezone, timedelta
+    now_utc = datetime.now(timezone.utc)
+    now_ist = now_utc + timedelta(hours=5, minutes=30)
     st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
-    st.caption(f"© 2026 {PRODUCT_NAME} | {COMPANY} | {VERSION} | {current_time_ist}")
+    st.caption(f"© 2026 {PRODUCT_NAME} | {COMPANY} | {VERSION} | {now_ist.strftime('%Y-%m-%d %H:%M:%S IST')}")
+
 
 if __name__ == "__main__":
     main()
