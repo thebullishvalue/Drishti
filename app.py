@@ -266,50 +266,68 @@ class MLREngine:
                 std_coefs.append(std_coef)
         
         # Extract Coefficients into clean DataFrame
-        def _compute_vif(self):
-            """Calculate Variance Inflation Factor for each independent variable."""
-            vif_df = pd.DataFrame()
-            vif_df["Variable"] = self.X.columns
-            
-            vifs = []
-            for i in range(len(self.X.columns)):
-                try:
-                    # Catch perfect collinearity warnings/errors
-                    # We use i+1 if X_with_const, but we pass self.X.values to avoid computing VIF for constant
-                    v = variance_inflation_factor(self.X.values, i)
-                    vifs.append(v)
-                except Exception:
-                    vifs.append(np.inf)
-                    
-            vif_df["VIF Score"] = vifs
-            
-            # --- NEW: Primary Overlap Mapping ---
-            corr_matrix = self.X.corr()
-            overlaps = []
-            for col in self.X.columns:
-                # Find features with absolute correlation > 0.7
-                high_corr = corr_matrix[col][(corr_matrix[col].abs() > 0.7) & (corr_matrix[col].index != col)]
-                if not high_corr.empty:
-                    # Sort by highest absolute correlation
-                    high_corr = high_corr.reindex(high_corr.abs().sort_values(ascending=False).index)
-                    overlap_strs = [f"{idx} ({val:.2f})" for idx, val in high_corr.items()]
-                    overlaps.append(", ".join(overlap_strs))
-                else:
-                    overlaps.append("None")
-                    
-            vif_df["Primary Overlaps (|r| > 0.7)"] = overlaps
-            # ------------------------------------
-            
-            # Map interpretations
-            conditions = [
-                (vif_df['VIF Score'] < 3),
-                (vif_df['VIF Score'] >= 3) & (vif_df['VIF Score'] <= 5),
-                (vif_df['VIF Score'] > 5)
-            ]
-            choices = ['Excellent (Uncorrelated)', 'Acceptable (Moderate Noise)', 'Severe Collinearity (DROP THIS)']
-            vif_df['Status'] = np.select(conditions, choices, default='Unknown')
-            
-            self.vif_data = vif_df.sort_values(by="VIF Score", ascending=False).reset_index(drop=True)
+        self.coef_df = pd.DataFrame({
+            'Variable': self.model.params.index,
+            'Coefficient (Slope)': self.model.params.values,
+            'Relative Impact (Std Beta)': std_coefs,
+            'Standard Error': self.model.bse.values,
+            't-Statistic': self.model.tvalues.values,
+            'p-Value': self.model.pvalues.values
+        })
+        
+        # Store isolated feature importance (drop const)
+        fi_df = self.coef_df[self.coef_df['Variable'] != 'const'].copy()
+        fi_df['Absolute Impact'] = fi_df['Relative Impact (Std Beta)'].abs()
+        self.feature_importance = fi_df.sort_values(by='Absolute Impact', ascending=True)
+        
+        # Compute VIF
+        self._compute_vif()
+        return self
+
+    def _compute_vif(self):
+        """Calculate Variance Inflation Factor for each independent variable."""
+        vif_df = pd.DataFrame()
+        vif_df["Variable"] = self.X.columns
+        
+        vifs = []
+        for i in range(len(self.X.columns)):
+            try:
+                # Catch perfect collinearity warnings/errors
+                # We use i+1 if X_with_const, but we pass self.X.values to avoid computing VIF for constant
+                v = variance_inflation_factor(self.X.values, i)
+                vifs.append(v)
+            except Exception:
+                vifs.append(np.inf)
+                
+        vif_df["VIF Score"] = vifs
+        
+        # --- NEW: Primary Overlap Mapping ---
+        corr_matrix = self.X.corr()
+        overlaps = []
+        for col in self.X.columns:
+            # Find features with absolute correlation > 0.7
+            high_corr = corr_matrix[col][(corr_matrix[col].abs() > 0.7) & (corr_matrix[col].index != col)]
+            if not high_corr.empty:
+                # Sort by highest absolute correlation
+                high_corr = high_corr.reindex(high_corr.abs().sort_values(ascending=False).index)
+                overlap_strs = [f"{idx} ({val:.2f})" for idx, val in high_corr.items()]
+                overlaps.append(", ".join(overlap_strs))
+            else:
+                overlaps.append("None")
+                
+        vif_df["Primary Overlaps (|r| > 0.7)"] = overlaps
+        # ------------------------------------
+        
+        # Map interpretations
+        conditions = [
+            (vif_df['VIF Score'] < 3),
+            (vif_df['VIF Score'] >= 3) & (vif_df['VIF Score'] <= 5),
+            (vif_df['VIF Score'] > 5)
+        ]
+        choices = ['Excellent (Uncorrelated)', 'Acceptable (Moderate Noise)', 'Severe Collinearity (DROP THIS)']
+        vif_df['Status'] = np.select(conditions, choices, default='Unknown')
+        
+        self.vif_data = vif_df.sort_values(by="VIF Score", ascending=False).reset_index(drop=True)
 
     def get_predictions(self):
         return self.model.predict(self.X_with_const)
