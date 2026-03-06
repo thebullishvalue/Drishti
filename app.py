@@ -1,8 +1,9 @@
 """
 TATTVA (तत्त्व) - MLR Engine | A Hemrek Capital Product
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Multivariate Linear Regression & Collinearity Diagnostics Engine.
-Calculates true partial regression coefficients and eliminates overlapping macroeconomic noise.
+Multivariate Linear Regression, Collinearity Diagnostics, and Scenario Engine.
+Calculates true partial regression coefficients, eliminates overlapping noise, 
+and provides a forward-looking decision matrix.
 """
 
 import streamlit as st
@@ -25,7 +26,7 @@ except ImportError:
     STATSMODELS_AVAILABLE = False
 
 # --- Constants ---
-VERSION = "v2.0.0"
+VERSION = "v2.1.0"
 PRODUCT_NAME = "Tattva"
 COMPANY = "Hemrek Capital"
 
@@ -167,6 +168,17 @@ st.markdown("""
     .signal-card { background: var(--bg-card); border-radius: 16px; border: 2px solid var(--border-color); padding: 1.5rem; position: relative; overflow: hidden; }
     .signal-card.fair { border-color: var(--primary-color); box-shadow: 0 0 30px rgba(255, 195, 0, 0.15); }
     .signal-card.danger { border-color: var(--danger-red); box-shadow: 0 0 30px rgba(239, 68, 68, 0.15); }
+    .signal-card.success { border-color: var(--success-green); box-shadow: 0 0 30px rgba(16, 185, 129, 0.15); }
+    .signal-card.warning { border-color: var(--warning-amber); box-shadow: 0 0 30px rgba(245, 158, 11, 0.15); }
+    
+    .signal-card .label { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1.5px; color: var(--text-muted); font-weight: 600; margin-bottom: 0.5rem; }
+    .signal-card .value { font-size: 2.5rem; font-weight: 700; line-height: 1; margin: 0.5rem 0;}
+    .signal-card .subtext { font-size: 0.85rem; color: var(--text-secondary); margin-top: 0.5rem; line-height: 1.5;}
+    
+    .signal-card.danger .value { color: var(--danger-red); }
+    .signal-card.success .value { color: var(--success-green); }
+    .signal-card.warning .value { color: var(--warning-amber); }
+    .signal-card.fair .value { color: var(--primary-color); }
     
     .guide-box { background: rgba(var(--primary-rgb), 0.05); border-left: 3px solid var(--primary-color); padding: 1rem; border-radius: 8px; margin: 1rem 0; color: var(--text-secondary); font-size: 0.9rem; }
     .guide-box.danger { background: rgba(239, 68, 68, 0.05); border-left-color: var(--danger-red); }
@@ -200,6 +212,10 @@ st.markdown("""
     
     .sidebar-title { font-size: 0.75rem; font-weight: 700; color: var(--primary-color); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 0.75rem; }
     [data-testid="stSidebar"] { background: var(--secondary-background-color); border-right: 1px solid var(--border-color); }
+    
+    /* Streamlit Slider Styling overrides for dark theme */
+    .stSlider > div > div > div > div { background-color: var(--primary-color) !important; }
+    .stSlider > div > div > div > div > div { background-color: var(--primary-color) !important; border-color: var(--primary-color) !important;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -210,8 +226,7 @@ st.markdown("""
 
 class MLREngine:
     """
-    Multivariate Linear Regression & Collinearity Engine.
-    Computes true partial slopes and measures Variance Inflation Factors (VIF).
+    Multivariate Linear Regression, Collinearity Diagnostics & Scenario Engine.
     """
     
     def __init__(self, df, target, features):
@@ -221,6 +236,7 @@ class MLREngine:
         self.model = None
         self.vif_data = None
         self.coef_df = None
+        self.feature_importance = None
         
         # Prepare Data
         self.X = self.df[self.features]
@@ -228,21 +244,41 @@ class MLREngine:
         self.X_with_const = sm.add_constant(self.X)
         
     def fit(self):
-        """Fit the OLS model and calculate VIFs."""
+        """Fit the OLS model, calculate VIFs, and generate standardized coefficients."""
         if not STATSMODELS_AVAILABLE:
             raise ImportError("Statsmodels is required for the MLR Engine.")
             
         # Fit OLS
         self.model = sm.OLS(self.y, self.X_with_const).fit()
         
+        # Calculate Standardized Coefficients for Feature Importance
+        # formula: standardized_coef = raw_coef * (std(X) / std(y))
+        std_y = self.y.std()
+        std_x = self.X.std()
+        
+        std_coefs = []
+        for var in self.model.params.index:
+            if var == 'const':
+                std_coefs.append(0.0) # Constant has no standardized effect
+            else:
+                raw_coef = self.model.params[var]
+                std_coef = raw_coef * (std_x[var] / std_y)
+                std_coefs.append(std_coef)
+        
         # Extract Coefficients into clean DataFrame
         self.coef_df = pd.DataFrame({
             'Variable': self.model.params.index,
             'Coefficient (Slope)': self.model.params.values,
+            'Relative Impact (Std Beta)': std_coefs,
             'Standard Error': self.model.bse.values,
             't-Statistic': self.model.tvalues.values,
             'p-Value': self.model.pvalues.values
         })
+        
+        # Store isolated feature importance (drop const)
+        fi_df = self.coef_df[self.coef_df['Variable'] != 'const'].copy()
+        fi_df['Absolute Impact'] = fi_df['Relative Impact (Std Beta)'].abs()
+        self.feature_importance = fi_df.sort_values(by='Absolute Impact', ascending=True)
         
         # Compute VIF
         self._compute_vif()
@@ -257,6 +293,7 @@ class MLREngine:
         for i in range(len(self.X.columns)):
             try:
                 # Catch perfect collinearity warnings/errors
+                # We use i+1 if X_with_const, but we pass self.X.values to avoid computing VIF for constant
                 v = variance_inflation_factor(self.X.values, i)
                 vifs.append(v)
             except Exception:
@@ -276,6 +313,37 @@ class MLREngine:
 
     def get_predictions(self):
         return self.model.predict(self.X_with_const)
+        
+    def predict_scenario(self, scenario_dict):
+        """Predicts Y based on a custom dictionary of X values."""
+        # Ensure we match the order of self.X_with_const.columns
+        input_data = [1.0] # const
+        for col in self.X.columns:
+            input_data.append(scenario_dict.get(col, self.X[col].mean()))
+            
+        prediction = self.model.predict([input_data])[0]
+        return prediction
+
+    def get_model_health_grade(self):
+        """Generates a cohesive conviction grade based on statistical rules."""
+        max_vif = self.vif_data['VIF Score'].max() if not self.vif_data.empty else 0
+        r2 = self.model.rsquared_adj
+        p_val_model = self.model.f_pvalue
+        
+        # Check percentage of features with p < 0.05
+        sig_features = (self.coef_df[self.coef_df['Variable'] != 'const']['p-Value'] < 0.05).mean()
+        
+        if p_val_model > 0.05 or max_vif > 10:
+            return "UNSTABLE", "danger", "The model is statistically invalid or suffers from catastrophic collinearity. Do not trade on these signals."
+        elif max_vif > 5 or r2 < 0.3:
+            return "WEAK", "warning", "High noise-to-signal ratio. Use extreme caution. Consider dropping overlapping variables."
+        elif sig_features < 0.5:
+            return "MODERATE", "warning", "Overall model is okay, but many variables are statistically insignificant."
+        elif max_vif <= 5 and r2 >= 0.6:
+            return "STRONG", "success", "Excellent statistical geometry. Low collinearity, high explanatory power."
+        else:
+            return "ACCEPTABLE", "primary", "Model geometry is stable and actionable."
+
 
 # ============================================================================
 # DATA UTILITIES
@@ -336,20 +404,20 @@ def render_landing_page():
     
     with col2:
         st.markdown("""
-        <div class='metric-card danger' style='min-height: 280px; justify-content: flex-start;'>
-            <h3 style='color: var(--danger-red); margin-bottom: 0.5rem;'>⚠️ Multicollinearity Trap</h3>
-            <p style='color: var(--text-muted); font-size: 0.9rem; line-height: 1.6;'>
-                Adding simple slopes together breaks your model. If you use the 10Y Yield, 30Y Yield, and Repo Rate simultaneously, your model exaggerates moves because they all overlap.
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with col3:
-        st.markdown("""
         <div class='metric-card info' style='min-height: 280px; justify-content: flex-start;'>
             <h3 style='color: var(--info-cyan); margin-bottom: 0.5rem;'>🔍 VIF Diagnostics</h3>
             <p style='color: var(--text-muted); font-size: 0.9rem; line-height: 1.6;'>
                 The Variance Inflation Factor (VIF) mathematically identifies overlapping signals. Drop variables with a VIF > 5 to purify your forecasting engine.
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+    with col3:
+        st.markdown("""
+        <div class='metric-card success' style='min-height: 280px; justify-content: flex-start;'>
+            <h3 style='color: var(--success-green); margin-bottom: 0.5rem;'>🔮 Scenario Sandbox</h3>
+            <p style='color: var(--text-muted); font-size: 0.9rem; line-height: 1.6;'>
+                Translate math into decisions. A forward-looking engine allowing you to dial in hypothetical macroeconomic states to predict immediate target shifts.
             </p>
         </div>
         """, unsafe_allow_html=True)
@@ -358,12 +426,12 @@ def render_landing_page():
     
     st.markdown("""
     <div class='info-box'>
-        <h4>🚀 How to use this engine:</h4>
+        <h4>🚀 How to use this decision engine:</h4>
         <p style='color: var(--text-muted); line-height: 1.7;'>
             1. Use the <strong>Sidebar</strong> to upload your raw historical dataset (CSV/Excel) or connect a Google Sheet.<br>
             2. Select your <strong>Target Variable (Y)</strong> and your suspected <strong>Predictors (X)</strong>.<br>
             3. Go to the <strong>VIF Diagnostics</strong> tab. If any variable has a VIF > 5, remove it from the sidebar.<br>
-            4. Once VIFs are clean, use the slopes in the <strong>Regression Output</strong> tab for your live Excel model.
+            4. Once VIFs are clean and the <strong>Model Conviction</strong> is high, use the <strong>Scenario Engine</strong> to run market what-if analyses.
         </p>
     </div>
     """, unsafe_allow_html=True)
@@ -443,7 +511,7 @@ def main():
         st.markdown("""
         <div class="premium-header">
             <h1>TATTVA : MLR Engine</h1>
-            <div class="tagline">Multivariate Linear Regression & Collinearity Diagnostics</div>
+            <div class="tagline">Multivariate Linear Regression, Diagnostics & Decision Architecture</div>
         </div>
         """, unsafe_allow_html=True)
         render_landing_page()
@@ -482,7 +550,7 @@ def main():
         st.markdown("""
         <div class="premium-header">
             <h1>TATTVA : MLR Engine</h1>
-            <div class="tagline">Multivariate Linear Regression & Collinearity Diagnostics</div>
+            <div class="tagline">Multivariate Linear Regression, Diagnostics & Decision Architecture</div>
         </div>
         """, unsafe_allow_html=True)
         st.info("👈 Please select Independent Variables (X) from the sidebar to generate the model.")
@@ -498,7 +566,7 @@ def main():
     cache_key = f"mlr_{target_col}_{'-'.join(sorted(feature_cols))}_{len(data)}"
     
     if 'mlr_cache' not in st.session_state or st.session_state.mlr_cache_key != cache_key:
-        with st.spinner("Computing Partial Coefficients and VIFs..."):
+        with st.spinner("Computing Partial Coefficients and Scenario Logic..."):
             engine = MLREngine(data, target_col, feature_cols)
             engine.fit()
             st.session_state.mlr_engine = engine
@@ -507,69 +575,73 @@ def main():
     engine = st.session_state.mlr_engine
 
     # ═══════════════════════════════════════════════════════════════════════
-    # SUMMARY METRICS
+    # DECISION DASHBOARD (Summary Metrics)
     # ═══════════════════════════════════════════════════════════════════════
     st.markdown("<br>", unsafe_allow_html=True)
     
-    max_vif = engine.vif_data['VIF Score'].max()
+    max_vif = engine.vif_data['VIF Score'].max() if not engine.vif_data.empty else 0
     r_squared = engine.model.rsquared
     adj_r_squared = engine.model.rsquared_adj
-    f_pvalue = engine.model.f_pvalue
+    grade, grade_class, grade_desc = engine.get_model_health_grade()
     
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3, c4 = st.columns([1, 1, 1, 1.5])
     
     with c1:
-        st.markdown(f'<div class="metric-card primary"><h4>Model Fit (R²)</h4><h2>{r_squared:.4f}</h2><div class="sub-metric">Adj R²: {adj_r_squared:.4f}</div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="metric-card primary"><h4>Explanatory Power</h4><h2>{adj_r_squared:.2f}</h2><div class="sub-metric">Adj R² (0 to 1)</div></div>', unsafe_allow_html=True)
     
     with c2:
         vif_color = "success" if max_vif < 3 else "warning" if max_vif <= 5 else "danger"
-        st.markdown(f'<div class="metric-card {vif_color}"><h4>Max VIF</h4><h2>{max_vif:.2f}</h2><div class="sub-metric">Target: < 5.0</div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="metric-card {vif_color}"><h4>Max Collinearity</h4><h2>{max_vif:.2f}</h2><div class="sub-metric">Target VIF < 5.0</div></div>', unsafe_allow_html=True)
     
     with c3:
-        p_color = "success" if f_pvalue < 0.05 else "danger"
-        st.markdown(f'<div class="metric-card {p_color}"><h4>Model F-Test (p-val)</h4><h2>{f_pvalue:.4f}</h2><div class="sub-metric">Significance of full model</div></div>', unsafe_allow_html=True)
+        p_color = "success" if engine.model.f_pvalue < 0.05 else "danger"
+        st.markdown(f'<div class="metric-card {p_color}"><h4>Model Viability</h4><h2>{"PASS" if engine.model.f_pvalue < 0.05 else "FAIL"}</h2><div class="sub-metric">F-Test (p < 0.05)</div></div>', unsafe_allow_html=True)
         
     with c4:
-        st.markdown(f'<div class="metric-card info"><h4>Observations</h4><h2>{len(engine.y)}</h2><div class="sub-metric">Rows analyzed</div></div>', unsafe_allow_html=True)
+        st.markdown(f"""
+        <div class="signal-card {grade_class}" style="padding: 1.25rem; min-height: 120px; display: flex; flex-direction: column; justify-content: center;">
+            <div class="label" style="margin-bottom: 0;">MODEL CONVICTION</div>
+            <div class="value" style="font-size: 1.75rem; margin: 0.25rem 0;">{grade}</div>
+            <div class="subtext" style="font-size: 0.75rem; margin-top: 0;">{grade_desc}</div>
+        </div>
+        """, unsafe_allow_html=True)
 
     st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
 
     # ═══════════════════════════════════════════════════════════════════════
     # TABS
     # ═══════════════════════════════════════════════════════════════════════
-    tab1, tab2, tab3 = st.tabs([
-        "**📐 Partial Coefficients (Slopes)**",
-        "**🔍 Collinearity Diagnostics (VIF)**",
-        "**📊 Visualizations**"
+    tab1, tab2, tab3, tab4 = st.tabs([
+        "**🎯 Feature Analytics**",
+        "**🔍 Collinearity (VIF)**",
+        "**📊 Visualizations**",
+        "**🔮 Scenario Sandbox**"
     ])
     
-    # --- TAB 1: Coefficients ---
+    # --- TAB 1: Feature Analytics (Coefficients + Importance) ---
     with tab1:
-        st.markdown("##### True Partial Regression Coefficients")
+        st.markdown("##### Feature Analytics & Partial Slopes")
         st.markdown("""<p style="color: #888; font-size: 0.9rem;">
-        These are your mathematically isolated slopes. They have been stripped of the "double-counting" noise. 
-        Use the <b>Coefficient (Slope)</b> column in your Excel formulas.</p>""", unsafe_allow_html=True)
+        The <b>Relative Impact (Std Beta)</b> neutralizes different scales (e.g., % yields vs absolute currency), showing which feature is <i>actually</i> driving the target the most.
+        </p>""", unsafe_allow_html=True)
         
         # Style the coefficient dataframe
         styled_coef = engine.coef_df.style.format({
             'Coefficient (Slope)': "{:.5f}",
+            'Relative Impact (Std Beta)': "{:.5f}",
             'Standard Error': "{:.5f}",
             't-Statistic': "{:.3f}",
             'p-Value': "{:.4f}"
         }).applymap(lambda x: 'color: #ef4444;' if isinstance(x, float) and x > 0.05 else 'color: #10b981;', subset=['p-Value'])
         
-        st.dataframe(styled_coef, width=1200, height=400)
+        st.dataframe(styled_coef, width=1200, height=300)
         
         st.markdown("""
         <div class="guide-box success">
-            <strong>How to read p-Values:</strong><br>
-            If a variable's p-Value is <span style="color: #10b981;">Green (< 0.05)</span>, it is a statistically significant predictor.<br>
-            If a variable's p-Value is <span style="color: #ef4444;">Red (> 0.05)</span>, it adds no predictive value in the presence of the other variables and should likely be removed.
+            <strong>Decision Rule:</strong> Keep variables where the p-Value is <span style="color: #10b981;">Green (< 0.05)</span>. 
+            If it is <span style="color: #ef4444;">Red (> 0.05)</span>, the model is telling you this specific factor provides no mathematical edge when combined with your other choices.
         </div>
         """, unsafe_allow_html=True)
-        
-        with st.expander("Raw Statsmodels Output"):
-            st.text(engine.model.summary().as_text())
 
     # --- TAB 2: VIF Diagnostics ---
     with tab2:
@@ -578,15 +650,15 @@ def main():
         if max_vif > 5:
             st.markdown("""
             <div class="signal-card danger" style="padding: 1rem; margin-bottom: 1rem;">
-                <h4 style="color: var(--danger-red); margin: 0 0 0.5rem 0;">⚠️ Multicollinearity Detected</h4>
-                <p style="margin: 0; font-size: 0.9rem;">One or more variables have a VIF score greater than 5. Your model is currently unstable due to overlapping signals. <b>Remove the variable with the highest VIF score using the sidebar, and let the model recalculate.</b></p>
+                <h4 style="color: var(--danger-red); margin: 0 0 0.5rem 0;">⚠️ Overlapping Signals Detected</h4>
+                <p style="margin: 0; font-size: 0.9rem;">Variables with a VIF > 5 are essentially telling the same economic story as other variables in your basket. <b>Drop the highest VIF variable in the sidebar to clean the signal geometry.</b></p>
             </div>
             """, unsafe_allow_html=True)
         else:
             st.markdown("""
             <div class="signal-card fair" style="padding: 1rem; margin-bottom: 1rem;">
-                <h4 style="color: var(--primary-color); margin: 0 0 0.5rem 0;">✅ Clean Signal Geometry</h4>
-                <p style="margin: 0; font-size: 0.9rem;">All variables have a VIF score under 5. Your model is stable and free of severe multicollinearity.</p>
+                <h4 style="color: var(--primary-color); margin: 0 0 0.5rem 0;">✅ Pure Signal Geometry</h4>
+                <p style="margin: 0; font-size: 0.9rem;">All variables have a VIF score under 5. Each variable is contributing unique, non-overlapping information to the forecast.</p>
             </div>
             """, unsafe_allow_html=True)
             
@@ -598,10 +670,46 @@ def main():
 
     # --- TAB 3: Visualizations ---
     with tab3:
-        col_chart1, col_chart2 = st.columns(2)
+        # Top Row
+        c_viz1, c_viz2 = st.columns(2)
         
-        with col_chart1:
-            st.markdown("##### Actual vs Predicted")
+        with c_viz1:
+            st.markdown("##### Absolute Feature Importance")
+            st.markdown('<p style="color: #888; font-size: 0.8rem;">Ranked by Standardized Beta (Excludes Constant)</p>', unsafe_allow_html=True)
+            
+            fig_fi = px.bar(
+                engine.feature_importance, 
+                x='Absolute Impact', 
+                y='Variable', 
+                orientation='h',
+                color='Relative Impact (Std Beta)',
+                color_continuous_scale='RdBu',
+                color_continuous_midpoint=0
+            )
+            fig_fi.update_layout(height=350, yaxis={'categoryorder':'total ascending'}, showlegend=False)
+            update_chart_theme(fig_fi)
+            st.plotly_chart(fig_fi, use_container_width=True)
+            
+        with c_viz2:
+            st.markdown("##### Feature Correlation Heatmap")
+            st.markdown('<p style="color: #888; font-size: 0.8rem;">Identifies simple 1-to-1 overlaps before VIF computation</p>', unsafe_allow_html=True)
+            corr_matrix = engine.df[[target_col] + feature_cols].corr()
+            
+            fig_corr = px.imshow(
+                corr_matrix, text_auto=".2f", aspect="auto", 
+                color_continuous_scale='RdBu_r', zmin=-1, zmax=1
+            )
+            fig_corr.update_layout(height=350)
+            update_chart_theme(fig_corr)
+            st.plotly_chart(fig_corr, use_container_width=True)
+            
+        st.markdown("---")
+        
+        # Bottom Row
+        c_viz3, c_viz4 = st.columns(2)
+        
+        with c_viz3:
+            st.markdown("##### Actual vs Predicted Fit")
             preds = engine.get_predictions()
             
             fig_pred = go.Figure()
@@ -618,32 +726,94 @@ def main():
                 line=dict(color='#06b6d4', dash='dash')
             ))
             
-            fig_pred.update_layout(height=400, xaxis_title=f'Actual {target_col}', yaxis_title='Predicted')
+            fig_pred.update_layout(height=350, xaxis_title=f'Actual {target_col}', yaxis_title='Predicted')
             update_chart_theme(fig_pred)
             st.plotly_chart(fig_pred, use_container_width=True)
             
-        with col_chart2:
-            st.markdown("##### Feature Correlation Heatmap")
-            corr_matrix = engine.df[[target_col] + feature_cols].corr()
-            
-            fig_corr = px.imshow(
-                corr_matrix, text_auto=".2f", aspect="auto", 
-                color_continuous_scale='RdBu_r', zmin=-1, zmax=1
+        with c_viz4:
+            st.markdown("##### Residuals Distribution (Error Profile)")
+            residuals = engine.model.resid
+            fig_resid = px.histogram(
+                residuals, nbins=50,
+                color_discrete_sequence=['#8b5cf6']
             )
-            fig_corr.update_layout(height=400)
-            update_chart_theme(fig_corr)
-            st.plotly_chart(fig_corr, use_container_width=True)
+            fig_resid.update_layout(height=350, xaxis_title="Residual Value", yaxis_title="Frequency")
+            update_chart_theme(fig_resid)
+            st.plotly_chart(fig_resid, use_container_width=True)
+
+    # --- TAB 4: Scenario Engine ---
+    with tab4:
+        st.markdown("##### 🔮 Forward-Looking Scenario Simulator")
+        st.markdown("""<p style="color: #888; font-size: 0.9rem;">
+        Dial in hypothetical market conditions below. The engine uses your mathematically isolated coefficients to predict where the target will move.
+        </p>""", unsafe_allow_html=True)
+        
+        # Two-column layout for sandbox
+        c_sandbox_left, c_sandbox_right = st.columns([1.5, 1])
+        
+        scenario_inputs = {}
+        
+        with c_sandbox_left:
+            st.markdown("<div class='info-box' style='padding: 1.5rem;'>", unsafe_allow_html=True)
+            st.markdown("<h4 style='color: var(--text-primary); margin-bottom: 1rem;'>Adjust Macro Factors</h4>", unsafe_allow_html=True)
             
-        st.markdown("---")
-        st.markdown("##### Residuals Distribution")
-        residuals = engine.model.resid
-        fig_resid = px.histogram(
-            residuals, nbins=50, title="Residual Histogram",
-            color_discrete_sequence=['#8b5cf6']
-        )
-        fig_resid.update_layout(height=350, xaxis_title="Residual Value", yaxis_title="Frequency")
-        update_chart_theme(fig_resid)
-        st.plotly_chart(fig_resid, use_container_width=True)
+            for col in feature_cols:
+                min_val = float(engine.X[col].min())
+                max_val = float(engine.X[col].max())
+                mean_val = float(engine.X[col].mean())
+                
+                # Add some buffer to min/max for the slider to allow forecasting extremes
+                buffer = (max_val - min_val) * 0.2
+                slider_min = min_val - buffer
+                slider_max = max_val + buffer
+                
+                # Format dynamically based on scale
+                step_size = (slider_max - slider_min) / 100
+                format_str = "%.4f" if step_size < 0.01 else "%.2f"
+                
+                scenario_inputs[col] = st.slider(
+                    f"{col} Input:", 
+                    min_value=slider_min, 
+                    max_value=slider_max, 
+                    value=mean_val,
+                    format=format_str
+                )
+            st.markdown("</div>", unsafe_allow_html=True)
+            
+        with c_sandbox_right:
+            # Predict
+            predicted_y = engine.predict_scenario(scenario_inputs)
+            current_y_mean = engine.y.mean()
+            delta = predicted_y - current_y_mean
+            
+            delta_color = "success" if delta > 0 else "danger" if delta < 0 else "fair"
+            arrow = "▲" if delta > 0 else "▼" if delta < 0 else "▬"
+            
+            st.markdown(f"""
+            <div class="signal-card {delta_color}" style="text-align: center; padding: 2rem;">
+                <div class="label" style="font-size: 0.85rem;">PREDICTED {target_col}</div>
+                <div class="value" style="font-size: 3.5rem; margin: 1rem 0;">{predicted_y:.2f}</div>
+                <div class="subtext" style="font-size: 1rem;">
+                    {arrow} {abs(delta):.2f} vs Historical Mean ({current_y_mean:.2f})
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # Show formula logic breakdown
+            st.markdown("<br><h5 style='color: var(--text-muted); font-size: 0.8rem; text-transform: uppercase;'>Mathematical Driver Breakdown</h5>", unsafe_allow_html=True)
+            
+            breakdown_html = "<div style='font-family: monospace; font-size: 0.8rem; color: #aaa; background: var(--bg-card); padding: 1rem; border-radius: 8px; border: 1px solid var(--border-color);'>"
+            breakdown_html += f"Intercept: {engine.model.params['const']:.4f}<br>"
+            
+            for col in feature_cols:
+                slope = engine.model.params[col]
+                input_val = scenario_inputs[col]
+                contribution = slope * input_val
+                color = "#10b981" if contribution > 0 else "#ef4444"
+                breakdown_html += f"+ ({slope:.4f} × {input_val:.4f}) = <span style='color: {color};'>{contribution:.4f}</span> <i>({col})</i><br>"
+                
+            breakdown_html += "</div>"
+            st.markdown(breakdown_html, unsafe_allow_html=True)
 
     render_footer()
 
