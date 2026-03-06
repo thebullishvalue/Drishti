@@ -818,7 +818,7 @@ def main():
         st.error("statsmodels is required. Install via `pip install statsmodels`")
         return
 
-    # Sidebar
+    # ── Sidebar ──────────────────────────────────────────────────────────────
     with st.sidebar:
         st.markdown(f"""
         <div style="text-align:center; padding:1rem 0;">
@@ -1027,7 +1027,6 @@ def main():
                 height=400
             )
             
-            # Resolution plan
             if engine.resolution_plan:
                 st.subheader("Auto Resolution Suggestions")
                 for p in engine.resolution_plan:
@@ -1116,12 +1115,13 @@ def main():
     
     with t5:
         st.subheader("Model & Engine Info")
+        cond_display = f"{engine.condition_number:.1f}" if engine.condition_number is not None else "N/A"
         st.markdown(f"""
         - **Fit type**: {engine.fit_type}
         - **Rows**: {len(engine.y)}
         - **Features**: {len(engine.features)}
         - **R² adj**: {engine.model.rsquared_adj:.3f}
-        - **Condition number**: {engine.condition_number:.1f if engine.condition_number else 'N/A'}
+        - **Condition number**: {cond_display}
         - **PyMC available**: {PYMC_AVAILABLE}
         """)
         
