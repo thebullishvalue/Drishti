@@ -27,10 +27,10 @@ try:
     from statsmodels.tools.tools import add_constant
     from statsmodels.tools.sm_exceptions import PerfectCollinearityWarning
     STATSMODELS_AVAILABLE = True
-except ImportError:
-    sm = None
-    PerfectCollinearityWarning = None
+except Exception as e:
     STATSMODELS_AVAILABLE = False
+    import streamlit as st
+    st.error(f"Statsmodels failed to load: {e}")
 
 # Logging Setup
 logging.basicConfig(level=logging.INFO)
