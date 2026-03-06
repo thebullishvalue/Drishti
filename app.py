@@ -312,12 +312,14 @@ class MLREngine:
         self.coef_df: Optional[pd.DataFrame] = None
         self.feature_importance: Optional[pd.DataFrame] = None
         self.resolution_plan: List[Dict[str, Any]] = []
-        self.corr_matrix: pd.DataFrame = self._cache_corr_matrix()
         
-        # Prepare Data
+        # Prepare Data FIRST
         self.X = self.df[self.features]
         self.y = self.df[self.target]
         self.X_with_const = add_constant(self.X)
+        
+        # THEN compute the correlation matrix
+        self.corr_matrix: pd.DataFrame = self._cache_corr_matrix()
         
     def _cache_corr_matrix(self) -> pd.DataFrame:
         """Cache correlation matrix for reuse."""
