@@ -266,50 +266,50 @@ class MLREngine:
                 std_coefs.append(std_coef)
         
         # Extract Coefficients into clean DataFrame
-        self.coef_df = pd.DataFrame({
-            'Variable': self.model.params.index,
-            'Coefficient (Slope)': self.model.params.values,
-            'Relative Impact (Std Beta)': std_coefs,
-            'Standard Error': self.model.bse.values,
-            't-Statistic': self.model.tvalues.values,
-            'p-Value': self.model.pvalues.values
-        })
-        
-        # Store isolated feature importance (drop const)
-        fi_df = self.coef_df[self.coef_df['Variable'] != 'const'].copy()
-        fi_df['Absolute Impact'] = fi_df['Relative Impact (Std Beta)'].abs()
-        self.feature_importance = fi_df.sort_values(by='Absolute Impact', ascending=True)
-        
-        # Compute VIF
-        self._compute_vif()
-        return self
-        
-    def _compute_vif(self):
-        """Calculate Variance Inflation Factor for each independent variable."""
-        vif_df = pd.DataFrame()
-        vif_df["Variable"] = self.X.columns
-        
-        vifs = []
-        for i in range(len(self.X.columns)):
-            try:
-                # Catch perfect collinearity warnings/errors
-                # We use i+1 if X_with_const, but we pass self.X.values to avoid computing VIF for constant
-                v = variance_inflation_factor(self.X.values, i)
-                vifs.append(v)
-            except Exception:
-                vifs.append(np.inf)
-                
-        vif_df["VIF Score"] = vifs
-        # Map interpretations
-        conditions = [
-            (vif_df['VIF Score'] < 3),
-            (vif_df['VIF Score'] >= 3) & (vif_df['VIF Score'] <= 5),
-            (vif_df['VIF Score'] > 5)
-        ]
-        choices = ['Excellent (Uncorrelated)', 'Acceptable (Moderate Noise)', 'Severe Collinearity (DROP THIS)']
-        vif_df['Status'] = np.select(conditions, choices, default='Unknown')
-        
-        self.vif_data = vif_df.sort_values(by="VIF Score", ascending=False).reset_index(drop=True)
+        def _compute_vif(self):
+            """Calculate Variance Inflation Factor for each independent variable."""
+            vif_df = pd.DataFrame()
+            vif_df["Variable"] = self.X.columns
+            
+            vifs = []
+            for i in range(len(self.X.columns)):
+                try:
+                    # Catch perfect collinearity warnings/errors
+                    # We use i+1 if X_with_const, but we pass self.X.values to avoid computing VIF for constant
+                    v = variance_inflation_factor(self.X.values, i)
+                    vifs.append(v)
+                except Exception:
+                    vifs.append(np.inf)
+                    
+            vif_df["VIF Score"] = vifs
+            
+            # --- NEW: Primary Overlap Mapping ---
+            corr_matrix = self.X.corr()
+            overlaps = []
+            for col in self.X.columns:
+                # Find features with absolute correlation > 0.7
+                high_corr = corr_matrix[col][(corr_matrix[col].abs() > 0.7) & (corr_matrix[col].index != col)]
+                if not high_corr.empty:
+                    # Sort by highest absolute correlation
+                    high_corr = high_corr.reindex(high_corr.abs().sort_values(ascending=False).index)
+                    overlap_strs = [f"{idx} ({val:.2f})" for idx, val in high_corr.items()]
+                    overlaps.append(", ".join(overlap_strs))
+                else:
+                    overlaps.append("None")
+                    
+            vif_df["Primary Overlaps (|r| > 0.7)"] = overlaps
+            # ------------------------------------
+            
+            # Map interpretations
+            conditions = [
+                (vif_df['VIF Score'] < 3),
+                (vif_df['VIF Score'] >= 3) & (vif_df['VIF Score'] <= 5),
+                (vif_df['VIF Score'] > 5)
+            ]
+            choices = ['Excellent (Uncorrelated)', 'Acceptable (Moderate Noise)', 'Severe Collinearity (DROP THIS)']
+            vif_df['Status'] = np.select(conditions, choices, default='Unknown')
+            
+            self.vif_data = vif_df.sort_values(by="VIF Score", ascending=False).reset_index(drop=True)
 
     def get_predictions(self):
         return self.model.predict(self.X_with_const)
@@ -651,7 +651,7 @@ def main():
             st.markdown("""
             <div class="signal-card danger" style="padding: 1rem; margin-bottom: 1rem;">
                 <h4 style="color: var(--danger-red); margin: 0 0 0.5rem 0;">⚠️ Overlapping Signals Detected</h4>
-                <p style="margin: 0; font-size: 0.9rem;">Variables with a VIF > 5 are essentially telling the same economic story as other variables in your basket. <b>Drop the highest VIF variable in the sidebar to clean the signal geometry.</b></p>
+                <p style="margin: 0; font-size: 0.9rem;">Variables with a VIF > 5 are essentially telling the same economic story as other variables in your basket. Review the <b>Primary Overlaps</b> column below to identify clusters fighting for the same signal.</p>
             </div>
             """, unsafe_allow_html=True)
         else:
@@ -666,7 +666,37 @@ def main():
             'VIF Score': "{:.2f}"
         }).applymap(highlight_vif, subset=['VIF Score'])
         
-        st.dataframe(styled_vif, width=1000)
+        st.dataframe(styled_vif, width=1200)
+
+        # --- NEW: Collinearity Resolution Action Plan ---
+        if max_vif > 5:
+            st.markdown("<br>##### 🛠️ Collinearity Resolution Action Plan", unsafe_allow_html=True)
+            st.markdown("<p style='color: var(--text-muted); font-size: 0.9rem;'>Use this guide to intelligently thin out your feature selection rather than blindly dropping variables.</p>", unsafe_allow_html=True)
+            
+            high_vif_vars = engine.vif_data[engine.vif_data['VIF Score'] > 5]
+            
+            for _, row in high_vif_vars.iterrows():
+                var_name = row['Variable']
+                vif_score = row['VIF Score']
+                overlap_text = row['Primary Overlaps (|r| > 0.7)']
+                
+                if overlap_text != "None":
+                    st.markdown(f"""
+                    <div class="guide-box danger" style="margin: 0.5rem 0;">
+                        <strong>Drop Candidate: {var_name} (VIF: {vif_score:.1f})</strong><br>
+                        This variable is highly collinear with: <code style="color: var(--primary-color); background: transparent; padding: 0;">{overlap_text}</code>.<br>
+                        <em>Action:</em> Go to the <strong>Feature Analytics</strong> tab. Compare {var_name} against its overlaps. Retain the one with the highest Absolute Impact (Std Beta), and drop the others from the sidebar.
+                    </div>
+                    """, unsafe_allow_html=True)
+                else:
+                    st.markdown(f"""
+                    <div class="guide-box danger" style="margin: 0.5rem 0;">
+                        <strong>Drop Candidate: {var_name} (VIF: {vif_score:.1f})</strong><br>
+                        This variable has high multi-variable collinearity (no single variable has |r| > 0.7, but combinations of variables perfectly explain it).<br>
+                        <em>Action:</em> If its p-Value in the Feature Analytics tab is > 0.05, drop it immediately.
+                    </div>
+                    """, unsafe_allow_html=True)
+        # ------------------------------------------------
 
     # --- TAB 3: Visualizations ---
     with tab3:
