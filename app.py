@@ -78,6 +78,7 @@ st.set_page_config(
 @st.cache_data(ttl=3600)  # Cache CSS for performance
 def get_custom_css() -> str:
     return """
+    <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
     
     :root {
@@ -287,6 +288,7 @@ def get_custom_css() -> str:
     /* Streamlit Slider Styling overrides for dark theme */
     .stSlider > div > div > div > div { background-color: var(--primary-color) !important; }
     .stSlider > div > div > div > div > div { background-color: var(--primary-color) !important; border-color: var(--primary-color) !important;}
+    </style>
     """
 
 st.markdown(get_custom_css(), unsafe_allow_html=True)
