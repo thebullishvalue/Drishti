@@ -48,7 +48,7 @@ VERSION = "v2.2.0"
 PRODUCT_NAME = os.getenv("TATTVA_PRODUCT_NAME", "TATTVA")
 COMPANY = os.getenv("TATTVA_COMPANY", "Hemrek Capital")
 MAX_ROWS = int(os.getenv("TATTVA_MAX_ROWS", "10000"))
-MAX_COLS = int(os.getenv("TATTVA_MAX_COLS", "50"))
+MAX_COLS = int(os.getenv("TATTVA_MAX_COLS", "100"))
 
 # Enums for Clarity
 class VIFStatus(Enum):
@@ -79,7 +79,7 @@ st.set_page_config(
 # --- CSS (Exact Pragyam/Nirnay Design System + TATTVA tweaks - 100% Local) ---
 st.markdown("""
 <style>
-    /* Removed Google Fonts @import. Relying strictly on local system UI fonts. */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
     
     :root {
         --primary-color: #FFC300;
@@ -101,8 +101,7 @@ st.markdown("""
         --purple: #8b5cf6;
     }
     
-    /* Native System Font Stack - Zero External Calls */
-    * { font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
+    * { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }
     
     .main, [data-testid="stSidebar"] { background-color: var(--background-color); color: var(--text-primary); }
     .stApp > header { background-color: transparent; }
@@ -521,11 +520,8 @@ class MLREngine:
 # ENHANCED DATA UTILITIES
 # ============================================================================
 
-def load_google_sheet(sheet_url: str, api_key: Optional[str] = None) -> Tuple[Optional[pd.DataFrame], Optional[str]]:
-    """Enhanced: Stub for private access (implement gspread with key). Falls back to original public CSV."""
-    if api_key:
-        st.warning("Private Sheets stub: Full gspread integration recommended for production.")
-        # TODO: Integrate gspread here if key provided
+def load_google_sheet(sheet_url: str) -> Tuple[Optional[pd.DataFrame], Optional[str]]:
+    """Extracts and loads public Google Sheets CSV."""
     try:
         import re
         sheet_id_match = re.search(r'/d/([a-zA-Z0-9-_]+)', sheet_url)
@@ -696,12 +692,11 @@ def main() -> None:
                     st.error(f"Error loading file: {e}")
                     return
         else:
-            api_key = st.text_input("Google API Key (Optional for Private Sheets)", type="password", help="For private sheets; otherwise uses public CSV export.")
             default_url = "https://docs.google.com/spreadsheets/d/1po7z42n3dYIQGAvn0D1-a4pmyxpnGPQ13TrNi3DB5_c/edit?gid=1738251155#gid=1738251155"
             sheet_url = st.text_input("Sheet URL", value=default_url, label_visibility="collapsed")
             if st.button("🔄 LOAD DATA", type="primary"):
                 with st.spinner("Loading from Google Sheets..."):
-                    df, error = load_google_sheet(sheet_url, api_key)
+                    df, error = load_google_sheet(sheet_url)
                     if error:
                         st.error(f"Failed to load: {error}")
                         return
