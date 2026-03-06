@@ -571,7 +571,7 @@ def clean_data(df: pd.DataFrame, target: str, features: List[str]) -> pd.DataFra
     
     return data.reset_index(drop=True)
 
-def update_chart_theme(fig: go.Figure | px.graph_objs.Figure) -> go.Figure | px.graph_objs.Figure:
+def update_chart_theme(fig: go.Figure) -> go.Figure:
     """Preserves original theme."""
     fig.update_layout(
         template="plotly_dark", plot_bgcolor="#1A1A1A", paper_bgcolor="#1A1A1A",
