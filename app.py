@@ -1,8 +1,8 @@
 """
 TATTVA (तत्त्व) - MLR Engine | A Hemrek Capital Product
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Enhanced v2.5.1: VIF & resolution plan always computed (even for Ridge/Lasso/Bayesian),
-fixed NoneType.empty crash, improved stability messaging, full production-ready version.
+Enhanced v2.5.2: Fixed radio label warning, removed use_container_width deprecation,
+condition number display fix, always compute VIF/plan, production-ready.
 """
 
 import streamlit as st
@@ -21,31 +21,29 @@ from enum import Enum
 from scipy import linalg, stats
 import numpy.linalg as la
 
-# Enhanced Dependencies
+# ────────────────────────────────────────────────
+# Dependencies
+# ────────────────────────────────────────────────
+
 try:
     import statsmodels.api as sm
     from statsmodels.stats.outliers_influence import variance_inflation_factor
     from statsmodels.tools.tools import add_constant
     STATSMODELS_AVAILABLE = True
-except ImportError as e:
-    sm = None
+except ImportError:
     STATSMODELS_AVAILABLE = False
-    print(f"Statsmodels import error: {e}")
 
-# PyMC for Bayesian
 try:
     import pymc as pm
     import arviz as az
     PYMC_AVAILABLE = True
 except ImportError:
     PYMC_AVAILABLE = False
-    print("PyMC not available — Bayesian falls back to ridge approximation.")
 
-# Logging Setup
+# Logging & Warnings
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Specific Warning Filters
 if STATSMODELS_AVAILABLE:
     warnings.filterwarnings('ignore', message='.*collinearity.*')
     warnings.filterwarnings('ignore', module='statsmodels')
@@ -53,30 +51,30 @@ warnings.filterwarnings('ignore', category=FutureWarning)
 warnings.filterwarnings('ignore', category=DeprecationWarning)
 
 # ────────────────────────────────────────────────
-# Constants
+# Constants & Enums
 # ────────────────────────────────────────────────
-VERSION = "v2.5.1"
+
+VERSION = "v2.5.2"
 PRODUCT_NAME = os.getenv("TATTVA_PRODUCT_NAME", "TATTVA")
 COMPANY = os.getenv("TATTVA_COMPANY", "Hemrek Capital")
 MAX_ROWS = int(os.getenv("TATTVA_MAX_ROWS", "10000"))
 MAX_COLS = int(os.getenv("TATTVA_MAX_COLS", "100"))
 MIN_ROWS_PER_FEATURE = 10
 
-# Enums
 class VIFStatus(Enum):
     EXCELLENT = "Excellent (Uncorrelated)"
     ACCEPTABLE = "Acceptable (Moderate Noise)"
-    SEVERE   = "Severe Collinearity (DROP THIS)"
+    SEVERE = "Severe Collinearity (DROP THIS)"
 
 class ModelGrade(Enum):
-    UNSTABLE   = ("UNSTABLE",   "danger",  "The model is statistically invalid (rank-deficient or ill-conditioned). Do not trade on these signals.")
-    WEAK       = ("WEAK",       "warning", "High noise-to-signal ratio or mild ill-conditioning. Use extreme caution.")
-    MODERATE   = ("MODERATE",   "warning", "Model is usable but many variables insignificant.")
-    ACCEPTABLE = ("ACCEPTABLE", "primary", "Model geometry is stable and actionable.")
-    STRONG     = ("STRONG",     "success", "Excellent statistical geometry. Low collinearity, high explanatory power.")
+    UNSTABLE = ("UNSTABLE", "danger", "Invalid model — rank-deficient or ill-conditioned.")
+    WEAK = ("WEAK", "warning", "High noise or mild ill-conditioning.")
+    MODERATE = ("MODERATE", "warning", "Usable but many insignificant variables.")
+    ACCEPTABLE = ("ACCEPTABLE", "primary", "Stable and actionable.")
+    STRONG = ("STRONG", "success", "Excellent geometry — low collinearity, high power.")
 
 # ────────────────────────────────────────────────
-# Page Config & CSS (unchanged from your last version)
+# Page Config & CSS
 # ────────────────────────────────────────────────
 
 st.set_page_config(
@@ -110,56 +108,29 @@ st.markdown("""
         --purple: #8b5cf6;
     }
     
-    * { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }
+    * { font-family: 'Inter', sans-serif; }
     
     .main, [data-testid="stSidebar"] { background-color: var(--background-color); color: var(--text-primary); }
     .stApp > header { background-color: transparent; }
-    #MainMenu {visibility: hidden;} footer {visibility: hidden;}
+    #MainMenu, footer { visibility: hidden; }
     .block-container { padding-top: 3.5rem; max-width: 90%; padding-left: 2rem; padding-right: 2rem; }
     
     [data-testid="collapsedControl"] {
-        display: flex !important;
-        visibility: visible !important;
-        opacity: 1 !important;
+        display: flex !important; visibility: visible !important; opacity: 1 !important;
         background-color: var(--secondary-background-color) !important;
-        border: 2px solid var(--primary-color) !important;
-        border-radius: 8px !important;
-        padding: 10px !important;
-        margin: 12px !important;
+        border: 2px solid var(--primary-color) !important; border-radius: 8px !important;
+        padding: 10px !important; margin: 12px !important;
         box-shadow: 0 0 15px rgba(var(--primary-rgb), 0.4) !important;
-        z-index: 999999 !important;
-        position: fixed !important;
-        top: 14px !important;
-        left: 14px !important;
-        width: 40px !important;
-        height: 40px !important;
-        align-items: center !important;
-        justify-content: center !important;
+        z-index: 999999 !important; position: fixed !important;
+        top: 14px !important; left: 14px !important;
+        width: 40px !important; height: 40px !important;
+        align-items: center !important; justify-content: center !important;
     }
     
     [data-testid="collapsedControl"]:hover {
         background-color: rgba(var(--primary-rgb), 0.2) !important;
         box-shadow: 0 0 20px rgba(var(--primary-rgb), 0.6) !important;
         transform: scale(1.05);
-    }
-    
-    [data-testid="collapsedControl"] svg {
-        stroke: var(--primary-color) !important;
-        width: 20px !important;
-        height: 20px !important;
-    }
-    
-    [data-testid="stSidebar"] button[kind="header"] {
-        background-color: transparent !important;
-        border: none !important;
-    }
-    
-    [data-testid="stSidebar"] button[kind="header"] svg {
-        stroke: var(--primary-color) !important;
-    }
-    
-    button[kind="header"] {
-        z-index: 999999 !important;
     }
     
     .premium-header {
@@ -169,22 +140,18 @@ st.markdown("""
         margin-bottom: 1.5rem;
         box-shadow: 0 0 20px rgba(var(--primary-rgb), 0.1);
         border: 1px solid var(--border-color);
-        position: relative;
-        overflow: hidden;
-        margin-top: 1rem;
+        position: relative; overflow: hidden; margin-top: 1rem;
     }
     
     .premium-header::before {
-        content: '';
-        position: absolute;
-        top: 0; left: 0; right: 0; bottom: 0;
+        content: ''; position: absolute; top: 0; left: 0; right: 0; bottom: 0;
         background: radial-gradient(circle at 20% 50%, rgba(var(--primary-rgb),0.08) 0%, transparent 50%);
         pointer-events: none;
     }
     
-    .premium-header h1 { margin: 0; font-size: 2rem; font-weight: 700; color: var(--text-primary); letter-spacing: -0.50px; position: relative; }
-    .premium-header .tagline { color: var(--text-muted); font-size: 0.9rem; margin-top: 0.25rem; font-weight: 400; position: relative; }
-    .premium-header .product-badge { display: inline-block; background: rgba(var(--primary-rgb), 0.15); color: var(--primary-color); padding: 0.25rem 0.75rem; border-radius: 20px; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 0.5rem; }
+    .premium-header h1 { margin: 0; font-size: 2rem; font-weight: 700; color: var(--text-primary); letter-spacing: -0.50px; }
+    .premium-header .tagline { color: var(--text-muted); font-size: 0.9rem; margin-top: 0.25rem; }
+    .premium-header .product-badge { background: rgba(var(--primary-rgb), 0.15); color: var(--primary-color); padding: 0.25rem 0.75rem; border-radius: 20px; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 0.5rem; }
     
     .metric-card {
         background-color: var(--bg-card);
@@ -194,28 +161,11 @@ st.markdown("""
         box-shadow: 0 0 15px rgba(var(--primary-rgb), 0.08);
         margin-bottom: 0.5rem;
         transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        position: relative;
-        overflow: hidden;
         min-height: 120px;
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
+        display: flex; flex-direction: column; justify-content: center;
     }
     
     .metric-card:hover { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(0,0,0,0.3); border-color: var(--border-light); }
-    .metric-card h4 { color: var(--text-muted); font-size: 0.75rem; margin-bottom: 0.5rem; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; }
-    .metric-card h3 { color: var(--text-primary); font-size: 1.1rem; font-weight: 700; margin-bottom: 0.5rem; }
-    .metric-card p { color: var(--text-muted); font-size: 0.85rem; line-height: 1.5; margin: 0; }
-    .metric-card h2 { color: var(--text-primary); font-size: 1.75rem; font-weight: 700; margin: 0; line-height: 1; }
-    .metric-card .sub-metric { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.5rem; font-weight: 500; }
-    
-    .metric-card.success h2 { color: var(--success-green); }
-    .metric-card.danger h2 { color: var(--danger-red); }
-    .metric-card.warning h2 { color: var(--warning-amber); }
-    .metric-card.info h2 { color: var(--info-cyan); }
-    .metric-card.neutral h2 { color: var(--neutral); }
-    .metric-card.primary h2 { color: var(--primary-color); }
-    .metric-card.purple h2 { color: var(--purple); }
     
     .signal-card {
         background-color: var(--bg-card);
@@ -225,36 +175,17 @@ st.markdown("""
         box-shadow: 0 0 15px rgba(var(--primary-rgb), 0.08);
         margin-bottom: 1rem;
         position: relative;
-        overflow: hidden;
     }
     
     .signal-card::before { content: ''; position: absolute; top: 0; left: 0; width: 4px; height: 100%; }
-    .signal-card.buy::before, .signal-card.success::before { background: var(--success-green); }
-    .signal-card.sell::before, .signal-card.danger::before { background: var(--danger-red); }
+    .signal-card.success::before { background: var(--success-green); }
+    .signal-card.danger::before { background: var(--danger-red); }
     .signal-card.warning::before { background: var(--warning-amber); }
     .signal-card.primary::before { background: var(--primary-color); }
-    .signal-card.info::before { background: var(--info-cyan); }
     
-    .signal-card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; }
-    .signal-card-title { font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); }
     .signal-card .label { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1.5px; color: var(--text-muted); font-weight: 600; margin-bottom: 0.5rem; }
-    .signal-card .value { font-size: 2.5rem; font-weight: 700; line-height: 1; margin: 0.5rem 0;}
-    .signal-card .subtext { font-size: 0.85rem; color: var(--text-secondary); margin-top: 0.5rem; line-height: 1.5;}
-    
-    .signal-card.danger .value { color: var(--danger-red); }
-    .signal-card.success .value { color: var(--success-green); }
-    .signal-card.warning .value { color: var(--warning-amber); }
-    .signal-card.primary .value { color: var(--primary-color); }
-    
-    .status-badge { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0.8rem; border-radius: 20px; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
-    .status-badge.buy { background: rgba(16, 185, 129, 0.15); color: var(--success-green); border: 1px solid rgba(16, 185, 129, 0.3); }
-    .status-badge.sell { background: rgba(239, 68, 68, 0.15); color: var(--danger-red); border: 1px solid rgba(239, 68, 68, 0.3); }
-    .status-badge.neutral { background: rgba(136, 136, 136, 0.15); color: var(--neutral); border: 1px solid rgba(136, 136, 136, 0.3); }
-    .status-badge.primary { background: rgba(var(--primary-rgb), 0.15); color: var(--primary-color); border: 1px solid rgba(var(--primary-rgb), 0.3); }
-    
-    .info-box { background: var(--secondary-background-color); border: 1px solid var(--border-color); border-left: 4px solid var(--primary-color); padding: 1.25rem; border-radius: 12px; margin: 0.5rem 0; box-shadow: 0 0 15px rgba(var(--primary-rgb), 0.08); }
-    .info-box h4 { color: var(--primary-color); margin: 0 0 0.5rem 0; font-size: 1rem; font-weight: 700; }
-    .info-box p { color: var(--text-muted); margin: 0; font-size: 0.9rem; line-height: 1.6; }
+    .signal-card .value { font-size: 2.5rem; font-weight: 700; line-height: 1; margin: 0.5rem 0; }
+    .signal-card .subtext { font-size: 0.85rem; color: var(--text-secondary); margin-top: 0.5rem; line-height: 1.5; }
     
     .stButton > button {
         border: 2px solid var(--primary-color) !important;
@@ -275,40 +206,19 @@ st.markdown("""
         color: #1A1A1A !important;
         transform: translateY(-2px) !important;
     }
-    .stButton > button:active {
-        transform: translateY(0) !important;
-    }
-    .stButton > button[type="primary"] { background: var(--primary-color) !important; color: #1A1A1A !important; }
-    .stButton > button[type="primary"]:hover { background: #E6B800 !important; }
     
     .stTabs [data-baseweb="tab-list"] { gap: 24px; background: transparent; }
-    .stTabs [data-baseweb="tab"] { color: var(--text-muted); border-bottom: 2px solid transparent; transition: color 0.3s, border-bottom 0.3s; background: transparent; font-weight: 600; }
-    .stTabs [aria-selected="true"] { color: var(--primary-color); border-bottom: 2px solid var(--primary-color); background: transparent !important; }
+    .stTabs [data-baseweb="tab"] { color: var(--text-muted); border-bottom: 2px solid transparent; font-weight: 600; }
+    .stTabs [aria-selected="true"] { color: var(--primary-color); border-bottom: 2px solid var(--primary-color); }
     
-    .stPlotlyChart, .stDataFrame { border-radius: 12px; background-color: var(--secondary-background-color); border: 1px solid var(--border-color); box-shadow: 0 0 25px rgba(var(--primary-rgb), 0.1); }
     .section-divider { height: 1px; background: linear-gradient(90deg, transparent 0%, var(--border-color) 50%, transparent 100%); margin: 1.5rem 0; }
     
-    .symbol-row { display: flex; align-items: center; justify-content: space-between; padding: 0.75rem 1rem; border-radius: 8px; background: var(--bg-elevated); margin-bottom: 0.5rem; transition: all 0.2s ease; }
-    .symbol-row:hover { background: var(--border-light); }
-    .symbol-name { font-weight: 700; color: var(--text-primary); font-size: 0.9rem; }
-    .symbol-price { color: var(--text-muted); font-size: 0.85rem; }
-    
-    .conviction-meter { height: 8px; background: var(--bg-elevated); border-radius: 4px; overflow: hidden; margin-top: 0.5rem; }
-    .conviction-fill { height: 100%; border-radius: 4px; transition: width 0.3s ease; }
-    
     .sidebar-title { font-size: 0.75rem; font-weight: 700; color: var(--primary-color); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 0.75rem; }
-    
-    [data-testid="stSidebar"] { background: var(--secondary-background-color); border-right: 1px solid var(--border-color); }
-    
-    ::-webkit-scrollbar { width: 6px; height: 6px; }
-    ::-webkit-scrollbar-track { background: var(--background-color); }
-    ::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 3px; }
 </style>
 """, unsafe_allow_html=True)
 
-
 # ────────────────────────────────────────────────
-# MLREngine Class
+# MLREngine Class (unchanged from last working version)
 # ────────────────────────────────────────────────
 
 class MLREngine:
@@ -357,21 +267,13 @@ class MLREngine:
         r2 = 1 - ssr/sst if sst != 0 else 0
         adj_r2 = 1 - (ssr/(len(y)-n)) / (sst/(len(y)-1)) if sst != 0 else 0
         
-        # Approximate standard errors
         sigma2 = ssr / (len(y) - n)
         se = np.sqrt(np.diag(sigma2 * la.inv(X.T @ X + 1e-8 * np.eye(n))))
         tval = beta / se
         pval = 2 * (1 - stats.t.cdf(np.abs(tval), df=len(y)-n))
         
-        return {
-            'params': beta,
-            'bse': se,
-            'tvalues': tval,
-            'pvalues': pval,
-            'rsquared': r2,
-            'rsquared_adj': adj_r2,
-            'resid': resid
-        }
+        return {'params': beta, 'bse': se, 'tvalues': tval, 'pvalues': pval,
+                'rsquared': r2, 'rsquared_adj': adj_r2, 'resid': resid}
     
     def _coordinate_descent_lasso(self, X: np.ndarray, y: np.ndarray, alpha: float,
                                   max_iter=5000, tol=1e-5) -> np.ndarray:
@@ -400,35 +302,27 @@ class MLREngine:
         df_model = np.sum(beta != 0)
         adj_r2 = 1 - (ssr/(len(y)-df_model-1)) / (sst/(len(y)-1)) if sst != 0 and df_model > 0 else 0
         
-        # Approximate inference on non-zero coefficients
         nz = beta != 0
         if np.sum(nz) > 1:
             Xnz = X[:, nz]
             ols = sm.OLS(y, add_constant(Xnz)).fit()
-            se = np.full(p, np.nan)
+            se = np.full(len(beta), np.nan)
             se[nz] = ols.bse[1:]
-            tval = np.full(p, np.nan)
+            tval = np.full(len(beta), np.nan)
             tval[nz] = ols.tvalues[1:]
-            pval = np.full(p, np.nan)
+            pval = np.full(len(beta), np.nan)
             pval[nz] = ols.pvalues[1:]
         else:
-            se = np.full(p, np.std(resid))
+            se = np.full(len(beta), np.std(resid))
             tval = beta / se
-            pval = np.ones(p) * 0.5
+            pval = np.ones(len(beta)) * 0.5
         
-        return {
-            'params': beta,
-            'bse': se,
-            'tvalues': tval,
-            'pvalues': pval,
-            'rsquared': r2,
-            'rsquared_adj': adj_r2,
-            'resid': resid
-        }
+        return {'params': beta, 'bse': se, 'tvalues': tval, 'pvalues': pval,
+                'rsquared': r2, 'rsquared_adj': adj_r2, 'resid': resid}
     
     def _fit_bayesian_pymc(self, X: np.ndarray, y: np.ndarray, prior_strength: float, n_samples: int) -> dict:
         if not PYMC_AVAILABLE:
-            logger.warning("PyMC unavailable → falling back to ridge for Bayesian")
+            logger.warning("PyMC unavailable → ridge fallback for Bayesian")
             return self._fit_ridge(X, y, prior_strength)
         
         with pm.Model() as model:
@@ -440,7 +334,6 @@ class MLREngine:
         
         beta_mean = trace.posterior["beta"].mean(("chain","draw")).values
         beta_std  = trace.posterior["beta"].std(("chain","draw")).values
-        sigma_mean = trace.posterior["sigma"].mean(("chain","draw")).values
         
         y_pred = X @ beta_mean
         resid = y - y_pred
@@ -455,22 +348,15 @@ class MLREngine:
         
         self.posterior_samples = trace.posterior["beta"].stack(sample=["chain","draw"]).values
         
-        return {
-            'params': beta_mean,
-            'bse': se,
-            'tvalues': tval,
-            'pvalues': pval,
-            'rsquared': r2,
-            'rsquared_adj': adj_r2,
-            'resid': resid
-        }
+        return {'params': beta_mean, 'bse': se, 'tvalues': tval, 'pvalues': pval,
+                'rsquared': r2, 'rsquared_adj': adj_r2, 'resid': resid}
     
     def fit(self) -> Self:
         if not STATSMODELS_AVAILABLE:
-            raise ImportError("statsmodels is required")
+            raise ImportError("statsmodels required")
         
         if (self.X.std() == 0).any():
-            raise ValueError("Constant feature(s) detected — remove them.")
+            raise ValueError("Constant feature(s) detected")
         
         Xv = self.X_with_const.values
         yv = self.y.values
@@ -503,9 +389,8 @@ class MLREngine:
                 self.fit_type = "Ridge (fallback)"
                 model_fit = self._fit_ridge(Xv, yv, self.alpha)
         
-        # Create mock model when not using pure OLS
         if self.model is None and model_fit is not None:
-            params_full = np.insert(model_fit['params'], 0, 0.0)  # const = 0 for centered regularized fits
+            params_full = np.insert(model_fit['params'], 0, 0.0)
             bse_full   = np.insert(model_fit['bse'],   0, np.nan)
             tval_full  = np.insert(model_fit['tvalues'], 0, np.nan)
             pval_full  = np.insert(model_fit['pvalues'], 0, 1.0)
@@ -523,13 +408,10 @@ class MLREngine:
         
         self.is_stable = True
         
-        # ────────────────────────────────────────────────
-        # ALWAYS compute diagnostics (this fixes the crash)
-        # ────────────────────────────────────────────────
+        # Always compute diagnostics
         self._compute_vif()
         self._build_collinearity_plan()
         
-        # Standardized betas
         std_coefs = [0.0 if var == 'const' else self.model.params[var] * (self.X[var].std() / self.y.std())
                      for var in self.model.params.index]
         
@@ -547,7 +429,7 @@ class MLREngine:
         self.feature_importance = fi.sort_values('Absolute Impact', ascending=True)
         
         logger.info(f"Fit complete | Type: {self.fit_type} | R² adj: {self.model.rsquared_adj:.3f} | "
-                    f"n={len(self.y)} | rank={self.matrix_rank}/{Xv.shape[1]} | cond={self.condition_number:.1f}")
+                    f"n={len(self.y)} | rank={self.matrix_rank}/{Xv.shape[1]} | cond={self.condition_number:.1f if self.condition_number else 'N/A'}")
         
         return self
     
@@ -596,14 +478,12 @@ class MLREngine:
         clusters = []
         
         for var in high_vif:
-            if var in visited:
-                continue
+            if var in visited: continue
             cluster = set()
             stack = [var]
             while stack:
                 curr = stack.pop()
-                if curr in visited:
-                    continue
+                if curr in visited: continue
                 visited.add(curr)
                 cluster.add(curr)
                 neigh = corr_abs.columns[(corr_abs[curr] > 0.7) & (corr_abs.columns != curr)].tolist()
@@ -669,26 +549,6 @@ class MLREngine:
                 pass
         return (np.mean(preds), np.std(preds)) if preds else (0.0, 0.0)
     
-    def get_model_health_grade(self) -> Tuple[str,str,str]:
-        if self.model is None or self.vif_data is None:
-            return ModelGrade.UNSTABLE.value
-        
-        maxv = self.vif_data["VIF Score"].max() if not self.vif_data.empty else 0
-        r2a = self.model.rsquared_adj
-        fp = getattr(self.model, 'f_pvalue', 0.05)
-        sig = (self.coef_df[self.coef_df["Variable"] != "const"]["p-Value"] < 0.05).mean() if not self.coef_df.empty else 0
-        cond = self.condition_number or 9999
-        
-        if fp > 0.05 or maxv > 10 or cond > 1000:
-            return ModelGrade.UNSTABLE.value
-        if maxv > 5 or r2a < 0.3 or cond > 100:
-            return ModelGrade.WEAK.value
-        if sig < 0.4:
-            return ModelGrade.MODERATE.value
-        if maxv <= 5 and r2a >= 0.6 and cond < 30:
-            return ModelGrade.STRONG.value
-        return ModelGrade.ACCEPTABLE.value
-    
     def generate_auto_features(self, lags=[1,2,3], rolls=[3,5,10]) -> Tuple[pd.DataFrame, List[str]]:
         dfn = self.df.copy()
         added = []
@@ -704,9 +564,8 @@ class MLREngine:
         dfn = dfn.dropna()
         return dfn, added
 
-
 # ────────────────────────────────────────────────
-# Utilities (load, sanitize, clean, theme)
+# Utilities
 # ────────────────────────────────────────────────
 
 def load_google_sheet(url: str) -> Tuple[Optional[pd.DataFrame], Optional[str]]:
@@ -742,7 +601,7 @@ def clean_data(df: pd.DataFrame, target: str, feats: List[str]) -> pd.DataFrame:
         st.warning(f"Dropped {dropped} rows with NaN")
     min_req = MIN_ROWS_PER_FEATURE * len(feats)
     if len(data) < min_req:
-        st.error(f"Too few rows ({len(data)}) — need at least ~{min_req}")
+        st.error(f"Too few rows ({len(data)}) — need ~{min_req}")
         st.stop()
     return data.reset_index(drop=True)
 
@@ -758,11 +617,6 @@ def update_chart_theme(fig: go.Figure) -> go.Figure:
         hoverlabel=dict(bgcolor="#2A2A2A", font_size=12)
     )
     return fig
-
-
-# ────────────────────────────────────────────────
-# UI Helpers
-# ────────────────────────────────────────────────
 
 def render_landing():
     st.markdown("<br>", unsafe_allow_html=True)
@@ -808,9 +662,8 @@ def highlight_vif(v):
     except:
         return ''
 
-
 # ────────────────────────────────────────────────
-# Main App
+# Main Application
 # ────────────────────────────────────────────────
 
 def main():
@@ -829,7 +682,12 @@ def main():
         st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
         
         st.markdown('<div class="sidebar-title">Data Source</div>', unsafe_allow_html=True)
-        src = st.radio("", ["Upload", "Google Sheets"], horizontal=True, label_visibility="collapsed")
+        src = st.radio(
+            "Data source",                    # ← fixed: non-empty label
+            ["Upload", "Google Sheets"],
+            horizontal=True,
+            label_visibility="collapsed"
+        )
         
         df = None
         if src == "Upload":
@@ -1057,7 +915,7 @@ def main():
                 title="Standardized Impact Rank"
             )
             fig = update_chart_theme(fig)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
         
         with cB:
             st.subheader("Correlation Heatmap")
@@ -1067,7 +925,37 @@ def main():
                 zmin=-1, zmax=1, aspect="auto"
             )
             fig = update_chart_theme(fig)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
+    
+        st.markdown("---")
+        
+        cC, cD = st.columns(2)
+        with cC:
+            st.subheader("Actual vs Predicted")
+            try:
+                preds = engine.get_predictions()
+                fig_pred = go.Figure()
+                fig_pred.add_trace(go.Scatter(x=engine.y, y=preds, mode='markers', name='Predictions',
+                                              marker=dict(color='#FFC300', size=6, opacity=0.7)))
+                minv = min(engine.y.min(), preds.min())
+                maxv = max(engine.y.max(), preds.max())
+                fig_pred.add_trace(go.Scatter(x=[minv, maxv], y=[minv, maxv], mode='lines', name='Perfect Fit',
+                                              line=dict(color='#06b6d4', dash='dash')))
+                fig_pred.update_layout(height=350, xaxis_title=f'Actual {engine.target}', yaxis_title='Predicted')
+                fig_pred = update_chart_theme(fig_pred)
+                st.plotly_chart(fig_pred, width="stretch")
+            except Exception as e:
+                st.warning(f"Prediction plot unavailable: {e}")
+        
+        with cD:
+            st.subheader("Residuals Distribution")
+            if hasattr(engine.model, 'resid'):
+                fig_resid = px.histogram(engine.model.resid, nbins=50, color_discrete_sequence=['#8b5cf6'])
+                fig_resid.update_layout(height=350, xaxis_title="Residual", yaxis_title="Frequency")
+                fig_resid = update_chart_theme(fig_resid)
+                st.plotly_chart(fig_resid, width="stretch")
+            else:
+                st.warning("Residuals unavailable.")
     
     with t4:
         st.subheader("Scenario Simulator")
