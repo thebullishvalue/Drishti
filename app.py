@@ -18,15 +18,18 @@ from typing import List, Dict, Any, Self, Optional, Tuple
 import pytz
 import os
 import streamlit.components.v1 as components
+from enum import Enum
 
 # Enhanced Dependencies
 try:
     import statsmodels.api as sm
     from statsmodels.stats.outliers_influence import variance_inflation_factor
     from statsmodels.tools.tools import add_constant
+    from statsmodels.tools.sm_exceptions import PerfectCollinearityWarning
     STATSMODELS_AVAILABLE = True
 except ImportError:
     sm = None
+    PerfectCollinearityWarning = None
     STATSMODELS_AVAILABLE = False
 
 # Logging Setup
@@ -34,7 +37,8 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Specific Warning Filters (Better than 'ignore all')
-warnings.filterwarnings('ignore', category=sm.exceptions.PerfectCollinearityWarning)
+if STATSMODELS_AVAILABLE:
+    warnings.filterwarnings('ignore', category=PerfectCollinearityWarning)
 warnings.filterwarnings('ignore', category=FutureWarning)  # For deprecations
 
 # --- Constants (Externalizable) ---
@@ -45,8 +49,6 @@ MAX_ROWS = int(os.getenv("TATTVA_MAX_ROWS", "10000"))
 MAX_COLS = int(os.getenv("TATTVA_MAX_COLS", "50"))
 
 # Enums for Clarity
-from enum import Enum
-
 class VIFStatus(Enum):
     EXCELLENT = "Excellent (Uncorrelated)"
     ACCEPTABLE = "Acceptable (Moderate Noise)"
