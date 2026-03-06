@@ -25,20 +25,22 @@ try:
     import statsmodels.api as sm
     from statsmodels.stats.outliers_influence import variance_inflation_factor
     from statsmodels.tools.tools import add_constant
-    from statsmodels.tools.sm_exceptions import PerfectCollinearityWarning
+    # Removed the problematic PerfectCollinearityWarning import
     STATSMODELS_AVAILABLE = True
-except Exception as e:
+except ImportError as e:
+    sm = None
     STATSMODELS_AVAILABLE = False
-    import streamlit as st
-    st.error(f"Statsmodels failed to load: {e}")
+    print(f"Statsmodels import error: {e}")
 
 # Logging Setup
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Specific Warning Filters (Better than 'ignore all')
+# Specific Warning Filters
 if STATSMODELS_AVAILABLE:
-    warnings.filterwarnings('ignore', category=PerfectCollinearityWarning)
+    # Safely ignore collinearity warnings using regex instead of relying on fragile class names
+    warnings.filterwarnings('ignore', message='.*collinearity.*')
+    warnings.filterwarnings('ignore', module='statsmodels')
 warnings.filterwarnings('ignore', category=FutureWarning)  # For deprecations
 
 # --- Constants (Externalizable) ---
