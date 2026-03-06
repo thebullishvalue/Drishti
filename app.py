@@ -2,7 +2,7 @@
 TATTVA (तत्त्व) - MLR Engine | A Hemrek Capital Product
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Enhanced v2.2.0: Bug-fixed, performant, secure MLR with auto-pruning & Monte Carlo.
-Now features the exact Pragyam/Nirnay Design System UI/UX.
+Now features the exact Pragyam/Nirnay Design System UI/UX (Strictly Local).
 """
 
 import streamlit as st
@@ -74,10 +74,10 @@ st.set_page_config(
     initial_sidebar_state="expanded" # Matched to Nirnay
 )
 
-# --- CSS (Exact Pragyam/Nirnay Design System + TATTVA tweaks) ---
+# --- CSS (Exact Pragyam/Nirnay Design System + TATTVA tweaks - 100% Local) ---
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+    /* Removed Google Fonts @import. Relying strictly on local system UI fonts. */
     
     :root {
         --primary-color: #FFC300;
@@ -99,7 +99,9 @@ st.markdown("""
         --purple: #8b5cf6;
     }
     
-    * { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }
+    /* Native System Font Stack - Zero External Calls */
+    * { font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
+    
     .main, [data-testid="stSidebar"] { background-color: var(--background-color); color: var(--text-primary); }
     .stApp > header { background-color: transparent; }
     #MainMenu {visibility: hidden;} footer {visibility: hidden;}
