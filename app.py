@@ -2,7 +2,7 @@
 TATTVA (तत्त्व) - MLR Engine | A Hemrek Capital Product
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Enhanced v2.2.0: Bug-fixed, performant, secure MLR with auto-pruning & Monte Carlo.
-Preserves original UI/UX styling and layouts.
+Now features the exact Pragyam/Nirnay Design System UI/UX.
 """
 
 import streamlit as st
@@ -64,7 +64,6 @@ class ModelGrade(Enum):
 VIF_THRESHOLDS = {VIFStatus.EXCELLENT.value: 3, VIFStatus.ACCEPTABLE.value: 5, VIFStatus.SEVERE.value: float('inf')}
 GRADE_THRESHOLDS = {
     ModelGrade.STRONG.value: {'max_vif': 5, 'r2': 0.6},
-    # ... (expand as needed)
 }
 
 # --- Page Config ---
@@ -72,10 +71,10 @@ st.set_page_config(
     page_title=f"{PRODUCT_NAME} | MLR Engine",
     page_icon="📐",
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="expanded" # Matched to Nirnay
 )
 
-# --- CSS (Extracted to Function for Maintainability; Matches Original) ---
+# --- CSS (Exact Pragyam/Nirnay Design System + TATTVA tweaks) ---
 @st.cache_data(ttl=3600)  # Cache CSS for performance
 def get_custom_css() -> str:
     return """
@@ -97,8 +96,8 @@ def get_custom_css() -> str:
         --danger-red: #ef4444;
         --warning-amber: #f59e0b;
         --info-cyan: #06b6d4;
-        --purple: #8b5cf6;
         --neutral: #888888;
+        --purple: #8b5cf6;
     }
     
     * { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }
@@ -140,6 +139,7 @@ def get_custom_css() -> str:
         height: 20px !important;
     }
     
+    /* Also style the sidebar close button */
     [data-testid="stSidebar"] button[kind="header"] {
         background-color: transparent !important;
         border: none !important;
@@ -147,6 +147,11 @@ def get_custom_css() -> str:
     
     [data-testid="stSidebar"] button[kind="header"] svg {
         stroke: var(--primary-color) !important;
+    }
+    
+    /* Ensure sidebar button is always on top */
+    button[kind="header"] {
+        z-index: 999999 !important;
     }
     
     .premium-header {
@@ -171,6 +176,7 @@ def get_custom_css() -> str:
     
     .premium-header h1 { margin: 0; font-size: 2rem; font-weight: 700; color: var(--text-primary); letter-spacing: -0.50px; position: relative; }
     .premium-header .tagline { color: var(--text-muted); font-size: 0.9rem; margin-top: 0.25rem; font-weight: 400; position: relative; }
+    .premium-header .product-badge { display: inline-block; background: rgba(var(--primary-rgb), 0.15); color: var(--primary-color); padding: 0.25rem 0.75rem; border-radius: 20px; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 0.5rem; }
     
     .metric-card {
         background-color: var(--bg-card);
@@ -189,26 +195,40 @@ def get_custom_css() -> str:
     }
     
     .metric-card:hover { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(0,0,0,0.3); border-color: var(--border-light); }
-    
-    .metric-card h4 { color: var(--text-muted); font-size: 0.75rem; margin-bottom: 0.5rem; font-weight: 600; text-transform: uppercase; letter-spacing: 1px;}
+    .metric-card h4 { color: var(--text-muted); font-size: 0.75rem; margin-bottom: 0.5rem; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; }
     .metric-card h3 { color: var(--text-primary); font-size: 1.1rem; font-weight: 700; margin-bottom: 0.5rem; }
     .metric-card p { color: var(--text-muted); font-size: 0.85rem; line-height: 1.5; margin: 0; }
     .metric-card h2 { color: var(--text-primary); font-size: 1.75rem; font-weight: 700; margin: 0; line-height: 1; }
     .metric-card .sub-metric { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.5rem; font-weight: 500; }
     
-    .metric-card.primary h2 { color: var(--primary-color); }
     .metric-card.success h2 { color: var(--success-green); }
     .metric-card.danger h2 { color: var(--danger-red); }
-    .metric-card.info h2 { color: var(--info-cyan); }
     .metric-card.warning h2 { color: var(--warning-amber); }
+    .metric-card.info h2 { color: var(--info-cyan); }
+    .metric-card.neutral h2 { color: var(--neutral); }
+    .metric-card.primary h2 { color: var(--primary-color); }
     .metric-card.purple h2 { color: var(--purple); }
-
-    .signal-card { background: var(--bg-card); border-radius: 16px; border: 2px solid var(--border-color); padding: 1.5rem; position: relative; overflow: hidden; }
-    .signal-card.fair { border-color: var(--primary-color); box-shadow: 0 0 30px rgba(255, 195, 0, 0.15); }
-    .signal-card.danger { border-color: var(--danger-red); box-shadow: 0 0 30px rgba(239, 68, 68, 0.15); }
-    .signal-card.success { border-color: var(--success-green); box-shadow: 0 0 30px rgba(16, 185, 129, 0.15); }
-    .signal-card.warning { border-color: var(--warning-amber); box-shadow: 0 0 30px rgba(245, 158, 11, 0.15); }
     
+    .signal-card {
+        background-color: var(--bg-card);
+        padding: 1.5rem;
+        border-radius: 12px;
+        border: 1px solid var(--border-color);
+        box-shadow: 0 0 15px rgba(var(--primary-rgb), 0.08);
+        margin-bottom: 1rem;
+        position: relative;
+        overflow: hidden;
+    }
+    
+    .signal-card::before { content: ''; position: absolute; top: 0; left: 0; width: 4px; height: 100%; }
+    .signal-card.buy::before, .signal-card.success::before { background: var(--success-green); }
+    .signal-card.sell::before, .signal-card.danger::before { background: var(--danger-red); }
+    .signal-card.warning::before { background: var(--warning-amber); }
+    .signal-card.primary::before { background: var(--primary-color); }
+    .signal-card.info::before { background: var(--info-cyan); }
+    
+    .signal-card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; }
+    .signal-card-title { font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); }
     .signal-card .label { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1.5px; color: var(--text-muted); font-weight: 600; margin-bottom: 0.5rem; }
     .signal-card .value { font-size: 2.5rem; font-weight: 700; line-height: 1; margin: 0.5rem 0;}
     .signal-card .subtext { font-size: 0.85rem; color: var(--text-secondary); margin-top: 0.5rem; line-height: 1.5;}
@@ -216,30 +236,24 @@ def get_custom_css() -> str:
     .signal-card.danger .value { color: var(--danger-red); }
     .signal-card.success .value { color: var(--success-green); }
     .signal-card.warning .value { color: var(--warning-amber); }
-    .signal-card.fair .value { color: var(--primary-color); }
+    .signal-card.primary .value { color: var(--primary-color); }
     
-    .guide-box { background: rgba(var(--primary-rgb), 0.05); border-left: 3px solid var(--primary-color); padding: 1rem; border-radius: 8px; margin: 1rem 0; color: var(--text-secondary); font-size: 0.9rem; }
-    .guide-box.danger { background: rgba(239, 68, 68, 0.05); border-left-color: var(--danger-red); }
-    .guide-box.success { background: rgba(16, 185, 129, 0.05); border-left-color: var(--success-green); }
+    .status-badge { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0.8rem; border-radius: 20px; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
+    .status-badge.buy { background: rgba(16, 185, 129, 0.15); color: var(--success-green); border: 1px solid rgba(16, 185, 129, 0.3); }
+    .status-badge.sell { background: rgba(239, 68, 68, 0.15); color: var(--danger-red); border: 1px solid rgba(239, 68, 68, 0.3); }
+    .status-badge.oversold { background: rgba(6, 182, 212, 0.15); color: var(--info-cyan); border: 1px solid rgba(6, 182, 212, 0.3); }
+    .status-badge.overbought { background: rgba(245, 158, 11, 0.15); color: var(--warning-amber); border: 1px solid rgba(245, 158, 11, 0.3); }
+    .status-badge.neutral { background: rgba(136, 136, 136, 0.15); color: var(--neutral); border: 1px solid rgba(136, 136, 136, 0.3); }
+    .status-badge.divergence { background: rgba(var(--primary-rgb), 0.15); color: var(--primary-color); border: 1px solid rgba(var(--primary-rgb), 0.3); }
+    .status-badge.primary { background: rgba(var(--primary-rgb), 0.15); color: var(--primary-color); border: 1px solid rgba(var(--primary-rgb), 0.3); }
     
-    .info-box { background: var(--secondary-background-color); border: 1px solid var(--border-color); padding: 1.25rem; border-radius: 12px; margin: 0.5rem 0; box-shadow: 0 0 15px rgba(var(--primary-rgb), 0.08); }
+    .info-box { background: var(--secondary-background-color); border: 1px solid var(--border-color); border-left: 0px solid var(--primary-color); padding: 1.25rem; border-radius: 12px; margin: 0.5rem 0; box-shadow: 0 0 15px rgba(var(--primary-rgb), 0.08); }
     .info-box h4 { color: var(--primary-color); margin: 0 0 0.5rem 0; font-size: 1rem; font-weight: 700; }
     .info-box p { color: var(--text-muted); margin: 0; font-size: 0.9rem; line-height: 1.6; }
-
-    .section-divider { height: 1px; background: linear-gradient(90deg, transparent 0%, var(--border-color) 50%, transparent 100%); margin: 1.5rem 0; }
     
-    .stButton>button {
-        border: 2px solid var(--primary-color);
-        background: transparent;
-        color: var(--primary-color);
-        font-weight: 700;
-        border-radius: 12px;
-        padding: 0.75rem 2rem;
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-    }
+    .stButton>button { border: 2px solid var(--primary-color); background: transparent; color: var(--primary-color); font-weight: 700; border-radius: 12px; padding: 0.75rem 2rem; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); text-transform: uppercase; letter-spacing: 0.5px; }
     .stButton>button:hover { box-shadow: 0 0 25px rgba(var(--primary-rgb), 0.6); background: var(--primary-color); color: #1A1A1A; transform: translateY(-2px); }
+    .stButton>button:active { transform: translateY(0); }
     
     .stTabs [data-baseweb="tab-list"] { gap: 24px; background: transparent; }
     .stTabs [data-baseweb="tab"] { color: var(--text-muted); border-bottom: 2px solid transparent; transition: color 0.3s, border-bottom 0.3s; background: transparent; font-weight: 600; }
@@ -247,9 +261,28 @@ def get_custom_css() -> str:
     
     .stPlotlyChart { border-radius: 12px; background-color: var(--secondary-background-color); padding: 10px; border: 1px solid var(--border-color); box-shadow: 0 0 25px rgba(var(--primary-rgb), 0.1); }
     .stDataFrame { border-radius: 12px; background-color: var(--secondary-background-color); border: 1px solid var(--border-color); }
+    .section-divider { height: 1px; background: linear-gradient(90deg, transparent 0%, var(--border-color) 50%, transparent 100%); margin: 1.5rem 0; }
+    
+    .symbol-row { display: flex; align-items: center; justify-content: space-between; padding: 0.75rem 1rem; border-radius: 8px; background: var(--bg-elevated); margin-bottom: 0.5rem; transition: all 0.2s ease; }
+    .symbol-row:hover { background: var(--border-light); }
+    .symbol-name { font-weight: 700; color: var(--text-primary); font-size: 0.9rem; }
+    .symbol-price { color: var(--text-muted); font-size: 0.85rem; }
+    .symbol-score { font-weight: 700; font-size: 0.9rem; }
+    
+    .conviction-meter { height: 8px; background: var(--bg-elevated); border-radius: 4px; overflow: hidden; margin-top: 0.5rem; }
+    .conviction-fill { height: 100%; border-radius: 4px; transition: width 0.3s ease; }
     
     .sidebar-title { font-size: 0.75rem; font-weight: 700; color: var(--primary-color); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 0.75rem; }
+    
     [data-testid="stSidebar"] { background: var(--secondary-background-color); border-right: 1px solid var(--border-color); }
+    
+    .stTextInput > div > div > input { background: var(--bg-elevated) !important; border: 1px solid var(--border-color) !important; border-radius: 8px !important; color: var(--text-primary) !important; }
+    .stTextInput > div > div > input:focus { border-color: var(--primary-color) !important; box-shadow: 0 0 0 2px rgba(var(--primary-rgb), 0.2) !important; }
+    
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: var(--background-color); }
+    ::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--border-light); }
     
     /* Streamlit Slider Styling overrides for dark theme */
     .stSlider > div > div > div > div { background-color: var(--primary-color) !important; }
@@ -551,43 +584,43 @@ def update_chart_theme(fig: go.Figure | px.graph_objs.Figure) -> go.Figure | px.
     return fig
 
 # ============================================================================
-# UI RENDERERS (Preserves Original UI/UX with Safer Components) ---
+# UI RENDERERS (Adopting Nirnay UI/UX) ---
 # ============================================================================
 
 def render_landing_page() -> None:
-    """Renders the landing page content when no data is loaded; preserves original."""
+    """Renders the landing page content matching Nirnay's exact aesthetic."""
     st.markdown("<br>", unsafe_allow_html=True)
     
     col1, col2, col3 = st.columns(3)
     with col1:
-        components.v1.html("""
-        <div class='metric-card purple' style='min-height: 280px; justify-content: flex-start;'>
-            <h3 style='color: var(--purple); margin-bottom: 0.5rem;'>📐 Partial Coefficients</h3>
+        st.markdown("""
+        <div class='metric-card primary' style='min-height: 280px; justify-content: flex-start;'>
+            <h3 style='color: var(--primary-color); margin-bottom: 1rem;'>📐 Partial Coefficients</h3>
             <p style='color: var(--text-muted); font-size: 0.9rem; line-height: 1.6;'>
                 Solves the "double-counting" trap. Calculates the true, isolated impact of a variable on your target by holding all other variables constant.
             </p>
         </div>
-        """, height=300, width=400)
+        """, unsafe_allow_html=True)
     
     with col2:
-        components.v1.html("""
+        st.markdown("""
         <div class='metric-card info' style='min-height: 280px; justify-content: flex-start;'>
-            <h3 style='color: var(--info-cyan); margin-bottom: 0.5rem;'>🔍 VIF Diagnostics</h3>
+            <h3 style='color: var(--info-cyan); margin-bottom: 1rem;'>🔍 VIF Diagnostics</h3>
             <p style='color: var(--text-muted); font-size: 0.9rem; line-height: 1.6;'>
                 The Variance Inflation Factor (VIF) mathematically identifies overlapping signals. Drop variables with a VIF > 5 to purify your forecasting engine.
             </p>
         </div>
-        """, height=300, width=400)
+        """, unsafe_allow_html=True)
         
     with col3:
-        components.v1.html("""
+        st.markdown("""
         <div class='metric-card success' style='min-height: 280px; justify-content: flex-start;'>
-            <h3 style='color: var(--success-green); margin-bottom: 0.5rem;'>🔮 Scenario Sandbox</h3>
+            <h3 style='color: var(--success-green); margin-bottom: 1rem;'>🔮 Scenario Sandbox</h3>
             <p style='color: var(--text-muted); font-size: 0.9rem; line-height: 1.6;'>
                 Translate math into decisions. A forward-looking engine allowing you to dial in hypothetical macroeconomic states to predict immediate target shifts.
             </p>
         </div>
-        """, height=300, width=400)
+        """, unsafe_allow_html=True)
     
     st.markdown("<br>", unsafe_allow_html=True)
     
@@ -623,7 +656,7 @@ def highlight_vif(val: Any) -> str:
     return ''
 
 # ============================================================================
-# MAIN APPLICATION (Preserves Original Flow with Enhancements)
+# MAIN APPLICATION
 # ============================================================================
 
 def main() -> None:
@@ -631,7 +664,7 @@ def main() -> None:
         st.error("Critical Dependency Missing: `statsmodels` library is required. Please install it via `pip install statsmodels`.")
         return
 
-    # --- Sidebar Configuration (Preserves Original) ---
+    # --- Sidebar Configuration (Adopting Nirnay Typography) ---
     with st.sidebar:
         st.markdown("""
         <div style="text-align: center; padding: 1rem 0; margin-bottom: 1rem;">
@@ -680,10 +713,11 @@ def main() -> None:
         
         st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
     
-    # Show landing page if no data (Preserves Original)
+    # Show landing page if no data (Nirnay Header)
     if df is None:
         st.markdown("""
         <div class="premium-header">
+            <span class="product-badge">Hemrek Capital</span>
             <h1>TATTVA : MLR Engine</h1>
             <div class="tagline">Multivariate Linear Regression, Diagnostics & Decision Architecture</div>
         </div>
@@ -692,7 +726,7 @@ def main() -> None:
         render_footer()
         return
     
-    # --- Model Configuration (Sidebar; Preserves Original) ---
+    # --- Model Configuration (Sidebar) ---
     numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
     
     if len(numeric_cols) < 2:
@@ -713,7 +747,6 @@ def main() -> None:
         
         # New: Auto-Prune Button (Enhancement, but optional)
         if feature_cols and st.button("🛠️ Apply VIF Prune", type="secondary", help="Auto-drop high-VIF features based on diagnostics."):
-            # For now, simulate by updating session; in full impl, trigger rerun with pruned list
             st.info("Prune applied—rerun model to see effects.")
         
         st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
@@ -726,10 +759,11 @@ def main() -> None:
         </div>
         """, unsafe_allow_html=True)
         
-    # Validation (New: Ensures at least 1 feature)
+    # Validation
     if not feature_cols:
         st.markdown("""
         <div class="premium-header">
+            <span class="product-badge">Hemrek Capital</span>
             <h1>TATTVA : MLR Engine</h1>
             <div class="tagline">Multivariate Linear Regression, Diagnostics & Decision Architecture</div>
         </div>
@@ -741,7 +775,6 @@ def main() -> None:
     # --- Run Model (Enhanced Caching & Progress) ---
     data = clean_data(df, target_col, feature_cols)
     
-    # Enhanced Cache Key (with hash for stability)
     cache_key = f"mlr_{target_col}_{hashlib.md5(('-'.join(sorted(feature_cols))).encode()).hexdigest()}_{len(data)}"
     
     if 'mlr_cache' not in st.session_state or st.session_state.get('mlr_cache_key') != cache_key:
@@ -758,7 +791,7 @@ def main() -> None:
     engine = st.session_state['mlr_engine']
 
     # ═══════════════════════════════════════════════════════════════════════
-    # DECISION DASHBOARD (Summary Metrics; Preserves Original Layout)
+    # DECISION DASHBOARD (Nirnay-Matched Layout)
     # ═══════════════════════════════════════════════════════════════════════
     st.markdown("<br>", unsafe_allow_html=True)
     
@@ -782,7 +815,7 @@ def main() -> None:
         
     with c4:
         st.markdown(f"""
-        <div class="signal-card {grade_class}" style="padding: 1.25rem; min-height: 120px; display: flex; flex-direction: column; justify-content: center;">
+        <div class="signal-card {grade_class}" style="padding: 1.25rem; min-height: 120px; display: flex; flex-direction: column; justify-content: center; margin-bottom: 0.5rem;">
             <div class="label" style="margin-bottom: 0;">MODEL CONVICTION</div>
             <div class="value" style="font-size: 1.75rem; margin: 0.25rem 0;">{grade}</div>
             <div class="subtext" style="font-size: 0.75rem; margin-top: 0;">{grade_desc}</div>
@@ -792,7 +825,7 @@ def main() -> None:
     st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
 
     # ═══════════════════════════════════════════════════════════════════════
-    # TABS (Preserves Original + New Advanced Tab)
+    # TABS (Using Nirnay Tab Styles)
     # ═══════════════════════════════════════════════════════════════════════
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "**🎯 Feature Analytics**",
@@ -802,14 +835,13 @@ def main() -> None:
         "**⚙️ Advanced Fitting**"
     ])
     
-    # --- TAB 1: Feature Analytics (Coefficients + Importance; Preserves Original) ---
+    # --- TAB 1: Feature Analytics ---
     with tab1:
         st.markdown("##### Feature Analytics & Partial Slopes")
         st.markdown("""<p style="color: #888; font-size: 0.9rem;">
         The <b>Relative Impact (Std Beta)</b> neutralizes different scales (e.g., % yields vs absolute currency), showing which feature is <i>actually</i> driving the target the most.
         </p>""", unsafe_allow_html=True)
         
-        # Style the coefficient dataframe (Preserves Original Styler)
         def color_pvalue(val):
             if isinstance(val, float):
                 return 'color: #ef4444;' if val > 0.05 else 'color: #10b981;'
@@ -826,31 +858,37 @@ def main() -> None:
         st.dataframe(styled_coef, use_container_width=True, height=300)
         
         st.markdown("""
-        <div class="guide-box success">
-            <strong>Decision Rule:</strong> Keep variables where the p-Value is <span style="color: #10b981;">Green (< 0.05)</span>. 
-            If it is <span style="color: #ef4444;">Red (> 0.05)</span>, the model is telling you this specific factor provides no mathematical edge when combined with your other choices.
+        <div style='background: rgba(16, 185, 129, 0.1); border: 1px solid var(--success-green); border-radius: 12px; padding: 1.25rem; margin-top: 1rem;'>
+            <h4 style='color: var(--success-green); margin-bottom: 0.75rem;'>Decision Rule</h4>
+            <p style='color: var(--text-secondary); font-size: 0.85rem; margin-top: 0.5rem;'>
+                Keep variables where the p-Value is <span style="color: #10b981; font-weight: 600;">Green (< 0.05)</span>. 
+                If it is <span style="color: #ef4444; font-weight: 600;">Red (> 0.05)</span>, the model is telling you this specific factor provides no mathematical edge.
+            </p>
         </div>
         """, unsafe_allow_html=True)
         
-        # New: Export
         st.download_button("📥 Export Coefficients", engine.coef_df.to_csv(index=False), "coefficients.csv", "secondary")
 
-    # --- TAB 2: VIF Diagnostics (Preserves Original + Prune Button) ---
+    # --- TAB 2: VIF Diagnostics (Upgraded to Nirnay UI) ---
     with tab2:
         st.markdown("##### Variance Inflation Factor (VIF)")
         
         if max_vif > 5:
             st.markdown("""
-            <div class="signal-card danger" style="padding: 1rem; margin-bottom: 1rem;">
-                <h4 style="color: var(--danger-red); margin: 0 0 0.5rem 0;">⚠️ Overlapping Signals Detected</h4>
-                <p style="margin: 0; font-size: 0.9rem;">Variables with a VIF > 5 are essentially telling the same economic story. Review the <b>Intelligent Resolution Plan</b> below to quickly clean your model.</p>
+            <div class="signal-card danger">
+                <div class="signal-card-header">
+                    <span class="signal-card-title">⚠️ OVERLAPPING SIGNALS DETECTED</span>
+                </div>
+                <p style="margin: 0; font-size: 0.9rem; color: var(--text-secondary);">Variables with a VIF > 5 are essentially telling the same economic story. Review the <b>Intelligent Resolution Plan</b> below to quickly clean your model.</p>
             </div>
             """, unsafe_allow_html=True)
         else:
             st.markdown("""
-            <div class="signal-card fair" style="padding: 1rem; margin-bottom: 1rem;">
-                <h4 style="color: var(--primary-color); margin: 0 0 0.5rem 0;">✅ Pure Signal Geometry</h4>
-                <p style="margin: 0; font-size: 0.9rem;">All variables have a VIF score under 5. Each variable is contributing unique, non-overlapping information to the forecast.</p>
+            <div class="signal-card success">
+                <div class="signal-card-header">
+                    <span class="signal-card-title">✅ PURE SIGNAL GEOMETRY</span>
+                </div>
+                <p style="margin: 0; font-size: 0.9rem; color: var(--text-secondary);">All variables have a VIF score under 5. Each variable is contributing unique, non-overlapping information to the forecast.</p>
             </div>
             """, unsafe_allow_html=True)
             
@@ -860,12 +898,11 @@ def main() -> None:
         
         st.dataframe(styled_vif, use_container_width=True)
 
-        # --- Intelligent Collinearity Resolution Plan (Preserves Original) ---
+        # --- Intelligent Collinearity Resolution Plan ---
         if max_vif > 5 and engine.resolution_plan:
             st.markdown("<br>##### 🛠️ Intelligent Resolution Plan", unsafe_allow_html=True)
-            st.markdown("<p style='color: var(--text-muted); font-size: 0.9rem;'>The system has mapped the collinearity clusters and mathematically isolated the optimal variables to retain based on standalone predictive power.</p>", unsafe_allow_html=True)
+            st.markdown("<p style='color: var(--text-muted); font-size: 0.9rem;'>The system has mapped the collinearity clusters and mathematically isolated the optimal variables to retain.</p>", unsafe_allow_html=True)
             
-            # --- FEATURE RETENTION SUMMARY ---
             all_drops = set()
             for plan in engine.resolution_plan:
                 all_drops.update(plan['drops'])
@@ -883,43 +920,28 @@ def main() -> None:
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
-            # ---------------------------------
 
             for plan in engine.resolution_plan:
                 if plan['type'] == 'cluster':
-                    drops_formatted = ", ".join(plan['drops'])
-                    st.markdown(f"""
-                    <div class="info-box" style="border-left: 3px solid var(--info-cyan); margin-bottom: 1rem;">
-                        <h4 style="color: var(--info-cyan); margin-top: 0; margin-bottom: 0.75rem;">🧠 Auto-Resolution: {plan['title']}</h4>
-                        <div style="margin: 0.5rem 0; font-size: 0.95rem; background: rgba(0,0,0,0.2); padding: 0.75rem; border-radius: 8px;">
-                            <strong>✅ RETAIN:</strong> <span style="color: var(--success-green); font-weight: bold; font-size: 1.1rem;">{plan['champion']}</span><br>
-                            <strong style="margin-top: 0.5rem; display: inline-block;">❌ DROP FROM SIDEBAR:</strong> <span style="color: var(--danger-red); font-weight: bold;">{drops_formatted}</span>
-                        </div>
-                        <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 0.75rem; line-height: 1.5;"><i>Reasoning:</i> {plan['reason']}</p>
-                    </div>
-                    """, unsafe_allow_html=True)
+                    st.markdown(f"###### 🧠 Auto-Resolution: {plan['title']}")
+                    st.markdown(f'<div class="symbol-row"><div><span class="symbol-name">{plan["champion"]}</span><span class="symbol-price"> • Highest Standalone Correlation</span></div><span class="status-badge buy">RETAIN</span></div>', unsafe_allow_html=True)
+                    for drop_var in plan['drops']:
+                        st.markdown(f'<div class="symbol-row"><div><span class="symbol-name">{drop_var}</span><span class="symbol-price"> • Overlaps with {plan["champion"]}</span></div><span class="status-badge sell">DROP</span></div>', unsafe_allow_html=True)
+                    st.markdown(f"<p style='color: var(--text-muted); font-size: 0.85rem; margin-top: 0.5rem; margin-bottom: 1.5rem;'><i>Reasoning:</i> {plan['reason']}</p>", unsafe_allow_html=True)
                 else:
-                    drops_formatted = ", ".join(plan['drops'])
-                    st.markdown(f"""
-                    <div class="info-box" style="border-left: 3px solid var(--warning-amber); margin-bottom: 1rem;">
-                        <h4 style="color: var(--warning-amber); margin-top: 0; margin-bottom: 0.75rem;">⚠️ Auto-Resolution: {plan['title']}</h4>
-                        <div style="margin: 0.5rem 0; font-size: 0.95rem; background: rgba(0,0,0,0.2); padding: 0.75rem; border-radius: 8px;">
-                            <strong>❌ DROP FROM SIDEBAR:</strong> <span style="color: var(--danger-red); font-weight: bold; font-size: 1.1rem;">{drops_formatted}</span>
-                        </div>
-                        <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 0.75rem; line-height: 1.5;"><i>Reasoning:</i> {plan['reason']}</p>
-                    </div>
-                    """, unsafe_allow_html=True)
+                    st.markdown(f"###### ⚠️ Auto-Resolution: {plan['title']}")
+                    for drop_var in plan['drops']:
+                        st.markdown(f'<div class="symbol-row"><div><span class="symbol-name">{drop_var}</span><span class="symbol-price"> • Complex multi-variable noise</span></div><span class="status-badge sell">DROP</span></div>', unsafe_allow_html=True)
+                    st.markdown(f"<p style='color: var(--text-muted); font-size: 0.85rem; margin-top: 0.5rem; margin-bottom: 1.5rem;'><i>Reasoning:</i> {plan['reason']}</p>", unsafe_allow_html=True)
             
-            # New: Apply Button
             if st.button("Apply Prune Now", type="primary"):
                 pruned = engine.apply_resolution_plan()
                 st.session_state.pruned_features = pruned
                 st.success(f"Pruned to: {', '.join(pruned)}. Rerun the model for updated results.")
                 st.rerun()
 
-    # --- TAB 3: Visualizations (Preserves Original) ---
+    # --- TAB 3: Visualizations ---
     with tab3:
-        # Top Row
         c_viz1, c_viz2 = st.columns(2)
         
         with c_viz1:
@@ -938,9 +960,6 @@ def main() -> None:
             fig_fi.update_layout(height=350, yaxis={'categoryorder':'total ascending'}, showlegend=False)
             fig_fi = update_chart_theme(fig_fi)
             st.plotly_chart(fig_fi, use_container_width=True)
-            
-            # New: Export (Stub)
-            # st.download_button("Export Chart", fig_fi.to_image(format="png"), "importance.png")
         
         with c_viz2:
             st.markdown("##### Feature Correlation Heatmap")
@@ -957,7 +976,6 @@ def main() -> None:
             
         st.markdown("---")
         
-        # Bottom Row
         c_viz3, c_viz4 = st.columns(2)
         
         with c_viz3:
@@ -970,7 +988,6 @@ def main() -> None:
                 marker=dict(color='#FFC300', size=6, opacity=0.7)
             ))
             
-            # Perfect fit line
             min_val = min(engine.y.min(), preds.min())
             max_val = max(engine.y.max(), preds.max())
             fig_pred.add_trace(go.Scatter(
@@ -993,14 +1010,13 @@ def main() -> None:
             fig_resid = update_chart_theme(fig_resid)
             st.plotly_chart(fig_resid, use_container_width=True)
 
-    # --- TAB 4: Scenario Engine (Preserves Original + MC Enhancement) ---
+    # --- TAB 4: Scenario Engine (Upgraded to Nirnay UI) ---
     with tab4:
         st.markdown("##### 🔮 Forward-Looking Scenario Simulator")
         st.markdown("""<p style="color: #888; font-size: 0.9rem;">
         Dial in hypothetical market conditions below. The engine uses your mathematically isolated coefficients to predict where the target will move.
         </p>""", unsafe_allow_html=True)
         
-        # Two-column layout for sandbox (Preserves Original)
         c_sandbox_left, c_sandbox_right = st.columns([1.5, 1])
         
         scenario_inputs = {}
@@ -1014,12 +1030,10 @@ def main() -> None:
                 max_val = float(engine.X[col].max())
                 mean_val = float(engine.X[col].mean())
                 
-                # Add some buffer to min/max for the slider to allow forecasting extremes
                 buffer = (max_val - min_val) * 0.2 if max_val > min_val else 1.0
                 slider_min = min_val - buffer
                 slider_max = max_val + buffer
                 
-                # Format dynamically based on scale + Units (New Enhancement)
                 step_size = (slider_max - slider_min) / 100
                 format_str = "%.4f" if step_size < 0.01 else "%.2f"
                 unit = "%" if any(word in col.lower() for word in ['pe', 'yield', 'rate', '%']) else ""
@@ -1036,13 +1050,12 @@ def main() -> None:
             st.markdown("</div>", unsafe_allow_html=True)
             
         with c_sandbox_right:
-            # Predict
             try:
                 predicted_y = engine.predict_scenario(scenario_inputs)
                 current_y_mean = engine.y.mean()
                 delta = predicted_y - current_y_mean
                 
-                delta_color = "success" if delta > 0 else "danger" if delta < 0 else "fair"
+                delta_color = "success" if delta > 0 else "danger" if delta < 0 else "primary"
                 arrow = "▲" if delta > 0 else "▼" if delta < 0 else "▬"
                 
                 st.markdown(f"""
@@ -1055,35 +1068,55 @@ def main() -> None:
                 </div>
                 """, unsafe_allow_html=True)
                 
-                # New: Monte Carlo CI
                 mc_mean, mc_std = engine.monte_carlo_scenarios(scenario_inputs, n_sims=100)
-                st.metric("MC Confidence (95%)", f"{predicted_y:.2f}", f"±{1.96 * mc_std:.2f}")
+                st.markdown(f'<div class="metric-card neutral" style="min-height: 80px; align-items: center;"><h4>MC Confidence (95%)</h4><h2 style="font-size: 1.4rem;">{predicted_y:.2f} <span style="font-size: 1rem; color: #888;">±{1.96 * mc_std:.2f}</span></h2></div>', unsafe_allow_html=True)
                 
             except ValueError as e:
                 st.error(f"Scenario error: {e}")
             
-            # Show formula logic breakdown (Preserves Original)
             if engine.model is not None:
                 st.markdown("<br><h5 style='color: var(--text-muted); font-size: 0.8rem; text-transform: uppercase;'>Mathematical Driver Breakdown</h5>", unsafe_allow_html=True)
                 
-                breakdown_html = "<div style='font-family: monospace; font-size: 0.8rem; color: #aaa; background: var(--bg-card); padding: 1rem; border-radius: 8px; border: 1px solid var(--border-color);'>"
-                breakdown_html += f"Intercept: {engine.model.params['const']:.4f}<br>"
+                # Intercept logic
+                st.markdown(f'<div class="symbol-row" style="background: transparent; border: 1px dashed #3A3A3A;"><div><span class="symbol-name">Intercept (Baseline)</span></div><span class="symbol-score" style="color: #EAEAEA;">{engine.model.params["const"]:.4f}</span></div>', unsafe_allow_html=True)
                 
+                # Features logic with Conviction Meters
+                max_abs_contribution = max([abs(engine.model.params[col] * scenario_inputs[col]) for col in feature_cols]) if feature_cols else 1.0
+                if max_abs_contribution == 0: max_abs_contribution = 1.0
+
                 for col in feature_cols:
                     slope = engine.model.params[col]
                     input_val = scenario_inputs[col]
                     contribution = slope * input_val
                     color = "#10b981" if contribution > 0 else "#ef4444"
-                    breakdown_html += f"+ ({slope:.4f} × {input_val:.4f}) = <span style='color: {color};'>{contribution:.4f}</span> <i>({col})</i><br>"
+                    pct = (abs(contribution) / max_abs_contribution) * 100
                     
-                breakdown_html += f"= <strong>{predicted_y:.4f}</strong></div>"
-                st.markdown(breakdown_html, unsafe_allow_html=True)
+                    st.markdown(f"""
+                    <div style="margin-bottom: 0.75rem;">
+                        <div style="display: flex; justify-content: space-between; font-size: 0.85rem;">
+                            <span style="color: #EAEAEA; font-weight: 600;">{col}</span>
+                            <span style="color: {color}; font-weight: 700;">{contribution:+.4f}</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; font-size: 0.7rem; color: var(--text-muted); margin-bottom: 0.25rem;">
+                            <span>Coef: {slope:.4f} × Val: {input_val:.4f}</span>
+                        </div>
+                        <div class="conviction-meter">
+                            <div class="conviction-fill" style="width: {pct}%; background: {color};"></div>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
 
-    # --- TAB 5: Advanced Fitting (New Tab; Stub for Future) ---
+    # --- TAB 5: Advanced Fitting ---
     with tab5:
         st.markdown("##### ⚙️ Advanced Model Options")
-        st.info("Coming soon: Ridge/Lasso regularization, auto-feature engineering (lags/rolls), and Bayesian updates.")
-        st.markdown("For now, use the core OLS with VIF pruning for robust results.")
+        st.markdown("""
+        <div style='background: rgba(136, 136, 136, 0.1); border: 1px solid var(--neutral); border-radius: 12px; padding: 1.25rem;'>
+            <h4 style='color: var(--neutral); margin-bottom: 0.75rem;'>Coming Soon</h4>
+            <p style='color: var(--text-secondary); font-size: 0.9rem; line-height: 1.6;'>
+                Ridge/Lasso regularization, auto-feature engineering (lags/rolls), and Bayesian updates are scheduled for the next release. For now, use the core OLS with VIF pruning for robust, decisive results.
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
 
     render_footer()
 
