@@ -760,6 +760,26 @@ def main():
             st.markdown("<br>##### 🛠️ Intelligent Resolution Plan", unsafe_allow_html=True)
             st.markdown("<p style='color: var(--text-muted); font-size: 0.9rem;'>The system has mapped the collinearity clusters and mathematically isolated the optimal variables to retain based on standalone predictive power.</p>", unsafe_allow_html=True)
             
+            # --- FEATURE RETENTION SUMMARY ---
+            all_drops = set()
+            for plan in engine.resolution_plan:
+                all_drops.update(plan['drops'])
+            
+            retained_vars = [v for v in feature_cols if v not in all_drops]
+            
+            if retained_vars:
+                retained_html = " &nbsp;•&nbsp; ".join([f"<span style='color: var(--text-primary); font-weight: 600;'>{v}</span>" for v in retained_vars])
+                st.markdown(f"""
+                <div class="info-box" style="border-left: 3px solid var(--primary-color); background: rgba(var(--primary-rgb), 0.05); margin-bottom: 1.5rem; padding: 1rem 1.25rem;">
+                    <h4 style="color: var(--primary-color); margin-top: 0; margin-bottom: 0.25rem; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.5px;">🎯 Target Optimized Basket</h4>
+                    <p style="margin: 0 0 0.75rem 0; font-size: 0.85rem; color: var(--text-muted);">Executing the drops below will leave you with this mathematically pure feature set:</p>
+                    <div style="font-size: 1.05rem;">
+                        {retained_html}
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+            # ---------------------------------
+
             for plan in engine.resolution_plan:
                 if plan['type'] == 'cluster':
                     drops_formatted = ", ".join(plan['drops'])
