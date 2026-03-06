@@ -1,8 +1,9 @@
 """
 TATTVA (तत्त्व) - MLR Engine | A Hemrek Capital Product
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Enhanced v2.2.0: Bug-fixed, performant, secure MLR with auto-pruning & Monte Carlo.
-Now features the exact Pragyam/Nirnay Design System UI/UX (Strictly Local).
+Enhanced v2.3.0: Production-ready with rank-deficiency checks, condition number diagnostics,
+minimum sample size enforcement, and stabilized OLS fitting. Now includes SVD-based ill-conditioning
+warnings and enhanced Monte Carlo robustness. Strictly local, performant, and secure.
 """
 
 import streamlit as st
@@ -25,7 +26,6 @@ try:
     import statsmodels.api as sm
     from statsmodels.stats.outliers_influence import variance_inflation_factor
     from statsmodels.tools.tools import add_constant
-    # Removed the problematic PerfectCollinearityWarning import
     STATSMODELS_AVAILABLE = True
 except ImportError as e:
     sm = None
@@ -38,17 +38,17 @@ logger = logging.getLogger(__name__)
 
 # Specific Warning Filters
 if STATSMODELS_AVAILABLE:
-    # Safely ignore collinearity warnings using regex instead of relying on fragile class names
     warnings.filterwarnings('ignore', message='.*collinearity.*')
     warnings.filterwarnings('ignore', module='statsmodels')
-warnings.filterwarnings('ignore', category=FutureWarning)  # For deprecations
+warnings.filterwarnings('ignore', category=FutureWarning)
 
 # --- Constants (Externalizable) ---
-VERSION = "v2.2.0"
+VERSION = "v2.3.0"
 PRODUCT_NAME = os.getenv("TATTVA_PRODUCT_NAME", "TATTVA")
 COMPANY = os.getenv("TATTVA_COMPANY", "Hemrek Capital")
 MAX_ROWS = int(os.getenv("TATTVA_MAX_ROWS", "10000"))
 MAX_COLS = int(os.getenv("TATTVA_MAX_COLS", "100"))
+MIN_ROWS_PER_FEATURE = 10  # New: Statistical minimum for stable regression
 
 # Enums for Clarity
 class VIFStatus(Enum):
@@ -57,8 +57,8 @@ class VIFStatus(Enum):
     SEVERE = "Severe Collinearity (DROP THIS)"
 
 class ModelGrade(Enum):
-    UNSTABLE = ("UNSTABLE", "danger", "The model is statistically invalid or suffers from catastrophic collinearity. Do not trade on these signals.")
-    WEAK = ("WEAK", "warning", "High noise-to-signal ratio. Use extreme caution. Consider dropping overlapping variables.")
+    UNSTABLE = ("UNSTABLE", "danger", "The model is statistically invalid (rank-deficient or ill-conditioned). Do not trade on these signals.")
+    WEAK = ("WEAK", "warning", "High noise-to-signal ratio or mild ill-conditioning. Use extreme caution. Consider dropping overlapping variables.")
     MODERATE = ("MODERATE", "warning", "Overall model is okay, but many variables are statistically insignificant.")
     ACCEPTABLE = ("ACCEPTABLE", "primary", "Model geometry is stable and actionable.")
     STRONG = ("STRONG", "success", "Excellent statistical geometry. Low collinearity, high explanatory power.")
@@ -73,7 +73,7 @@ st.set_page_config(
     page_title=f"{PRODUCT_NAME} | MLR Engine",
     page_icon="📐",
     layout="wide",
-    initial_sidebar_state="expanded" # Matched to Nirnay
+    initial_sidebar_state="expanded"
 )
 
 # --- CSS (Exact Pragyam/Nirnay Design System + TATTVA tweaks - 100% Local) ---
@@ -299,8 +299,13 @@ st.markdown("""
 
 class MLREngine:
     """
-    Enhanced Multivariate Linear Regression with Collinearity Diagnostics & Scenario Engine.
-    Type-hinted, cached, and robust.
+    Production-Ready Multivariate Linear Regression with Comprehensive Diagnostics:
+    - Rank-deficiency check (prevents singular matrices)
+    - Condition number via SVD (detects ill-conditioning)
+    - VIF & collinearity clustering
+    - Standardized coefficients & feature importance
+    - Monte Carlo robustness
+    - Auto-pruning resolution plan
     """
     
     def __init__(self, df: pd.DataFrame, target: str, features: List[str]):
@@ -312,6 +317,9 @@ class MLREngine:
         self.coef_df: Optional[pd.DataFrame] = None
         self.feature_importance: Optional[pd.DataFrame] = None
         self.resolution_plan: List[Dict[str, Any]] = []
+        self.condition_number: Optional[float] = None
+        self.matrix_rank: Optional[int] = None
+        self.is_stable: bool = True  # New: Stability flag
         
         # Prepare Data FIRST
         self.X = self.df[self.features]
@@ -326,7 +334,7 @@ class MLREngine:
         return self.X.corr()
     
     def fit(self) -> Self:
-        """Fit OLS, calculate VIFs, and generate standardized coefficients. With edge checks."""
+        """Fit OLS with production safeguards: rank check, condition number, and edge cases."""
         if not STATSMODELS_AVAILABLE:
             raise ImportError("Statsmodels is required for the MLR Engine.")
         
@@ -334,11 +342,38 @@ class MLREngine:
         if (self.X.std() == 0).any():
             raise ValueError("One or more features are constant—remove them to avoid singular matrix.")
         
-        # Fit OLS with singular matrix handling
+        # NEW: Rank-Deficiency Check (Critical for Quant Stability)
+        X_check = self.X_with_const
+        self.matrix_rank = np.linalg.matrix_rank(X_check)
+        num_cols = X_check.shape[1]
+        if self.matrix_rank < num_cols:
+            self.is_stable = False
+            raise ValueError(
+                f"Design matrix is rank deficient: rank {self.matrix_rank} < columns {num_cols}. "
+                "Features contain linear dependencies (e.g., X1 = a*X2 + b). "
+                "Drop redundant features or use Ridge regression for stabilization."
+            )
+        
+        # NEW: Condition Number Check via SVD (Detects Ill-Conditioning)
+        try:
+            u, s, vh = np.linalg.svd(X_check, full_matrices=False, compute_uv=False)  # Just singular values
+            self.condition_number = s[0] / s[-1] if len(s) > 1 and s[-1] > 0 else 1.0
+            if self.condition_number > 1000:
+                self.is_stable = False
+                warnings.warn(
+                    f"Matrix is ill-conditioned (condition number: {self.condition_number:.1f}). "
+                    "Coefficients may be unstable—consider Ridge or feature pruning."
+                )
+        except Exception as e:
+            logger.warning(f"SVD condition check failed: {e}")
+            self.condition_number = float('inf')
+        
+        # Fit OLS with singular matrix handling (now safer due to pre-checks)
         try:
             self.model = sm.OLS(self.y, self.X_with_const).fit()
         except np.linalg.LinAlgError as e:
-            raise ValueError(f"Singular matrix detected (perfect collinearity). {e} Try dropping features with VIF > 5.")
+            self.is_stable = False
+            raise ValueError(f"Singular matrix detected despite checks. {e} Emergency: Prune features aggressively.")
         
         # Standardized Coefficients
         std_y = self.y.std()
@@ -360,8 +395,8 @@ class MLREngine:
         self.feature_importance = fi_df.sort_values(by='Absolute Impact', ascending=True)
         
         self._compute_vif()
-        self._build_collinearity_plan()  # Fixed to handle all high-VIF
-        logger.info(f"Model fitted: R²={self.model.rsquared_adj:.3f}, n={len(self.y)}")
+        self._build_collinearity_plan()
+        logger.info(f"Model fitted: R²={self.model.rsquared_adj:.3f}, rank={self.matrix_rank}/{num_cols}, cond={self.condition_number:.1f}, n={len(self.y)}")
         return self
 
     def _compute_vif(self) -> None:
@@ -461,10 +496,14 @@ class MLREngine:
     def get_predictions(self) -> np.ndarray:
         if self.model is None:
             raise ValueError("Model not fitted. Call fit() first.")
+        if not self.is_stable:
+            raise ValueError("Model is unstable (rank-deficient or ill-conditioned). Cannot predict.")
         return self.model.predict(self.X_with_const)
         
     def predict_scenario(self, scenario_dict: Dict[str, float]) -> float:
-        """Enhanced: Validate keys, raise if missing."""
+        """Enhanced: Validate keys, raise if missing or unstable."""
+        if not self.is_stable:
+            raise ValueError("Model is unstable. Stabilize before prediction.")
         missing = [col for col in self.X.columns if col not in scenario_dict]
         if missing:
             raise ValueError(f"Missing keys in scenario: {missing}. Provide all features: {list(self.X.columns)}")
@@ -476,28 +515,31 @@ class MLREngine:
         return self.model.predict([input_data])[0]
 
     def get_model_health_grade(self) -> Tuple[str, str, str]:
-        """Enum-based grading with thresholds; preserves original logic."""
-        if self.model is None or self.vif_data is None:
-            return ModelGrade.UNSTABLE.value[0], ModelGrade.UNSTABLE.value[1], ModelGrade.UNSTABLE.value[2]
+        """Enum-based grading with thresholds; now factors in stability, rank, and condition number."""
+        if self.model is None or self.vif_data is None or not self.is_stable:
+            return ModelGrade.UNSTABLE.value
+        if self.matrix_rank is None or self.condition_number is None:
+            return ModelGrade.UNSTABLE.value
         
         max_vif = self.vif_data['VIF Score'].max()
         r2 = self.model.rsquared_adj
         p_val_model = self.model.f_pvalue
         sig_features = (self.coef_df[self.coef_df['Variable'] != 'const']['p-Value'] < 0.05).mean() if not self.coef_df.empty else 0
+        cond_num = self.condition_number
         
-        if p_val_model > 0.05 or max_vif > 10:
+        if p_val_model > 0.05 or max_vif > 10 or cond_num > 1000:
             return ModelGrade.UNSTABLE.value
-        elif max_vif > 5 or r2 < 0.3:
+        elif max_vif > 5 or r2 < 0.3 or cond_num > 100:
             return ModelGrade.WEAK.value
         elif sig_features < 0.5:
             return ModelGrade.MODERATE.value
-        elif max_vif <= 5 and r2 >= 0.6:
+        elif max_vif <= 5 and r2 >= 0.6 and cond_num < 30:
             return ModelGrade.STRONG.value
         else:
             return ModelGrade.ACCEPTABLE.value
 
     def apply_resolution_plan(self) -> List[str]:
-        """New: Auto-prune features based on plan."""
+        """Auto-prune features based on plan."""
         all_drops = set()
         for plan in self.resolution_plan:
             all_drops.update(plan['drops'])
@@ -506,7 +548,9 @@ class MLREngine:
         return pruned_features
 
     def monte_carlo_scenarios(self, scenario_base: Dict[str, float], n_sims: int = 100, noise_std: float = 0.01) -> Tuple[float, float]:
-        """New: Simple MC for prediction intervals."""
+        """Enhanced MC with stability check and more robust noise injection."""
+        if not self.is_stable:
+            raise ValueError("Model unstable—cannot run Monte Carlo.")
         preds = []
         for _ in range(n_sims):
             noisy = {k: v + np.random.normal(0, noise_std * abs(v)) for k, v in scenario_base.items()}
@@ -514,7 +558,7 @@ class MLREngine:
                 pred = self.predict_scenario(noisy)
                 preds.append(pred)
             except ValueError:
-                pass  # Skip invalid
+                pass  # Skip invalid scenarios
         return np.mean(preds), np.std(preds) if preds else (0, 0)
 
 
@@ -539,7 +583,7 @@ def load_google_sheet(sheet_url: str) -> Tuple[Optional[pd.DataFrame], Optional[
         return None, str(e)
 
 def _sanitize_df(df: pd.DataFrame) -> pd.DataFrame:
-    """New: Security scan - limit rows/cols, warn on anomalies."""
+    """Security scan - limit rows/cols, warn on anomalies."""
     if len(df) > MAX_ROWS:
         st.warning(f"Dataset truncated to {MAX_ROWS} rows for performance/security.")
         df = df.head(MAX_ROWS).copy()
@@ -553,7 +597,7 @@ def _sanitize_df(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 def clean_data(df: pd.DataFrame, target: str, features: List[str]) -> pd.DataFrame:
-    """Enhanced: With NaN warnings and min rows check."""
+    """Enhanced: With NaN warnings and statistical min rows check (10x features)."""
     cols = [target] + features
     data = df[cols].copy()
     for col in cols:
@@ -565,8 +609,14 @@ def clean_data(df: pd.DataFrame, target: str, features: List[str]) -> pd.DataFra
     if n_dropped > 0:
         st.warning(f"Dropped {n_dropped} rows due to NaNs. Remaining: {len(data)}")
     
-    if len(data) < len(features) + 2:
-        st.error(f"Not enough data after cleaning ({len(data)} rows < {len(features) + 2} min required for regression).")
+    # NEW: Statistical Minimum Rows Check (10x features for stability)
+    min_required = MIN_ROWS_PER_FEATURE * len(features)
+    if len(data) < min_required:
+        st.error(
+            f"Dataset too small for stable regression "
+            f"({len(data)} rows for {len(features)} features). "
+            f"Minimum recommended: {min_required} rows (10× features)."
+        )
         st.stop()
     
     return data.reset_index(drop=True)
@@ -605,9 +655,9 @@ def render_landing_page() -> None:
     with col2:
         st.markdown("""
         <div class='metric-card info' style='min-height: 280px; justify-content: flex-start;'>
-            <h3 style='color: var(--info-cyan); margin-bottom: 1rem;'>🔍 VIF Diagnostics</h3>
+            <h3 style='color: var(--info-cyan); margin-bottom: 1rem;'>🔍 VIF & Rank Diagnostics</h3>
             <p style='color: var(--text-muted); font-size: 0.9rem; line-height: 1.6;'>
-                The Variance Inflation Factor (VIF) mathematically identifies overlapping signals. Drop variables with a VIF > 5 to purify your forecasting engine.
+                Identifies overlapping signals and linear dependencies. Ensures full matrix rank before fitting.
             </p>
         </div>
         """, unsafe_allow_html=True)
@@ -630,8 +680,9 @@ def render_landing_page() -> None:
         <p style='color: var(--text-muted); line-height: 1.7;'>
             1. Use the <strong>Sidebar</strong> to upload your raw historical dataset (CSV/Excel) or connect a Google Sheet.<br>
             2. Select your <strong>Target Variable (Y)</strong> and your suspected <strong>Predictors (X)</strong>.<br>
-            3. Go to the <strong>VIF Diagnostics</strong> tab. If any variable has a VIF > 5, remove it from the sidebar or use <strong>Apply Prune</strong>.<br>
-            4. Once VIFs are clean and the <strong>Model Conviction</strong> is high, use the <strong>Scenario Engine</strong> to run market what-if analyses.
+            3. Go to the <strong>VIF Diagnostics</strong> tab. If any variable has a VIF > 5 or rank issues, remove it from the sidebar or use <strong>Apply Prune</strong>.<br>
+            4. Ensure <strong>Model Conviction</strong> is ACCEPTABLE or STRONG (check for stability warnings).<br>
+            5. Use the <strong>Scenario Engine</strong> to run market what-if analyses.
         </p>
     </div>
     """, unsafe_allow_html=True)
@@ -753,7 +804,7 @@ def main() -> None:
         <div class='info-box'>
             <p style='font-size: 0.8rem; margin: 0; color: var(--text-muted); line-height: 1.5;'>
                 <strong>Version:</strong> {VERSION}<br>
-                <strong>Engine:</strong> OLS statsmodels
+                <strong>Engine:</strong> OLS statsmodels (with Rank & Condition Checks)
             </p>
         </div>
         """, unsafe_allow_html=True)
@@ -772,17 +823,26 @@ def main() -> None:
         return
 
     # --- Run Model (Enhanced Caching & Progress) ---
-    data = clean_data(df, target_col, feature_cols)
+    try:
+        data = clean_data(df, target_col, feature_cols)
+    except Exception as e:
+        st.error(f"Data cleaning failed: {e}")
+        render_footer()
+        return
     
     cache_key = f"mlr_{target_col}_{hashlib.md5(('-'.join(sorted(feature_cols))).encode()).hexdigest()}_{len(data)}"
     
     if 'mlr_cache' not in st.session_state or st.session_state.get('mlr_cache_key') != cache_key:
-        with st.spinner("Computing Partial Coefficients and Scenario Logic..."):
+        with st.spinner("Computing Partial Coefficients, Rank Diagnostics, and Scenario Logic..."):
             progress = st.progress(0)
-            progress.progress(0.3)
+            progress.progress(0.2)
             engine = MLREngine(data, target_col, feature_cols)
-            progress.progress(0.7)
+            progress.progress(0.5)
             engine.fit()
+            progress.progress(0.8)
+            # Stability check post-fit
+            if not engine.is_stable:
+                st.warning("Model fitted but flagged as unstable (ill-conditioned). Proceed with caution—consider pruning.")
             progress.progress(1.0)
             st.session_state['mlr_engine'] = engine
             st.session_state['mlr_cache_key'] = cache_key
@@ -799,7 +859,12 @@ def main() -> None:
     adj_r_squared = engine.model.rsquared_adj
     grade, grade_class, grade_desc = engine.get_model_health_grade()
     
-    c1, c2, c3, c4 = st.columns([1, 1, 1, 1.5])
+    # New: Stability Metrics in Dashboard
+    stability_status = "STABLE" if engine.is_stable else "UNSTABLE"
+    stability_color = "success" if engine.is_stable else "danger"
+    cond_num_display = f"{engine.condition_number:.1f}" if engine.condition_number else "N/A"
+    
+    c1, c2, c3, c4, c5 = st.columns([1, 1, 1, 1, 1])
     
     with c1:
         st.markdown(f'<div class="metric-card primary"><h4>Explanatory Power</h4><h2>{adj_r_squared:.2f}</h2><div class="sub-metric">Adj R² (0 to 1)</div></div>', unsafe_allow_html=True)
@@ -811,15 +876,21 @@ def main() -> None:
     with c3:
         p_color = "success" if engine.model.f_pvalue < 0.05 else "danger"
         st.markdown(f'<div class="metric-card {p_color}"><h4>Model Viability</h4><h2>{"PASS" if engine.model.f_pvalue < 0.05 else "FAIL"}</h2><div class="sub-metric">F-Test (p < 0.05)</div></div>', unsafe_allow_html=True)
-        
+    
     with c4:
-        st.markdown(f"""
-        <div class="signal-card {grade_class}" style="padding: 1.25rem; min-height: 120px; display: flex; flex-direction: column; justify-content: center; margin-bottom: 0.5rem;">
-            <div class="label" style="margin-bottom: 0;">MODEL CONVICTION</div>
-            <div class="value" style="font-size: 1.75rem; margin: 0.25rem 0;">{grade}</div>
-            <div class="subtext" style="font-size: 0.75rem; margin-top: 0;">{grade_desc}</div>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown(f'<div class="metric-card {stability_color}"><h4>Matrix Stability</h4><h2>{stability_status}</h2><div class="sub-metric">Rank: {engine.matrix_rank}/{len(engine.features)+1}</div></div>', unsafe_allow_html=True)
+    
+    with c5:
+        cond_color = "success" if (engine.condition_number or 0) < 30 else "warning" if (engine.condition_number or 0) < 1000 else "danger"
+        st.markdown(f'<div class="metric-card {cond_color}"><h4>Condition Number</h4><h2>{cond_num_display}</h2><div class="sub-metric">Target < 30</div></div>', unsafe_allow_html=True)
+        
+    st.markdown(f"""
+    <div class="signal-card {grade_class}" style="padding: 1.25rem; min-height: 120px; display: flex; flex-direction: column; justify-content: center; margin-bottom: 0.5rem;">
+        <div class="label" style="margin-bottom: 0;">MODEL CONVICTION</div>
+        <div class="value" style="font-size: 1.75rem; margin: 0.25rem 0;">{grade}</div>
+        <div class="subtext" style="font-size: 0.75rem; margin-top: 0;">{grade_desc}</div>
+    </div>
+    """, unsafe_allow_html=True)
 
     st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
 
@@ -828,7 +899,7 @@ def main() -> None:
     # ═══════════════════════════════════════════════════════════════════════
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "**🎯 Feature Analytics**",
-        "**🔍 Collinearity (VIF)**",
+        "**🔍 Collinearity (VIF & Rank)**",
         "**📊 Visualizations**",
         "**🔮 Scenario Sandbox**",
         "**⚙️ Advanced Fitting**"
@@ -868,11 +939,21 @@ def main() -> None:
         
         st.download_button("📥 Export Coefficients", engine.coef_df.to_csv(index=False), "coefficients.csv", "secondary")
 
-    # --- TAB 2: VIF Diagnostics (Upgraded to Nirnay UI) ---
+    # --- TAB 2: VIF Diagnostics (Upgraded to include Rank & Condition) ---
     with tab2:
-        st.markdown("##### Variance Inflation Factor (VIF)")
+        st.markdown("##### Variance Inflation Factor (VIF) & Matrix Diagnostics")
         
-        if max_vif > 5:
+        # Stability Warning Banner
+        if not engine.is_stable:
+            st.markdown("""
+            <div class="signal-card danger">
+                <div class="signal-card-header">
+                    <span class="signal-card-title">⚠️ MODEL INSTABILITY DETECTED</span>
+                </div>
+                <p style="margin: 0; font-size: 0.9rem; color: var(--text-secondary);">Rank deficiency or high condition number flagged. Coefficients may be unreliable. Prune features immediately.</p>
+            </div>
+            """, unsafe_allow_html=True)
+        elif max_vif > 5:
             st.markdown("""
             <div class="signal-card danger">
                 <div class="signal-card-header">
@@ -887,7 +968,7 @@ def main() -> None:
                 <div class="signal-card-header">
                     <span class="signal-card-title">✅ PURE SIGNAL GEOMETRY</span>
                 </div>
-                <p style="margin: 0; font-size: 0.9rem; color: var(--text-secondary);">All variables have a VIF score under 5. Each variable is contributing unique, non-overlapping information to the forecast.</p>
+                <p style="margin: 0; font-size: 0.9rem; color: var(--text-secondary);">All variables have a VIF score under 5. Matrix is full-rank and well-conditioned.</p>
             </div>
             """, unsafe_allow_html=True)
             
@@ -896,6 +977,18 @@ def main() -> None:
         }).map(highlight_vif, subset=['VIF Score'])
         
         st.dataframe(styled_vif, use_container_width=True)
+
+        # New: Matrix Diagnostics Box
+        st.markdown("##### 🔍 Matrix Health Check")
+        col_md1, col_md2 = st.columns(2)
+        with col_md1:
+            rank_status = "FULL" if engine.matrix_rank == len(engine.features) + 1 else "DEFICIENT"
+            rank_color = "success" if rank_status == "FULL" else "danger"
+            st.markdown(f'<div class="metric-card {rank_color}"><h4>Matrix Rank</h4><h2>{rank_status}</h2><div class="sub-metric">Actual: {engine.matrix_rank}</div></div>', unsafe_allow_html=True)
+        with col_md2:
+            cond_status = "GOOD" if (engine.condition_number or 0) < 30 else "POOR" if (engine.condition_number or 0) < 1000 else "CRITICAL"
+            cond_color = "success" if cond_status == "GOOD" else "warning" if cond_status == "POOR" else "danger"
+            st.markdown(f'<div class="metric-card {cond_color}"><h4>Condition #</h4><h2>{cond_status}</h2><div class="sub-metric">Value: {cond_num_display}</div></div>', unsafe_allow_html=True)
 
         # --- Intelligent Collinearity Resolution Plan ---
         if max_vif > 5 and engine.resolution_plan:
@@ -979,35 +1072,40 @@ def main() -> None:
         
         with c_viz3:
             st.markdown("##### Actual vs Predicted Fit")
-            preds = engine.get_predictions()
-            
-            fig_pred = go.Figure()
-            fig_pred.add_trace(go.Scatter(
-                x=engine.y, y=preds, mode='markers', name='Predictions',
-                marker=dict(color='#FFC300', size=6, opacity=0.7)
-            ))
-            
-            min_val = min(engine.y.min(), preds.min())
-            max_val = max(engine.y.max(), preds.max())
-            fig_pred.add_trace(go.Scatter(
-                x=[min_val, max_val], y=[min_val, max_val], mode='lines', name='Perfect Fit',
-                line=dict(color='#06b6d4', dash='dash')
-            ))
-            
-            fig_pred.update_layout(height=350, xaxis_title=f'Actual {target_col}', yaxis_title='Predicted')
-            fig_pred = update_chart_theme(fig_pred)
-            st.plotly_chart(fig_pred, use_container_width=True)
-            
+            try:
+                preds = engine.get_predictions()
+                fig_pred = go.Figure()
+                fig_pred.add_trace(go.Scatter(
+                    x=engine.y, y=preds, mode='markers', name='Predictions',
+                    marker=dict(color='#FFC300', size=6, opacity=0.7)
+                ))
+                
+                min_val = min(engine.y.min(), preds.min())
+                max_val = max(engine.y.max(), preds.max())
+                fig_pred.add_trace(go.Scatter(
+                    x=[min_val, max_val], y=[min_val, max_val], mode='lines', name='Perfect Fit',
+                    line=dict(color='#06b6d4', dash='dash')
+                ))
+                
+                fig_pred.update_layout(height=350, xaxis_title=f'Actual {target_col}', yaxis_title='Predicted')
+                fig_pred = update_chart_theme(fig_pred)
+                st.plotly_chart(fig_pred, use_container_width=True)
+            except ValueError as e:
+                st.warning(f"Prediction plot unavailable: {e}")
+                
         with c_viz4:
             st.markdown("##### Residuals Distribution (Error Profile)")
-            residuals = engine.model.resid
-            fig_resid = px.histogram(
-                residuals, nbins=50,
-                color_discrete_sequence=['#8b5cf6']
-            )
-            fig_resid.update_layout(height=350, xaxis_title="Residual Value", yaxis_title="Frequency")
-            fig_resid = update_chart_theme(fig_resid)
-            st.plotly_chart(fig_resid, use_container_width=True)
+            if engine.model is not None:
+                residuals = engine.model.resid
+                fig_resid = px.histogram(
+                    residuals, nbins=50,
+                    color_discrete_sequence=['#8b5cf6']
+                )
+                fig_resid.update_layout(height=350, xaxis_title="Residual Value", yaxis_title="Frequency")
+                fig_resid = update_chart_theme(fig_resid)
+                st.plotly_chart(fig_resid, use_container_width=True)
+            else:
+                st.warning("Residuals unavailable—model not fitted.")
 
     # --- TAB 4: Scenario Engine (Upgraded to Nirnay UI) ---
     with tab4:
@@ -1015,6 +1113,15 @@ def main() -> None:
         st.markdown("""<p style="color: #888; font-size: 0.9rem;">
         Dial in hypothetical market conditions below. The engine uses your mathematically isolated coefficients to predict where the target will move.
         </p>""", unsafe_allow_html=True)
+        
+        # Stability Gate for Scenario Tab
+        if not engine.is_stable:
+            st.markdown("""
+            <div class="signal-card danger">
+                <p style="margin: 0; font-size: 0.9rem; color: var(--text-secondary);">⚠️ Scenario simulation disabled due to model instability. Stabilize via pruning first.</p>
+            </div>
+            """, unsafe_allow_html=True)
+            st.stop()
         
         c_sandbox_left, c_sandbox_right = st.columns([1.5, 1])
         
@@ -1080,7 +1187,8 @@ def main() -> None:
                 st.markdown(f'<div class="symbol-row" style="background: transparent; border: 1px dashed #3A3A3A;"><div><span class="symbol-name">Intercept (Baseline)</span></div><span class="symbol-score" style="color: #EAEAEA;">{engine.model.params["const"]:.4f}</span></div>', unsafe_allow_html=True)
                 
                 # Features logic with Conviction Meters
-                max_abs_contribution = max([abs(engine.model.params[col] * scenario_inputs[col]) for col in feature_cols]) if feature_cols else 1.0
+                contributions = [abs(engine.model.params[col] * scenario_inputs[col]) for col in feature_cols]
+                max_abs_contribution = max(contributions) if contributions else 1.0
                 if max_abs_contribution == 0: max_abs_contribution = 1.0
 
                 for col in feature_cols:
@@ -1110,9 +1218,12 @@ def main() -> None:
         st.markdown("##### ⚙️ Advanced Model Options")
         st.markdown("""
         <div style='background: rgba(136, 136, 136, 0.1); border: 1px solid var(--neutral); border-radius: 12px; padding: 1.25rem;'>
-            <h4 style='color: var(--neutral); margin-bottom: 0.75rem;'>Coming Soon</h4>
+            <h4 style='color: var(--neutral); margin-bottom: 0.75rem;'>Production Safeguards Active</h4>
             <p style='color: var(--text-secondary); font-size: 0.9rem; line-height: 1.6;'>
-                Ridge/Lasso regularization, auto-feature engineering (lags/rolls), and Bayesian updates are scheduled for the next release. For now, use the core OLS with VIF pruning for robust, decisive results.
+                <strong>✅ Rank Check:</strong> Ensures full matrix rank (no linear dependencies).<br>
+                <strong>✅ Condition Number:</strong> SVD-based ill-conditioning detection (warns if >1000).<br>
+                <strong>✅ Min Sample:</strong> Enforces 10× features rows for statistical power.<br><br>
+                Future: Ridge/Lasso regularization, auto-feature engineering (lags/rolls), and Bayesian updates.
             </p>
         </div>
         """, unsafe_allow_html=True)
