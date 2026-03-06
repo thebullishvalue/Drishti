@@ -237,6 +237,7 @@ class MLREngine:
         self.vif_data = None
         self.coef_df = None
         self.feature_importance = None
+        self.resolution_plan = []
         
         # Prepare Data
         self.X = self.df[self.features]
@@ -280,8 +281,9 @@ class MLREngine:
         fi_df['Absolute Impact'] = fi_df['Relative Impact (Std Beta)'].abs()
         self.feature_importance = fi_df.sort_values(by='Absolute Impact', ascending=True)
         
-        # Compute VIF
+        # Compute VIF & Build Resolution Plan
         self._compute_vif()
+        self._build_collinearity_plan()
         return self
 
     def _compute_vif(self):
@@ -293,7 +295,6 @@ class MLREngine:
         for i in range(len(self.X.columns)):
             try:
                 # Catch perfect collinearity warnings/errors
-                # We use i+1 if X_with_const, but we pass self.X.values to avoid computing VIF for constant
                 v = variance_inflation_factor(self.X.values, i)
                 vifs.append(v)
             except Exception:
@@ -301,7 +302,7 @@ class MLREngine:
                 
         vif_df["VIF Score"] = vifs
         
-        # --- NEW: Primary Overlap Mapping ---
+        # --- Primary Overlap Mapping ---
         corr_matrix = self.X.corr()
         overlaps = []
         for col in self.X.columns:
@@ -316,7 +317,6 @@ class MLREngine:
                 overlaps.append("None")
                 
         vif_df["Primary Overlaps (|r| > 0.7)"] = overlaps
-        # ------------------------------------
         
         # Map interpretations
         conditions = [
@@ -328,6 +328,75 @@ class MLREngine:
         vif_df['Status'] = np.select(conditions, choices, default='Unknown')
         
         self.vif_data = vif_df.sort_values(by="VIF Score", ascending=False).reset_index(drop=True)
+
+    def _build_collinearity_plan(self):
+        """Intelligently maps collinear clusters and crowns a 'Champion' variable for each."""
+        plan = []
+        if self.vif_data.empty or self.vif_data['VIF Score'].max() <= 5:
+            self.resolution_plan = plan
+            return
+
+        high_vif_vars = self.vif_data[self.vif_data['VIF Score'] > 5]['Variable'].tolist()
+        
+        # Calculate absolute standalone correlation with the Target (Y)
+        target_corr = self.X.corrwith(self.y).abs()
+
+        # Depth-First Search (DFS) to find clusters of highly correlated features (|r| > 0.7)
+        corr_matrix = self.X.corr().abs()
+        visited = set()
+        clusters = []
+
+        for var in high_vif_vars:
+            if var not in visited:
+                cluster = set()
+                stack = [var]
+                while stack:
+                    current = stack.pop()
+                    if current not in visited:
+                        visited.add(current)
+                        cluster.add(current)
+                        # Find neighbors with |r| > 0.7
+                        neighbors = corr_matrix.columns[(corr_matrix[current] > 0.7) & (corr_matrix.columns != current)].tolist()
+                        for neighbor in neighbors:
+                            if neighbor not in visited:
+                                stack.append(neighbor)
+                
+                if len(cluster) > 1:
+                    clusters.append(list(cluster))
+                elif var in high_vif_vars: # Isolated complex collinearity
+                    clusters.append([var])
+        
+        # Build Actionable Recommendations from Clusters
+        cluster_id = 1
+        for cluster in clusters:
+            if len(cluster) > 1:
+                # Rank by standalone absolute correlation with Target Y
+                ranked_vars = sorted(cluster, key=lambda v: target_corr[v], reverse=True)
+                champion = ranked_vars[0]
+                drops = ranked_vars[1:]
+                
+                plan.append({
+                    'type': 'cluster',
+                    'title': f'Cluster {cluster_id}: Correlated Group',
+                    'champion': champion,
+                    'drops': drops,
+                    'reason': f"These variables move together mathematically. <b>{champion}</b> is selected to remain because it has the strongest standalone predictive relationship with {self.target} (Score: {target_corr[champion]:.2f}). The others add duplicate noise and should be dropped."
+                })
+                cluster_id += 1
+            else:
+                var = cluster[0]
+                p_val_series = self.coef_df[self.coef_df['Variable'] == var]['p-Value'].values
+                p_val_text = f"{p_val_series[0]:.4f}" if len(p_val_series) > 0 else "N/A"
+                
+                plan.append({
+                    'type': 'isolate',
+                    'title': f'Complex Noise: {var}',
+                    'champion': None,
+                    'drops': [var],
+                    'reason': f"<b>{var}</b> has a high VIF but doesn't directly overlap 1-to-1 with another variable. It is part of a complex multi-variable equation that is confusing the model. Drop it to stabilize the engine, especially if its p-Value ({p_val_text}) is > 0.05."
+                })
+        
+        self.resolution_plan = plan
 
     def get_predictions(self):
         return self.model.predict(self.X_with_const)
@@ -652,7 +721,7 @@ def main():
             'p-Value': "{:.4f}"
         }).applymap(lambda x: 'color: #ef4444;' if isinstance(x, float) and x > 0.05 else 'color: #10b981;', subset=['p-Value'])
         
-        st.dataframe(styled_coef, width=1200, height=300)
+        st.dataframe(styled_coef, width='stretch', height=300)
         
         st.markdown("""
         <div class="guide-box success">
@@ -669,7 +738,7 @@ def main():
             st.markdown("""
             <div class="signal-card danger" style="padding: 1rem; margin-bottom: 1rem;">
                 <h4 style="color: var(--danger-red); margin: 0 0 0.5rem 0;">⚠️ Overlapping Signals Detected</h4>
-                <p style="margin: 0; font-size: 0.9rem;">Variables with a VIF > 5 are essentially telling the same economic story as other variables in your basket. Review the <b>Primary Overlaps</b> column below to identify clusters fighting for the same signal.</p>
+                <p style="margin: 0; font-size: 0.9rem;">Variables with a VIF > 5 are essentially telling the same economic story. Review the <b>Intelligent Resolution Plan</b> below to quickly clean your model.</p>
             </div>
             """, unsafe_allow_html=True)
         else:
@@ -684,34 +753,35 @@ def main():
             'VIF Score': "{:.2f}"
         }).applymap(highlight_vif, subset=['VIF Score'])
         
-        st.dataframe(styled_vif, width=1200)
+        st.dataframe(styled_vif, width='stretch')
 
-        # --- NEW: Collinearity Resolution Action Plan ---
-        if max_vif > 5:
-            st.markdown("<br>##### 🛠️ Collinearity Resolution Action Plan", unsafe_allow_html=True)
-            st.markdown("<p style='color: var(--text-muted); font-size: 0.9rem;'>Use this guide to intelligently thin out your feature selection rather than blindly dropping variables.</p>", unsafe_allow_html=True)
+        # --- NEW: Intelligent Collinearity Resolution Plan ---
+        if max_vif > 5 and getattr(engine, 'resolution_plan', []):
+            st.markdown("<br>##### 🛠️ Intelligent Resolution Plan", unsafe_allow_html=True)
+            st.markdown("<p style='color: var(--text-muted); font-size: 0.9rem;'>The system has mapped the collinearity clusters and mathematically isolated the optimal variables to retain based on standalone predictive power.</p>", unsafe_allow_html=True)
             
-            high_vif_vars = engine.vif_data[engine.vif_data['VIF Score'] > 5]
-            
-            for _, row in high_vif_vars.iterrows():
-                var_name = row['Variable']
-                vif_score = row['VIF Score']
-                overlap_text = row['Primary Overlaps (|r| > 0.7)']
-                
-                if overlap_text != "None":
+            for plan in engine.resolution_plan:
+                if plan['type'] == 'cluster':
+                    drops_formatted = ", ".join(plan['drops'])
                     st.markdown(f"""
-                    <div class="guide-box danger" style="margin: 0.5rem 0;">
-                        <strong>Drop Candidate: {var_name} (VIF: {vif_score:.1f})</strong><br>
-                        This variable is highly collinear with: <code style="color: var(--primary-color); background: transparent; padding: 0;">{overlap_text}</code>.<br>
-                        <em>Action:</em> Go to the <strong>Feature Analytics</strong> tab. Compare {var_name} against its overlaps. Retain the one with the highest Absolute Impact (Std Beta), and drop the others from the sidebar.
+                    <div class="info-box" style="border-left: 3px solid var(--info-cyan); margin-bottom: 1rem;">
+                        <h4 style="color: var(--info-cyan); margin-top: 0; margin-bottom: 0.75rem;">🧠 Auto-Resolution: {plan['title']}</h4>
+                        <div style="margin: 0.5rem 0; font-size: 0.95rem; background: rgba(0,0,0,0.2); padding: 0.75rem; border-radius: 8px;">
+                            <strong>✅ RETAIN:</strong> <span style="color: var(--success-green); font-weight: bold; font-size: 1.1rem;">{plan['champion']}</span><br>
+                            <strong style="margin-top: 0.5rem; display: inline-block;">❌ DROP FROM SIDEBAR:</strong> <span style="color: var(--danger-red); font-weight: bold;">{drops_formatted}</span>
+                        </div>
+                        <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 0.75rem; line-height: 1.5;"><i>Reasoning:</i> {plan['reason']}</p>
                     </div>
                     """, unsafe_allow_html=True)
                 else:
+                    drops_formatted = ", ".join(plan['drops'])
                     st.markdown(f"""
-                    <div class="guide-box danger" style="margin: 0.5rem 0;">
-                        <strong>Drop Candidate: {var_name} (VIF: {vif_score:.1f})</strong><br>
-                        This variable has high multi-variable collinearity (no single variable has |r| > 0.7, but combinations of variables perfectly explain it).<br>
-                        <em>Action:</em> If its p-Value in the Feature Analytics tab is > 0.05, drop it immediately.
+                    <div class="info-box" style="border-left: 3px solid var(--warning-amber); margin-bottom: 1rem;">
+                        <h4 style="color: var(--warning-amber); margin-top: 0; margin-bottom: 0.75rem;">⚠️ Auto-Resolution: {plan['title']}</h4>
+                        <div style="margin: 0.5rem 0; font-size: 0.95rem; background: rgba(0,0,0,0.2); padding: 0.75rem; border-radius: 8px;">
+                            <strong>❌ DROP FROM SIDEBAR:</strong> <span style="color: var(--danger-red); font-weight: bold; font-size: 1.1rem;">{drops_formatted}</span>
+                        </div>
+                        <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 0.75rem; line-height: 1.5;"><i>Reasoning:</i> {plan['reason']}</p>
                     </div>
                     """, unsafe_allow_html=True)
         # ------------------------------------------------
@@ -736,7 +806,7 @@ def main():
             )
             fig_fi.update_layout(height=350, yaxis={'categoryorder':'total ascending'}, showlegend=False)
             update_chart_theme(fig_fi)
-            st.plotly_chart(fig_fi, use_container_width=True)
+            st.plotly_chart(fig_fi, width='stretch')
             
         with c_viz2:
             st.markdown("##### Feature Correlation Heatmap")
@@ -749,7 +819,7 @@ def main():
             )
             fig_corr.update_layout(height=350)
             update_chart_theme(fig_corr)
-            st.plotly_chart(fig_corr, use_container_width=True)
+            st.plotly_chart(fig_corr, width='stretch')
             
         st.markdown("---")
         
@@ -776,7 +846,7 @@ def main():
             
             fig_pred.update_layout(height=350, xaxis_title=f'Actual {target_col}', yaxis_title='Predicted')
             update_chart_theme(fig_pred)
-            st.plotly_chart(fig_pred, use_container_width=True)
+            st.plotly_chart(fig_pred, width='stretch')
             
         with c_viz4:
             st.markdown("##### Residuals Distribution (Error Profile)")
@@ -787,7 +857,7 @@ def main():
             )
             fig_resid.update_layout(height=350, xaxis_title="Residual Value", yaxis_title="Frequency")
             update_chart_theme(fig_resid)
-            st.plotly_chart(fig_resid, use_container_width=True)
+            st.plotly_chart(fig_resid, width='stretch')
 
     # --- TAB 4: Scenario Engine ---
     with tab4:
