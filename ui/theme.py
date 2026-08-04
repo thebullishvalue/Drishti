@@ -22,13 +22,13 @@ from pathlib import Path
 
 import streamlit as st
 
-from core.config import (
+from core.config import (  # noqa: F401 — single source of truth, re-exported for app.py
     COLOR_GREEN,
     COLOR_CYAN,
     COLOR_AMBER,
-    VERSION,        # noqa: F401 — single source of truth, re-exported for app.py imports
-    PRODUCT_NAME,   # noqa: F401 — re-exported for app.py
-    COMPANY,        # noqa: F401 — re-exported for app.py
+    VERSION,
+    PRODUCT_NAME,
+    COMPANY,
 )
 
 # Path to external CSS file
@@ -37,11 +37,11 @@ CSS_PATH = Path(__file__).parent / "theme.css"
 # ── Shared Plotly layout config ─────────────────────────────────────────────
 # Eliminates massive duplication across all tab files.
 
-PLOTLY_FONT = dict(family="JetBrains Mono, monospace", color="#94A3B8", size=10)
+PLOTLY_FONT = dict(family="JetBrains Mono, monospace", color="#94A3B8", size=10)  # --ink-tertiary
 PLOTLY_HOVERLABEL = dict(
-    bgcolor="rgba(10, 14, 23, 0.95)",
-    font=dict(family="JetBrains Mono, monospace", size=11, color="#F1F5F9"),
-    bordercolor="rgba(255,255,255,0.08)",
+    bgcolor="rgba(4, 7, 13, 0.90)",  # Match Midnight Deep Navy
+    font=dict(family="JetBrains Mono, monospace", size=11, color="#F8FAFC"), # --ink
+    bordercolor="rgba(255,255,255,0.12)", # --line-strong
     align="left",
 )
 PLOTLY_LEGEND = dict(
@@ -54,8 +54,8 @@ PLOTLY_LEGEND = dict(
     bgcolor="rgba(0,0,0,0)",
 )
 PLOTLY_MARGIN = dict(t=20, l=50, r=20, b=40)
-PLOTLY_GRID = "rgba(255,255,255,0.035)"
-PLOTLY_GRID_ZERO = "rgba(255,255,255,0.06)"
+PLOTLY_GRID = "rgba(255,255,255,0.02)"
+PLOTLY_GRID_ZERO = "rgba(255,255,255,0.05)"
 
 # Interactive chart config — click + zoom + pan
 PLOTLY_MODEBAR = dict(

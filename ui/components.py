@@ -11,6 +11,7 @@ import datetime as _dt
 import html as html_mod
 
 import pandas as pd
+import numpy as np
 import streamlit as st
 from streamlit.components.v1 import html as _components_html
 
@@ -108,7 +109,7 @@ def render_control_hint(text: str) -> None:
     """Render the canonical terse helper caption beneath a control.
 
     This is the single source of truth for the "sub-control hint" tier — the
-    uppercase micro-caption used by e.g. the "Nirnay basket · producer
+    uppercase micro-caption used by e.g. the "Swayam basket · producer
     cross-section" and Signal-Horizon hints. Use it instead of ``st.caption``
     for control helper text so the sidebar/tab fine-print stays one coherent
     visual hierarchy. Keep the text terse and ``·``-separated.
@@ -152,7 +153,7 @@ def render_metric_card(
     icon_html = f'<span class="card-icon">{get_icon(icon, size=12, stroke_width=2)}</span> ' if icon else ""
     st.markdown(
         f'<div class="metric-card {html_mod.escape(color_class)}">'
-        f"<h4>{icon_html}{html_mod.escape(label)}</h4>"
+        f'<span class="label">{icon_html}{html_mod.escape(label)}</span>'
         f"<h2>{html_mod.escape(value)}</h2>"
         f"{sub_metric_html}"
         f"{tooltip_html}"
@@ -167,9 +168,135 @@ def render_header(title: str, tagline: str) -> None:
     """Render the terminal masthead."""
     st.markdown(
         f'<div class="premium-header">'
-        f"<h1>{html_mod.escape(title)}</h1>"
-        f'<div class="tagline">{html_mod.escape(tagline)}</div>'
+        f'<span class="title">{html_mod.escape(title)}</span>'
+        f'<span class="tagline">{html_mod.escape(tagline)}</span>'
         f"</div>",
+        unsafe_allow_html=True,
+    )
+
+
+#: Instruments on the tape, in reading order: the broad risk complex, then
+#: rates, then the dollar, then the commodity and volatility poles. Ordered
+#: by what a desk checks first rather than alphabetically — a tape is scanned
+#: peripherally, and a familiar running order is what makes that possible.
+TICKER_INSTRUMENTS: tuple[str, ...] = (
+    "US Large Cap (S&P 500)", "US Nasdaq 100", "US Small Cap (Russell 2000)",
+    "Global Equity (ACWI)", "Japan Equity (EWJ)", "Eurozone Equity (EZU)",
+    "Emerging Markets Equity", "India Equity",
+    "US 10-Year Treasury Yield", "US Treasury Long (20Y+)",
+    "US Corporate Investment Grade", "US High Yield Corporate",
+    "Dollar Index", "EUR/USD", "USD/JPY", "USD/INR",
+    "Gold", "Silver", "Copper", "Crude Oil", "Brent Crude", "Natural Gas",
+    "Broad Commodity Index (DBC)", "Equity Volatility (VIX)",
+)
+
+
+#: Display-name overrides for the tape. Used only where the yfinance ticker
+#: is not what a desk would call the instrument (a futures root with an "=F"
+#: suffix, an index with a caret) — everywhere else the real ticker is the
+#: right label, because that is what a tape shows.
+_TAPE_ALIAS: dict[str, str] = {
+    "GC=F": "GOLD", "SI=F": "SILVER", "HG=F": "COPPER", "PL=F": "PLAT",
+    "CL=F": "WTI", "BZ=F": "BRENT", "NG=F": "NATGAS",
+    "^VIX": "VIX", "^MOVE": "MOVE", "^TNX": "US10Y", "^TYX": "US30Y",
+    "^FVX": "US5Y", "^IRX": "US3M",
+    "DX-Y.NYB": "DXY", "EURUSD=X": "EURUSD", "JPY=X": "USDJPY",
+    "INR=X": "USDINR", "CNY=X": "USDCNY",
+}
+
+
+def _tape_symbol(column: str) -> str:
+    """Ticker for a macro column, as a tape would print it.
+
+    Resolves the display name back through the config maps to its real symbol
+    — "US Nasdaq 100" prints as QQQ, not as a name truncated mid-word. Falls
+    back to a word-boundary-safe abbreviation for anything unmapped (a
+    Google-Sheet series, a user column), because cutting "US Nasdaq 100" to
+    "US Nasdaq 10" is worse than showing fewer words.
+    """
+    try:
+        from core.config import (COMMODITY_TARGETS, GLOBAL_MACRO_MAP,
+                                 MACRO_SYMBOLS_YF)
+        lookup = {**GLOBAL_MACRO_MAP, **MACRO_SYMBOLS_YF, **COMMODITY_TARGETS}
+    except Exception:
+        lookup = {}
+    tkr = lookup.get(column)
+    if tkr:
+        if tkr in _TAPE_ALIAS:
+            return _TAPE_ALIAS[tkr]
+        # Strip exchange suffixes (.NS/.L/.TO) and index carets for display.
+        clean = tkr.lstrip("^").split(".")[0].replace("=X", "").replace("=F", "")
+        if clean:
+            return clean.upper()[:10]
+    # Unmapped: prefer a trailing parenthetical, else whole words up to 12 chars.
+    if "(" in column and column.rstrip().endswith(")"):
+        return column.split("(")[-1].rstrip(")")[:10].upper()
+    out = ""
+    for word in column.split():
+        if len(out) + len(word) + 1 > 12:
+            break
+        out = f"{out} {word}".strip()
+    return (out or column[:12]).upper()
+
+
+def render_ticker(frame, instruments: tuple[str, ...] = TICKER_INSTRUMENTS,
+                  seconds_per_item: float = 3.6) -> None:
+    """Render the running tape from the already-fetched macro panel.
+
+    No additional network call: the panel behind the valuation engine already
+    holds every one of these instruments, so the tape is a view of the data the
+    run is using rather than a second, possibly disagreeing, source.
+
+    The track is emitted TWICE and animated to -50%, which is what makes the
+    loop seamless — at the moment the first copy leaves the viewport the second
+    is exactly where the first began. Duration scales with item count so the
+    scroll speed stays constant no matter how many instruments are listed;
+    a tape that accelerates as you add symbols is unreadable.
+
+    Direction is carried by an arrow glyph as well as by colour. Roughly 8% of
+    men have red/green colour deficiency, and the sign of a move is the one
+    reading here that must never be ambiguous.
+    """
+    if frame is None or not len(frame):
+        return
+    cols = [c for c in instruments if c in getattr(frame, "columns", ())]
+    if not cols:
+        return
+
+    tail = frame[cols].tail(2)
+    if len(tail) < 2:
+        return
+    prev, last = tail.iloc[0], tail.iloc[1]
+
+    items: list[str] = []
+    for c in cols:
+        try:
+            p1, p0 = float(last[c]), float(prev[c])
+        except (TypeError, ValueError):
+            continue
+        if not (np.isfinite(p1) and np.isfinite(p0)) or p0 == 0:
+            continue
+        chg = (p1 / p0 - 1.0) * 100.0
+        cls, arrow = (("up", "▲") if chg > 0.005 else
+                      ("down", "▼") if chg < -0.005 else ("flat", "•"))
+        sym = _tape_symbol(c)
+        px = f"{p1:,.2f}" if abs(p1) < 10000 else f"{p1:,.0f}"
+        items.append(
+            f'<span class="tt-item">'
+            f'<span class="tt-sym">{html_mod.escape(sym)}</span>'
+            f'<span class="tt-px">{px}</span>'
+            f'<span class="tt-chg {cls}" data-arrow="{arrow}">{abs(chg):.2f}%</span>'
+            f'</span><span class="tt-sep">|</span>'
+        )
+    if not items:
+        return
+
+    run = "".join(items)
+    duration = max(40.0, len(items) * float(seconds_per_item))
+    st.markdown(
+        f'<div class="ticker" role="marquee" aria-label="Live macro tape">'
+        f'<div class="tt-track" style="--tt-duration:{duration:.0f}s">{run}{run}</div>'
+        f'</div>',
         unsafe_allow_html=True,
     )
 
@@ -207,599 +334,401 @@ def render_interpretation_card(
     )
 
 
-def render_nishkarsh_signal_card(
-    signal: str,
-    conviction: float,
-    agreement: float,
-    explanation: str,
-    val_ic: float | None = None,
-    wf_pos: float | None = None,
-    source: str | None = None,
-) -> None:
-    """DEPRECATED shim — superseded by build_hero_verdict + render_hero_card.
-
-    Kept only so an out-of-tree caller doesn't break; the live app no longer
-    calls this. Renders a minimal legacy card.
-    """
-    verdict = build_hero_verdict(
-        calib_conviction=None,
-        calib_signal=None,
-        has_profile=val_ic is not None,
-        consensus={"value": conviction, "signal": signal},
-        aarambh_signal={},
-        agreement=agreement,
-        val_ic=val_ic,
-        wf_pos=wf_pos,
-        precedent=None,
-        n_divergences=0,
-        horizon_days=10,
-    )
-    render_hero_card(verdict)
+# (``render_nishkarsh_signal_card`` lived here. It was a thin wrapper that
+# called build_hero_verdict with a signature three rewrites out of date, had no
+# callers anywhere in the app, and would have raised TypeError if one had
+# appeared.)
 
 
-# ── Hero verdict: pure interpretation logic (no Streamlit) ──────────────────
-
-# Trust tiers for the NON-OVERLAPPING Val IC (see convergence.intelligence.
-# _score_frame_nonoverlap): its effective sample size is ~n_val / stride, so at
-# a realistic holdout (~300-500 days) and the longest scoring stride (10),
-# n_eff ~ 30-50 → SE(IC) ~ 1/sqrt(n_eff-3) ~ 0.15-0.19. The tier cut-points
-# below (0.10 / 0.20) sit at roughly 1 SE (MODEST) and 2 SE (SOLID) for that
-# worst-case n_eff so the chip is not overconfident.
-def _trust_tier(
-    val_ic: float | None,
-    wf_pos: float | None,
-    wf_n: int | None = None,
-) -> dict:
-    """Map a non-overlapping Val IC to a (tier, chip label, prose) bundle.
-
-    ``wf_n``: total walk-forward windows behind ``wf_pos`` — a bare ratio
-    ("67% of windows positive") hides that it might be 2/3 windows, which is
-    not durability evidence; with the count the reader can weigh it.
-    """
-    if val_ic is None:
-        return {"tier": "uncalibrated", "chip": "UNCALIBRATED",
-                "val_ic": None, "wf_pos": wf_pos, "wf_n": wf_n,
-                "prose": "Edge not yet calibrated (run Intelligence Mode for a Val IC)."}
-    if val_ic <= 0:
-        tier, chip = "no_edge", "NO EDGE"
-        prose = f"No validated edge (Val IC {val_ic:+.3f}) — treat the direction as noise."
-    elif val_ic < 0.10:
-        tier, chip = "marginal", "MARGINAL"
-        prose = f"Marginal edge (Val IC {val_ic:+.3f}) — within ~1 SE of zero at this sample size."
-    elif val_ic < 0.20:
-        tier, chip = "modest", "MODEST EDGE"
-        prose = f"Modest validated edge (Val IC {val_ic:+.3f})."
-    else:
-        tier, chip = "solid", "SOLID EDGE"
-        prose = f"Solid validated edge (Val IC {val_ic:+.3f})."
-    if wf_pos is not None:
-        if wf_n:
-            prose += f" Walk-forward: {round(wf_pos * wf_n)}/{wf_n} windows positive."
-        else:
-            prose += f" Walk-forward: {wf_pos:.0%} of windows positive."
-    return {"tier": tier, "chip": chip, "val_ic": float(val_ic),
-            "wf_pos": wf_pos, "wf_n": wf_n, "prose": prose}
-
-# Minimum number of DISTINCT analogs (post-Theiler-exclusion) before the
-# precedent's direction is treated as probative. Below this, "% positive" is
-# a handful of coin flips — the hero must not claim agreement/divergence on it.
-_PRECEDENT_MIN_N = 5
-
-# Precedent hit-rate band around 50% inside which the base rate is called
-# SPLIT (no lean). 15pp on n>=5 analogs: even at n=10, 65% positive is 6-7 of
-# 10 — barely one analog away from a coin flip, so anything inside the band
-# must not be sold as a lean.
-_PRECEDENT_SPLIT_BAND = 15.0
-
-# Flat band on the [-1, +1] signal scale: below this magnitude a reading is
-# treated as "flat" rather than a lean. Used for (a) the neutral headline's
-# lean wording and (b) the TREND row's noise gate — a raw-vs-smoothed sign
-# disagreement where both magnitudes are inside this band is indistinguishable
-# from noise and must not be escalated to a "trend contradiction".
-# On the post-continuous-consensus composite this sits at ≈ p42 of pooled
-# |composite| (4 real targets, 2026-07-11 measurement: p25=0.024, p50=0.062)
-# — i.e. the quietest ~40% of days read as "flat", which is the intent.
-_FLAT_BAND = 0.05
-
-_NEUTRAL_LABELS = {"HOLD", "NEUTRAL", "N/A", ""}
-
-# ── Decision synthesis: weigh ALL evidence rows into an action tier ─────────
-# The HEADLINE stays the normalized consensus (a reconciliation invariant:
-# hero = Unified Signal plot top row = TATTVA CONVICTION card), but the ACTION
-# the card recommends must NOT be read off that raw value alone — before this
-# layer existed, a CALIBRATED row could say "stand aside" in small print while
-# the headline still shouted BUY. Each evidence row carries a signed weight;
-# their sum (on top of a trust-tier base) maps to a decision tier. Weights are
-# ordinal judgments, documented so they can be challenged, not fitted numbers:
-#
-#   MODEL       base: solid +2 / modest +1 / marginal · uncalibrated 0;
-#               no_edge is a HARD GATE (validated no edge → direction is
-#               noise, no amount of soft evidence overrides that).
-#   CALIBRATED  confirm +1 / not-confirmed (neutral) -1 / conflict -2 —
-#               same two engines under learned weights; the strongest single
-#               second opinion, and the ONLY row whose variant actually
-#               earned the Val IC.
-#   TREND       confirm +1 / conflict -1 — one-day print vs its own DDM
-#               trend; a contradiction may be an early turn, so it warns
-#               but never dominates.
-#   PRECEDENT   confirm +1 / conflict -2 — hero_study.py found the analog
-#               base rate historically the STRONGER directional read, so a
-#               coherent divergence outweighs a trend wobble.
-#   INTERNALS   confirm +1 / conflict -2 — engines split means the consensus
-#               mean straddles zero: the headline's own construction is
-#               undermined, not merely contradicted.
-#   RISK        -1 — recent flagged divergence events.
-#
-# Tier map: net >= +3 HIGH · +1..+2 MODERATE · 0..-1 LOW · <= -2 STAND ASIDE.
-# Cap: without a validated edge (uncalibrated / marginal / no wf evidence)
-# the tier is capped at MODERATE — soft confirmations can never promote an
-# unvalidated signal to full-size conviction.
-_ACTION_WEIGHTS: dict[tuple[str, str], int] = {
-    ("CALIBRATED", "confirm"): +1, ("CALIBRATED", "neutral"): -1,
-    ("CALIBRATED", "conflict"): -2,
-    ("TREND", "confirm"): +1, ("TREND", "conflict"): -1,
-    ("PRECEDENT", "confirm"): +1, ("PRECEDENT", "conflict"): -2,
-    ("INTERNALS", "confirm"): +1, ("INTERNALS", "conflict"): -2,
-    ("RISK", "conflict"): -1,
+# ── Data-table styling tokens ──────────────────────────────────────────
+# render_data_table renders into an isolated components.v1.html iframe, which
+# does NOT inherit the app's CSS variables — so the theme values it needs are
+# mirrored here as literals. Any change to the corresponding --token in
+# theme.css has to be made in both places; there is no way around that while
+# the table lives in an iframe, and a stale colour here is the visible symptom.
+_TABLE_TOKENS = {
+    "ink_primary":   "#F8FAFC",   # --ink
+    "ink_tertiary":  "#94A3B8",   # --ink-tertiary
+    "border":        "rgba(255, 255, 255, 0.05)",   # --line
+    "border_subtle": "rgba(255, 255, 255, 0.02)",  # --line-faint
+    "amber":         "#F59E0B",   # --caution
+    "emerald":       "#10B981",   # --long   (positive numeric cells)
+    "rose":          "#EF4444",   # --short  (negative numeric cells)
+    "amber_border":  "rgba(245, 158, 11, 0.35)",
+    "amber_hover":   "rgba(245, 158, 11, 0.1)",
+    "row_odd":       "rgba(255, 255, 255, 0.012)",
+    "row_even":      "transparent",
 }
 
-_MODEL_BASE = {"solid": 2, "modest": 1, "marginal": 0, "uncalibrated": 0}
-
-_ACTION_TIERS = {
-    "high": ("HIGH CONVICTION", "evidence stack supports acting at plan size."),
-    "moderate": ("MODERATE CONVICTION", "act at reduced size."),
-    "low": ("LOW CONVICTION", "small size or paper-trade only."),
-    "stand_aside": ("STAND ASIDE", "opposing evidence outweighs the signal — do not act on the headline."),
-    "none": ("NO ACTION", "headline is HOLD — nothing to size."),
-}
+#: Webfont the iframe must import for itself, for the same isolation reason.
+_TABLE_FONTS = ("https://fonts.googleapis.com/css2?"
+                "family=JetBrains+Mono:wght@400;500;600;700&display=swap")
 
 
-def _synthesize_action(direction: str, trust: dict, evidence: list[dict]) -> dict:
-    """Fold the trust tier and every evidence row into one decision tier.
+# ═══════════════════════════════════════════════════════════════════════
+#  HERO VERDICT — the conviction chain
+# ═══════════════════════════════════════════════════════════════════════
+#
+# The system does not produce a "signal" that evidence then votes on. It makes
+# ONE claim and attaches a series of conditions to it, every one of which can
+# independently invalidate it:
+#
+#   the asset is mispriced          (FVO — the claim)
+#   ...the mispricing reverts       (mean-reversion evidence, FVO)
+#   ...its own internals agree      (Swayam breadth)
+#   ...both engines converge        (agreement ratio + normalized consensus)
+#   ...this has historically paid   (walk-forward OOS IC)
+#   ...and it paid last time too    (precedent base rate)
+#
+# Every engine the app runs appears exactly once, and only where it has
+# something to say that the others do not.
+#
+# So conviction is a PRODUCT of gates in [0, 1], not a sum of votes. That
+# distinction is the entire redesign, and it matters for two reasons.
+#
+# A product cannot be rescued by piling on agreement: three enthusiastic
+# confirmations and one broken precondition is not "3 - 1 = act smaller", it is
+# "the precondition is broken". Additive scoring said the former. Every version
+# of this card since it was written has had a table of +1/-2 point weights that
+# nobody could derive from anything; that table is gone.
+#
+# And a product has a MINIMUM. Whichever gate is smallest is the binding
+# constraint — the single specific reason conviction is not higher, which is
+# the most useful sentence a card of this kind can produce and which no amount
+# of vote-tallying can express. The card leads with it.
+#
+# Direction comes from FVO alone. It is the only component that makes a
+# directional claim about the world ("this is cheap relative to the traded
+# opportunity set"); breadth, reversion evidence and historical skill are all
+# statements ABOUT that claim, not rival claims of their own. Averaging them
+# into a "consensus" — which is what the headline used to be — produced a
+# number whose sign nothing in particular was responsible for.
 
-    Pure and deterministic — the returned ``drivers`` string itemises each
-    contribution so the tier is auditable from the card itself. Returns
-    ``{level, label, prose, score, drivers}``; ``score`` is the net evidence
-    sum (None for the ``none`` / hard-gated paths where no sum was taken).
+
+def _gate(value: float, lo: float, hi: float) -> float:
+    """Map a raw reading onto [0, 1] with a soft floor and ceiling.
+
+    ``lo`` is where the gate is fully shut, ``hi`` where it is fully open;
+    between them it opens linearly. Never returns exactly 0 — a shut gate
+    should collapse conviction, not erase the reading and its explanation
+    with it.
     """
-    if direction == "neutral":
-        label, prose = _ACTION_TIERS["none"]
-        return {"level": "none", "label": label, "prose": prose,
-                "score": None, "drivers": ""}
+    if not np.isfinite(value):
+        return 0.5
+    if hi == lo:
+        return 1.0
+    return float(np.clip((value - lo) / (hi - lo), 0.02, 1.0))
 
-    tier = trust["tier"]
-    if tier == "no_edge":
-        label, _ = _ACTION_TIERS["stand_aside"]
-        return {"level": "stand_aside", "label": label,
-                "prose": ("validated NO EDGE — the direction is noise "
-                          "regardless of the other evidence rows."),
-                "score": None, "drivers": f"no-edge gate (Val IC {trust['val_ic']:+.3f})"}
 
-    score = _MODEL_BASE.get(tier, 0)
-    drivers = [f"{tier} edge {score:+d}"] if score else [f"{tier} edge +0"]
-    for row in evidence:
-        if row["tag"] == "MODEL":
-            continue
-        w = _ACTION_WEIGHTS.get((row["tag"], row["state"]))
-        if w:
-            score += w
-            drivers.append(f"{row['tag'].lower()} {row['state']} {w:+d}")
+#: Minimum DISTINCT analogs before the precedent base rate is treated as
+#: probative. Below this, "% positive" is a handful of coin flips.
+MIN_PRECEDENT_N = 8
 
-    if score >= 3:
-        level = "high"
-    elif score >= 1:
-        level = "moderate"
-    elif score >= 0:
-        level = "low"
-    else:
-        level = "stand_aside"
-
-    capped = False
-    if level == "high" and tier in ("uncalibrated", "marginal"):
-        level, capped = "moderate", True
-
-    label, prose = _ACTION_TIERS[level]
-    drivers_str = " · ".join(drivers) + f" → net {score:+d}"
-    if capped:
-        drivers_str += " (capped: edge not validated)"
-    return {"level": level, "label": label, "prose": prose,
-            "score": score, "drivers": drivers_str}
+#: Conviction tiers. Products of SIX gates concentrate hard toward zero, so
+#: these are not evenly spaced: 0.30 already requires every gate to average
+#: ~0.82, and 0.15 requires ~0.73.
+_TIERS = (
+    (0.30, "high", "HIGH CONVICTION", "act on it"),
+    (0.15, "moderate", "MODERATE CONVICTION", "act at reduced size"),
+    (0.06, "low", "LOW CONVICTION", "starter size at most"),
+    (0.00, "standaside", "STAND ASIDE", "no actionable edge"),
+)
 
 
 def build_hero_verdict(
     *,
-    calib_conviction: float | None,
-    calib_signal: str | None,
-    has_profile: bool,
-    consensus: dict | None,
-    aarambh_signal: dict,
-    agreement: float,
-    val_ic: float | None,
+    fvo_signal: dict,
+    swayam_breadth: dict | None,
+    convergence: dict | None,
+    wf_ic: float | None,
     wf_pos: float | None,
+    wf_n: int | None,
     precedent: dict | None,
     n_divergences: int,
     horizon_days: int,
-    agreement_strong: float = 0.7,
-    agreement_moderate: float = 0.5,
-    smoothed: float | None = None,
-    wf_n: int | None = None,
     div_window: int | None = None,
 ) -> dict:
-    """Assemble the hero card's verdict — ALL interpretation logic, pure data in/out.
+    """Build the hero verdict from the conviction chain. Pure data in/out.
 
-    Separated from rendering so the decision rules (label normalisation, trust
-    tiering, the precedent gates, agreement tiers, trend comparison) are
-    unit-testable without Streamlit (see research/test_hero_verdict.py).
-    Returns a dict the renderer consumes verbatim:
-
-    ``signal`` (display label), ``signal_class`` (css), ``score`` ([-1,+1]),
-    ``source``, ``direction`` (bullish/bearish/neutral), ``headline`` (one
-    sentence), ``trust`` ({tier, chip, val_ic, wf_pos, wf_n}),
-    ``consensus_score`` (float|None), ``evidence`` (ordered rows of
-    {tag, state, text}; state ∈ confirm|conflict|neutral|info), and
-    ``action`` ({level, label, prose, score, drivers}) — the DECISION
-    synthesis that folds the trust tier and every evidence row into the tier
-    the card actually recommends (see _synthesize_action). The headline names
-    the direction; the action names what to do about it.
-
-    HEADLINE = THE NORMALIZED CONSENSUS — a product decision: the headline is
-    the causal expanding-z average of Aarambh's ConvictionRaw and Nirnay's
-    Avg_Signal (``consensus`` dict, from
-    convergence.normalization.compute_normalized_convergence), classified
-    with its OWN factory p75/p90-anchored thresholds (DEFAULT_THRESHOLDS). This is the SAME object as the
-    Unified Signal plot's top row and the TATTVA CONVICTION card, so hero,
-    card and plot reconcile identically by construction — no fitted layer
-    between the engines and the verdict, and no cross-object reconciliation
-    gap. The Optuna-calibrated composite (a DIFFERENT construction of the
-    same two engines) is the CALIBRATED evidence row (agrees / disagrees /
-    not-confirmed), and the trust chip's Val IC — which was EARNED by that
-    calibrated composite, not by the consensus — is explicitly attributed to
-    it in the MODEL row. The raw factory-weight composite is no longer
-    surfaced here at all; it remains the research baseline in
-    research/calibration_lift_study.py.
-
-    ``consensus``: pass None when the convergence is DEGENERATE (no
-    Aarambh∩Nirnay overlap) — the chain then falls through to the honest
-    "Aarambh only" source instead of claiming a two-engine convergence that
-    structurally does not exist.
-
-    ``smoothed``: the DDM-filtered value of the SAME consensus series
-    ([-1,+1]) — the trend behind today's print, so the TREND row can say
-    whether the print extends, softens, or contradicts it instead of leaving
-    that to the hero-history plot.
+    Returns ``{signal, signal_class, direction, score, headline, conviction,
+    binding, gates, trust, evidence, action}`` where ``gates`` is the ordered
+    chain (each ``{name, value, label, detail}``) and ``binding`` names the
+    smallest one. Rendering is entirely separate (``render_hero_card``), so
+    these rules stay unit-testable — see research/test_hero_verdict.py.
     """
-    # ── 1. Headline object: NORMALIZED CONSENSUS → Aarambh-only ───────────
-    if consensus:
-        score = float(consensus.get("value", 0.0))
-        raw_label = str(consensus.get("signal", "HOLD"))
-        source = "Convergence consensus (normalized)"
-        headline_is_convergence = True
+    # ── The claim: FVO's standardized mispricing ───────────────────────
+    fvo = float(fvo_signal.get("fvo", 0.0) or 0.0)
+    pct = float(fvo_signal.get("pct_mispricing", 0.0) or 0.0) * 100.0
+    conf = float(fvo_signal.get("valuation_confidence", 0.0) or 0.0)
+    xs = float(fvo_signal.get("xs_consistency", 0.0) or 0.0)
+    mr = float(fvo_signal.get("mr_prob", 0.0) or 0.0)
+    half_life = float(fvo_signal.get("gap_half_life", 0.0) or 0.0)
+
+    # Direction is FVO's alone. A negative oscillator means the asset trades
+    # below the level the cross-section implies — cheap, therefore bullish.
+    if fvo <= -0.5:
+        direction, verb = "bullish", "cheap"
+    elif fvo >= 0.5:
+        direction, verb = "bearish", "rich"
     else:
-        score = float(aarambh_signal.get("conviction_score", 0)) / 100.0
-        raw_label = str(aarambh_signal.get("signal", "HOLD"))
-        source = "Aarambh only (no bottom-up convergence)"
-        headline_is_convergence = False
+        direction, verb = "neutral", "fairly valued"
 
-    # ── 2. Label normalisation (the DDM classifier says NEUTRAL, the
-    # normalized-consensus classifier says HOLD — one display vocabulary) ───
-    label_up = raw_label.upper()
-    if label_up in _NEUTRAL_LABELS:
-        signal, direction = "HOLD", "neutral"
-    elif "BUY" in label_up:
-        signal, direction = raw_label, "bullish"
-    elif "SELL" in label_up:
-        signal, direction = raw_label, "bearish"
+    gates: list[dict] = []
+
+    # ── Gate 1: is it mispriced at all? ────────────────────────────────
+    g_mag = _gate(abs(fvo), 0.5, 2.0)
+    gates.append({
+        "name": "mispricing", "value": g_mag,
+        "label": f"{abs(fvo):.2f}σ {verb}" if direction != "neutral" else "within noise",
+        "detail": (f"{abs(pct):.1f}% from fair value, {abs(fvo):.2f} predictive SDs."
+                   if direction != "neutral"
+                   else f"{abs(fvo):.2f} SDs from fair value — inside the engine's own uncertainty."),
+    })
+
+    # ── Gate 2: does the mispricing revert? ────────────────────────────
+    g_conf = _gate(conf, 0.2, 0.8)
+    gates.append({
+        "name": "reversion", "value": g_conf,
+        "label": f"confidence {conf:.2f}",
+        "detail": (f"Mean-reversion evidence {mr:.2f}, cross-sectional agreement {xs:.2f}"
+                   + (f", half-life {half_life:.0f}d." if half_life > 0 else ".")),
+    })
+
+    # ── Gate 3: do the asset's own internals agree? ────────────────────
+    if swayam_breadth:
+        net = (float(swayam_breadth.get("oversold_pct", 50.0))
+               - float(swayam_breadth.get("overbought_pct", 50.0))) / 100.0
+        aligned = net if direction == "bullish" else -net if direction == "bearish" else abs(net)
+        g_breadth = _gate(aligned, -0.3, 0.4)
+        gates.append({
+            "name": "breadth", "value": g_breadth,
+            "label": ("internals agree" if aligned > 0.1 else
+                      "internals disagree" if aligned < -0.1 else "internals split"),
+            "detail": f"Swayam net breadth {net:+.0%} across the view bank.",
+        })
     else:
-        signal, direction = "HOLD", "neutral"
+        g_breadth = 0.5
+        gates.append({"name": "breadth", "value": 0.5, "label": "no breadth read",
+                      "detail": "Swayam produced no overlapping breadth for this target."})
 
-    # Sign-coherence guard: under the system-wide convention (negative score =
-    # bullish; every classifier is constructed with buy thresholds < 0 < sell
-    # thresholds), a bullish label with a positive score (or vice versa) is
-    # impossible from any legitimate caller — it means a contract violation
-    # upstream (e.g. a future classifier change that flips convention without
-    # updating this card). Refusing to display the contradiction beats
-    # propagating it: neutralise the verdict and say why, loudly.
-    if (direction == "bullish" and score > 0) or (direction == "bearish" and score < 0):
-        signal, direction = "HOLD", "neutral"
-        source += " · sign-convention mismatch"
-
-    signal_class = ("undervalued" if direction == "bullish"
-                    else "overvalued" if direction == "bearish" else "fair")
-
-    # ── 3. Trust tier ───────────────────────────────────────────────────────
-    trust = _trust_tier(val_ic, wf_pos, wf_n=wf_n)
-
-    # ── 4. Headline sentence ────────────────────────────────────────────────
-    # A neutral label does NOT mean the score is flat — it means the score is
-    # inside the calibrated HOLD band. Saying "no directional edge" at e.g.
-    # +0.28 (just under a +0.30 SELL threshold) overstates flatness; say what
-    # is actually true: inside the band, with the lean named when it exists.
-    if direction == "neutral":
-        if abs(score) < _FLAT_BAND:
-            headline = (f"{source}: {score:+.2f} — flat, no directional lean over "
-                        f"the next ~{horizon_days} trading days right now.")
+    # ── Gate 4: do the two engines converge? ───────────────────────────
+    # Two readings, multiplied: HOW OFTEN they have agreed (agreement ratio)
+    # and WHETHER the normalized consensus currently points the same way as
+    # the FVO call. A high agreement ratio pointing the wrong way is not
+    # convergence, which is why one number could not carry this gate.
+    if convergence:
+        agree_ratio = float(convergence.get("agreement_ratio", 0.5) or 0.5)
+        cons = convergence.get("consensus")
+        # Consensus is signed like the oscillator (negative = cheap), so it is
+        # flipped to a bullish-positive convention before comparison.
+        if cons is not None and np.isfinite(cons):
+            cons_bull = -float(cons)
+            aligned = (cons_bull if direction == "bullish" else
+                       -cons_bull if direction == "bearish" else abs(cons_bull))
         else:
-            lean = "bullish" if score < 0 else "bearish"
-            headline = (f"{source}: {score:+.2f} — inside the HOLD band over the "
-                        f"next ~{horizon_days} trading days (leaning {lean}, but below the "
-                        f"action threshold).")
+            aligned = 0.0
+        g_conv = _gate(agree_ratio, 0.45, 0.85) * _gate(aligned, -0.25, 0.25)
+        if aligned < -0.1:
+            conv_label = "engines disagree"
+        elif aligned > 0.1:
+            conv_label = "engines converge"
+        else:
+            conv_label = "engines split"
+        conv_detail = f"Cross-engine agreement {agree_ratio:.0%}" + (
+            f", normalized consensus {cons:+.2f} "
+            f"({'confirms' if aligned > 0.1 else 'contradicts' if aligned < -0.1 else 'neutral on'}"
+            f" the {direction} call)."
+            if cons is not None and np.isfinite(cons) else ".")
     else:
-        headline = (f"{source} reads {direction} ({signal}, {score:+.2f}) over "
-                    f"the next ~{horizon_days} trading days.")
+        g_conv = 0.5
+        conv_label, conv_detail = ("no convergence read",
+                                   "FVO and Swayam had no overlapping history to converge over.")
+    gates.append({"name": "convergence", "value": g_conv,
+                  "label": conv_label, "detail": conv_detail})
 
-    # ── 5. Evidence rows ────────────────────────────────────────────────────
-    evidence: list[dict] = []
-
-    # Will a CALIBRATED evidence row exist? Gated on has_profile: with no
-    # profile, "calibrated" was classified with factory thresholds anyway —
-    # a near-duplicate of the headline that would add noise, not evidence.
-    _calib_row = (has_profile and calib_conviction is not None
-                  and calib_signal is not None)
-
-    # MODEL — validated edge. (The Val IC / walk-forward numbers were earned
-    # by the CALIBRATED composite — the nearest available validation evidence
-    # for the consensus headline; the explicit attribution note was dropped
-    # from the card copy as noise.)
-    model_state = ("confirm" if trust["tier"] in ("modest", "solid")
-                   else "conflict" if trust["tier"] == "no_edge" else "neutral")
-    evidence.append({"tag": "MODEL", "state": model_state, "text": trust["prose"]})
-
-    # CALIBRATED — the Optuna-calibrated composite (a DIFFERENT construction
-    # of the same two engines), as a second opinion on the consensus
-    # headline. Same label-normalisation rules as the headline so the
-    # comparison is direction-vs-direction, not string-vs-string.
-    if _calib_row:
-        c_score = float(calib_conviction) / 100.0
-        c_up = str(calib_signal).upper()
-        if c_up in _NEUTRAL_LABELS or not ("BUY" in c_up or "SELL" in c_up):
-            c_dir = "neutral"
-        elif "BUY" in c_up:
-            c_dir = "bullish"
+    # ── Gate 5: has this ever paid, out of sample? ─────────────────────
+    if wf_ic is None:
+        # Not "no edge" — no measurement. A system too young to have been
+        # scored gets a discount, not a verdict.
+        g_edge = 0.25
+        edge_label, edge_detail = ("unvalidated",
+                                   "Not enough scored history for a walk-forward read (~250+ dates).")
+    else:
+        g_edge = _gate(wf_ic, -0.02, 0.15)
+        edge_label = ("edge holds" if wf_ic > 0.05 else
+                      "edge marginal" if wf_ic > 0 else "no measured edge")
+        edge_detail = f"Walk-forward OOS IC {wf_ic:+.3f}"
+        if wf_pos is not None and wf_n:
+            edge_detail += f" across {wf_n} windows, {round(wf_pos * wf_n)} positive."
         else:
-            c_dir = "bearish"
-        _c_stub = f"{str(calib_signal)} ({c_score:+.2f}) under learned weights/thresholds"
-        if c_dir == direction and c_dir != "neutral":
-            evidence.append({"tag": "CALIBRATED", "state": "confirm",
-                             "text": f"Calibrated variant agrees — {_c_stub}."})
-        elif c_dir == "neutral" and direction != "neutral":
-            evidence.append({"tag": "CALIBRATED", "state": "neutral",
-                             "text": (f"Calibrated variant reads {_c_stub} — the consensus "
-                                      f"{direction} read is NOT confirmed by calibration; "
-                                      f"treat it as lower-conviction.")})
-        elif c_dir != "neutral" and direction == "neutral":
-            evidence.append({"tag": "CALIBRATED", "state": "info",
-                             "text": (f"Calibrated variant leans {c_dir} — {_c_stub} — "
-                                      f"while the consensus read is neutral.")})
-        elif c_dir == "neutral" and direction == "neutral":
-            evidence.append({"tag": "CALIBRATED", "state": "neutral",
-                             "text": f"Calibrated variant also neutral — {_c_stub}."})
-        else:
-            evidence.append({"tag": "CALIBRATED", "state": "conflict",
-                             "text": (f"Calibrated variant DISAGREES — {_c_stub}; consensus and "
-                                      f"calibrated composite point opposite ways. Stand aside "
-                                      f"or size down until they re-align.")})
+            edge_detail += "."
+    gates.append({"name": "edge", "value": g_edge,
+                  "label": edge_label, "detail": edge_detail})
 
-    # TREND — today's print vs the DDM-smoothed trend of the SAME consensus
-    # series. Only meaningful on the convergence path (the smoothed series is
-    # the DDM of the consensus; comparing it against an Aarambh fallback
-    # score would cross two different objects).
-    if headline_is_convergence and smoothed is not None:
-        sm = float(smoothed)
-        raw_flat, sm_flat = abs(score) < _FLAT_BAND, abs(sm) < _FLAT_BAND
-        if raw_flat and sm_flat:
-            pass  # both flat — nothing to interpret, no row
-        elif sm_flat:
-            evidence.append({"tag": "TREND", "state": "neutral",
-                             "text": (f"No established trend (smoothed {sm:+.2f}) — today's "
-                                      f"{score:+.2f} is fresh evidence, not yet a trend.")})
-        elif raw_flat:
-            evidence.append({"tag": "TREND", "state": "neutral",
-                             "text": (f"Today's print ({score:+.2f}) has gone flat against a "
-                                      f"{'bullish' if sm < 0 else 'bearish'} smoothed trend "
-                                      f"({sm:+.2f}) — possible stall.")})
-        elif (score < 0) == (sm < 0):
-            if abs(score) >= abs(sm):
-                evidence.append({"tag": "TREND", "state": "confirm",
-                                 "text": (f"Today's print ({score:+.2f}) extends the smoothed "
-                                          f"trend ({sm:+.2f}) — signal strengthening.")})
-            else:
-                evidence.append({"tag": "TREND", "state": "neutral",
-                                 "text": (f"Today's print ({score:+.2f}) is softer than the "
-                                          f"smoothed trend ({sm:+.2f}) — same direction, "
-                                          f"fading intensity.")})
-        else:
-            evidence.append({"tag": "TREND", "state": "conflict",
-                             "text": (f"Today's print ({score:+.2f}) contradicts the smoothed "
-                                      f"trend ({sm:+.2f}) — an early turn or one-day noise; "
-                                      f"wait for confirmation.")})
-
-    # PRECEDENT — non-parametric base rate, gated on a real sample AND on
-    # internal coherence: the lean is only probative when the median return
-    # and the hit-rate majority point the same way. A median of -0.4% with
-    # 65% positive (few large losers, many small winners) is a skewed-outcome
-    # distribution, not a directional lean — calling it "bearish" and then
-    # flagging a false divergence against a bullish headline would be worse
-    # than saying nothing.
-    if precedent and int(precedent.get("n") or 0) >= 1:
-        p_n = int(precedent["n"])
-        p_med = float(precedent["median"])
-        p_pos = float(precedent["positive_pct"])
-        p_h = int(precedent["horizon"])
-        p_dir = int(precedent.get("dir") or 0)
-        p_majority = 1 if p_pos > 50 else -1 if p_pos < 50 else 0
-        p_word = "bullish" if p_dir > 0 else "bearish" if p_dir < 0 else "flat"
-        hero_sign = 1 if direction == "bullish" else -1 if direction == "bearish" else 0
-        stub = (f"{p_n} distinct analogs at +{p_h}d: {p_med:+.1f}% median, "
-                f"{p_pos:.0f}% positive")
-        if p_n < _PRECEDENT_MIN_N:
-            evidence.append({"tag": "PRECEDENT", "state": "neutral",
-                             "text": f"Thin sample — only {stub}. Not probative; ignore the lean."})
-        elif abs(p_pos - 50) < _PRECEDENT_SPLIT_BAND:
-            evidence.append({"tag": "PRECEDENT", "state": "neutral",
-                             "text": f"Split — {stub}. No directional lean either way."})
-        elif p_dir != 0 and p_majority != 0 and p_dir != p_majority:
-            evidence.append({"tag": "PRECEDENT", "state": "neutral",
-                             "text": (f"Mixed — {stub}. Median and hit-rate point opposite "
-                                      f"ways (skewed outcomes), so the base rate has no "
-                                      f"robust lean; don't read direction into it.")})
-        elif hero_sign == 0:
-            evidence.append({"tag": "PRECEDENT", "state": "info",
-                             "text": f"Leans {p_word} — {stub}. The model itself reads no edge."})
-        elif p_dir == hero_sign:
-            evidence.append({"tag": "PRECEDENT", "state": "confirm",
-                             "text": f"Agrees — {stub}, confirming the {direction} read."})
-        else:
-            evidence.append({"tag": "PRECEDENT", "state": "conflict",
-                             "text": (f"Diverges ({p_word}) — {stub}. The analog base rate has "
-                                      f"historically been the stronger directional read; treat "
-                                      f"the {direction} signal with caution.")})
-
-    # INTERNALS — Aarambh vs Nirnay alignment (the headline's own two
-    # contributions — the consensus IS their 50/50 mean, so no separate
-    # reconciliation sentence is needed anymore: headline and consensus are
-    # the same object by construction).
-    consensus_score: float | None = None
-    a_norm = consensus.get("aarambh_norm") if consensus else None
-    n_norm = consensus.get("nirnay_norm") if consensus else None
-    if a_norm is not None and n_norm is not None:
-        consensus_score = float(consensus.get("value", 0.0))
-        aligned = (a_norm < 0) == (n_norm < 0)
-        agree_tier = ("strong" if agreement > agreement_strong
-                      else "moderate" if agreement > agreement_moderate else "weak")
-        state = "confirm" if (aligned and agreement > agreement_strong) \
-            else "conflict" if not aligned else "neutral"
-        evidence.append({
-            "tag": "INTERNALS", "state": state,
-            "text": (f"Aarambh {a_norm:+.2f} / Nirnay {n_norm:+.2f} — "
-                     f"{agree_tier} agreement ({agreement:.0%}), "
-                     + ("engines aligned." if aligned else "engines split.")),
+    # ── Gate 6: did it pay the last times this state occurred? ─────────
+    p_n = int((precedent or {}).get("n", 0) or 0)
+    p_pos = (precedent or {}).get("positive_pct")
+    if precedent and p_n >= MIN_PRECEDENT_N and p_pos is not None:
+        p_bull = float(p_pos) / 100.0
+        agree = (p_bull if direction == "bullish" else
+                 1.0 - p_bull if direction == "bearish" else 0.5)
+        g_prec = _gate(agree, 0.35, 0.65)
+        gates.append({
+            "name": "precedent", "value": g_prec,
+            "label": ("precedent agrees" if agree > 0.55 else
+                      "precedent disagrees" if agree < 0.45 else "precedent split"),
+            "detail": f"{float(p_pos):.0f}% of {p_n} distinct analogs rose over +{horizon_days}d.",
+        })
+    else:
+        g_prec = 0.6
+        gates.append({
+            "name": "precedent", "value": 0.6, "label": "no usable precedent",
+            "detail": f"Only {p_n} distinct analogs (need {MIN_PRECEDENT_N}) — "
+                      f"too few to read as a base rate.",
         })
 
-    # RISK — recent flagged divergence events (the caller windows the count to
-    # ~div_window trading days; a bare all-history count reads as a permanent
-    # alarm — audit finding F7). Points at the Convergence tab's "Recent
-    # Divergences" section, which renders the actual events.
-    if n_divergences:
-        _win = f" in the last ~{div_window} trading days" if div_window else ""
-        evidence.append({"tag": "RISK", "state": "conflict",
-                         "text": (f"{n_divergences} divergence event"
-                                  f"{'s' if n_divergences != 1 else ''}{_win} — "
-                                  f"see Recent Divergences on the Convergence tab "
-                                  f"before acting.")})
+    # ── Conviction: the product, and the constraint that binds it ──────
+    conviction = float(np.prod([g["value"] for g in gates]))
+    binding = min(gates, key=lambda g: g["value"])
 
-    # ── 6. Decision synthesis — the tier the card RECOMMENDS ───────────────
-    # The headline above is the raw consensus read; this folds MODEL,
-    # CALIBRATED, TREND, PRECEDENT, INTERNALS and RISK into the action tier,
-    # so the card's bottom line is an integrated judgment, not the raw value.
-    action = _synthesize_action(direction, trust, evidence)
+    level, label, prose = "standaside", "STAND ASIDE", "no actionable edge"
+    for cut, lvl, lab, pr in _TIERS:
+        if conviction >= cut:
+            level, label, prose = lvl, lab, pr
+            break
+    if direction == "neutral":
+        level, label, prose = "standaside", "STAND ASIDE", "no directional claim to act on"
+
+    signal = "BUY" if direction == "bullish" else "SELL" if direction == "bearish" else "HOLD"
+    if direction != "neutral" and level in ("high", "moderate"):
+        signal = f"STRONG {signal}" if level == "high" else signal
+
+    headline = (
+        f"{signal} — {abs(pct):.1f}% {verb} versus the level the macro cross-section implies."
+        if direction != "neutral"
+        else "HOLD — trading within the engine's own uncertainty about fair value."
+    )
+
+    # The single most useful sentence the card produces: what is holding it back.
+    if direction == "neutral":
+        limit = "No directional claim: the gap is inside the engine's uncertainty band."
+    elif binding["value"] >= 0.75:
+        limit = "Nothing is materially limiting this — every condition holds."
+    else:
+        limit = f"Capped by {binding['name']}: {binding['detail']}"
+
+    # ── Standing risk flag, outside the chain ──────────────────────────
+    risk = None
+    if n_divergences > 0:
+        risk = (f"{n_divergences} FVO/Swayam divergence event"
+                f"{'s' if n_divergences != 1 else ''}"
+                + (f" in the last {div_window} sessions." if div_window else "."))
+
+    trust = {
+        "tier": ("solid" if (wf_ic or 0) >= 0.1 else
+                 "modest" if (wf_ic or 0) >= 0.05 else
+                 "marginal" if (wf_ic or 0) > 0 else
+                 "no_edge" if wf_ic is not None else "uncalibrated"),
+        "chip": ("SOLID EDGE" if (wf_ic or 0) >= 0.1 else
+                 "MODEST EDGE" if (wf_ic or 0) >= 0.05 else
+                 "MARGINAL" if (wf_ic or 0) > 0 else
+                 "NO EDGE" if wf_ic is not None else "NO READ"),
+        "oos_ic": wf_ic, "wf_pos": wf_pos, "wf_n": wf_n, "prose": edge_detail,
+    }
 
     return {
-        "signal": signal, "signal_class": signal_class, "score": score,
-        "source": source, "direction": direction, "headline": headline,
-        "trust": trust, "consensus_score": consensus_score, "evidence": evidence,
-        "action": action,
+        "signal": signal,
+        "signal_class": ("buy" if direction == "bullish" else
+                         "sell" if direction == "bearish" else "hold"),
+        "direction": direction,
+        "score": float(np.clip(-fvo / 3.0, -1.0, 1.0)),
+        "conviction": conviction,
+        "headline": headline,
+        "binding": binding["name"] if binding["value"] < 0.75 else None,
+        "limit": limit,
+        "gates": gates,
+        "risk": risk,
+        "trust": trust,
+        "action": {"level": level, "label": label, "prose": prose,
+                   "conviction": conviction},
+        "horizon_days": horizon_days,
     }
 
 
 def render_hero_card(verdict: dict) -> None:
-    """Render the hero verdict as a structured signal card.
+    """Render the verdict: claim, what limits it, then the chain behind both.
 
-    Layout (top → bottom): eyebrow label · source · signal + score ·
-    trust chip · headline · evidence rows. Every text field is escaped here
-    (plain text in, HTML out) — the old card passed markdown ``**bold**``
-    through ``html.escape`` and showed literal asterisks.
+    The layout follows the logic rather than decorating it. A reader who stops
+    after two lines has the decision (signal + conviction) and the single
+    reason it is not stronger; a reader who continues gets every gate with the
+    number behind it. The old card put five equal-weight evidence rows above a
+    points total, which buried the one line that mattered among four that
+    usually did not.
     """
     trust = verdict["trust"]
-    tier = trust["tier"]
     chip_style = {
         "uncalibrated": ("var(--ink-tertiary)", "rgba(148,163,184,0.12)"),
         "no_edge":      ("#FB7185", "rgba(251,113,133,0.12)"),
         "marginal":     ("#D4A853", "rgba(212,168,83,0.12)"),
         "modest":       ("#34D399", "rgba(52,211,153,0.12)"),
         "solid":        ("#34D399", "rgba(52,211,153,0.18)"),
-    }.get(tier, ("var(--ink-tertiary)", "rgba(148,163,184,0.12)"))
-    ic_text = (f"Val IC {trust['val_ic']:+.3f}" if trust.get("val_ic") is not None
-               else "Val IC —")
-    # Prefer explicit window counts over a bare percentage ("WF 4/6+" beats
-    # "WF 67%+"): with only a handful of walk-forward windows the ratio alone
-    # overstates the durability evidence (see _trust_tier's wf_n docstring).
+    }.get(trust["tier"], ("var(--ink-tertiary)", "rgba(148,163,184,0.12)"))
+    ic_text = (f"OOS IC {trust['oos_ic']:+.3f}" if trust.get("oos_ic") is not None
+               else "no OOS read")
     if trust.get("wf_pos") is not None and trust.get("wf_n"):
-        wf_text = f" &bull; WF {round(trust['wf_pos'] * trust['wf_n'])}/{trust['wf_n']}+"
-    elif trust.get("wf_pos") is not None:
-        wf_text = f" &bull; WF {trust['wf_pos']:.0%}+"
-    else:
-        wf_text = ""
-    chip = (
-        f'<span class="hero-chip" style="background:{chip_style[1]};color:{chip_style[0]};">'
-        f'{html_mod.escape(trust["chip"])} &bull; {ic_text}{wf_text}</span>'
-    )
+        ic_text += f" &bull; {round(trust['wf_pos'] * trust['wf_n'])}/{trust['wf_n']} windows+"
 
-    rows_html = "".join(
-        f'<div class="hero-evidence-row {html_mod.escape(r["state"])}">'
-        f'<span class="hero-tag"><span class="dot"></span>{html_mod.escape(r["tag"])}</span>'
-        f'<span class="hero-text">{html_mod.escape(r["text"])}</span>'
+    action = verdict["action"]
+    conviction = float(verdict.get("conviction", 0.0))
+    tier_color = {"high": "#34D399", "moderate": "#D4A853",
+                  "low": "var(--ink-secondary)", "standaside": "var(--ink-tertiary)"
+                  }.get(action["level"], "var(--ink-tertiary)")
+
+    # ── Gate chain: one row each, bar width = how open the gate is ──────
+    binding = verdict.get("binding")
+    gate_rows = "".join(
+        f'<div class="hero-gate{" binding" if g["name"] == binding else ""}">'
+        f'<span class="hero-gate-name">{html_mod.escape(g["name"])}</span>'
+        f'<span class="hero-gate-bar"><i style="width:{max(2, round(g["value"] * 100))}%;'
+        f'background:{"#FB7185" if g["value"] < 0.35 else "#D4A853" if g["value"] < 0.7 else "#34D399"};">'
+        f'</i></span>'
+        f'<span class="hero-gate-label">{html_mod.escape(g["label"])}</span>'
+        f'<span class="hero-gate-detail">{html_mod.escape(g["detail"])}</span>'
         f'</div>'
-        for r in verdict["evidence"]
+        for g in verdict["gates"]
     )
 
-    # DECISION line — the integrated tier from _synthesize_action, rendered
-    # BELOW the evidence it is derived from. ``drivers`` itemises every
-    # contribution so the tier is auditable from the card itself.
-    action = verdict.get("action")
-    action_html = ""
-    if action:
-        _drivers = (f'<span class="hero-action-drivers">'
-                    f'{html_mod.escape(action["drivers"])}</span>'
-                    if action.get("drivers") else "")
-        action_html = (
-            f'<div class="hero-action {html_mod.escape(action["level"])}">'
-            f'<span class="hero-action-label">{html_mod.escape(action["label"])}</span>'
-            f'<span class="hero-action-prose">{html_mod.escape(action["prose"])}</span>'
-            f'{_drivers}</div>'
-        )
+    risk_html = (
+        f'<div class="hero-risk">{html_mod.escape(verdict["risk"])}</div>'
+        if verdict.get("risk") else ""
+    )
 
     st.markdown(
-        f"""
-        <div class="signal-card {html_mod.escape(verdict["signal_class"])}">
-            <div class="label">TATTVA CONVERGENCE SIGNAL &#40;&#x0924;&#x0924;&#x094D;&#x0924;&#x094D;&#x0935;&#41;</div>
-            <div class="hero-source">{html_mod.escape(verdict["source"])}</div>
-            <div class="value">{html_mod.escape(verdict["signal"])}
-                <span class="hero-score">{verdict["score"]:+.2f}</span>
-            </div>
-            <div class="hero-chip-row">{chip}</div>
-            <div class="hero-headline">{html_mod.escape(verdict["headline"])}</div>
-            <div class="hero-evidence">{rows_html}</div>
-            {action_html}
-        </div>
-        """,
+        f"""\
+<div class="hero-card {html_mod.escape(verdict["signal_class"])}">
+  <div class="hero-top">
+    <div class="hero-signal-block">
+      <div class="hero-eyebrow">Tattva &bull; {verdict["horizon_days"]}d horizon</div>
+      <div class="hero-signal">{html_mod.escape(verdict["signal"])}</div>
+    </div>
+    <div class="hero-conviction-block">
+      <span class="hero-chip" style="background:{chip_style[1]};color:{chip_style[0]};">\
+{html_mod.escape(trust["chip"])} &bull; {ic_text}</span>
+      <div class="hero-conviction" style="color:{tier_color};">\
+{html_mod.escape(action["label"])} &middot; {conviction:.2f}</div>
+      <div class="hero-conviction-sub">{html_mod.escape(action["prose"])}</div>
+    </div>
+  </div>
+  <div class="hero-headline">{html_mod.escape(verdict["headline"])}</div>
+  <div class="hero-limit">{html_mod.escape(verdict["limit"])}</div>
+  <div class="hero-gates">{gate_rows}</div>
+  {risk_html}
+  <div class="hero-foot">Conviction is the product of the five gates above &mdash; \
+the weakest one caps it, so a single broken condition is not outvoted by the rest.</div>
+</div>
+""",
         unsafe_allow_html=True,
     )
-
-
-# ── Signal data table (Obsidian Quant — ported from Pragyam's Position Guide) ──
-# Rendered via components.html (an IFRAME), which CANNOT see the app's theme.css
-# :root variables — so every token below is the RESOLVED value from theme.css,
-# inlined into the iframe's own <style>. Keep these in sync with theme.css if the
-# palette ever changes (they are the same Obsidian-Quant tokens: amber #D4A853,
-# IBM Plex Mono / Space Grotesk, glass surfaces).
-_TABLE_TOKENS = {
-    "ink_primary":   "#F1F5F9",
-    "ink_secondary": "#94A3B8",
-    "ink_tertiary":  "#5B6675",   # mirrors theme.css --ink-tertiary (3.31:1 muted tier)
-    "amber":         "#D4A853",
-    "emerald":       "#2DD4A8",
-    "rose":          "#E8555A",
-    "orange":        "#F59E0B",
-    "border":        "rgba(255,255,255,0.05)",
-    "border_subtle": "rgba(255,255,255,0.03)",
-    "amber_border":  "rgba(212,168,83,0.30)",
-    "amber_hover":   "rgba(212,168,83,0.05)",
-    "row_odd":       "rgba(255,255,255,0.01)",
-    "row_even":      "rgba(255,255,255,0.005)",
-}
-
-_TABLE_FONTS = ("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;"
-                "500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap")
 
 
 def _fmt_cell(value, precision: int) -> str:
@@ -1026,5 +955,3 @@ def render_warning_box(title: str, content: str) -> None:
         """,
         unsafe_allow_html=True,
     )
-
-

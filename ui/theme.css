@@ -1,5101 +1,822 @@
-/* ================================================================
-   Tattva v2.0.0 — Obsidian Quant Terminal CSS
-   Extracted to theme.css for maintainability
+/* ═══════════════════════════════════════════════════════════════════════════
+   TATTVA — INSTITUTIONAL DESIGN SYSTEM
+   तत्त्व — "Principle / Essence"
 
-   Aesthetic: "Obsidian Quant" — Institutional Research Terminal
-   Primary Accent: Amber Gold (#D4A853)
-   ================================================================ */
+   A terminal for reading valuation, not a dashboard for admiring it. The rules
+   below are the ones a trading desk actually needs, and each is a decision
+   rather than a default:
 
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500;600;700&family=Syne:wght@400;500;600;700;800&family=Instrument+Serif:wght@400&family=IBM+Plex+Mono:wght@300;400;500;600&display=swap');
+   1. DENSITY IS RESPECT. A professional reads many numbers at once. Whitespace
+      that would flatter a marketing page costs a row of data here, so spacing
+      is tight and consistent, never generous.
 
-/* ================================================================
-   DESIGN TOKENS — Obsidian Quant
-   ================================================================ */
+   2. NUMBERS ARE A COLUMN, NOT A SENTENCE. Every figure is monospace with
+      tabular numerals, so digits align vertically and a changed value is seen
+      rather than read. Prose is a different family entirely — you should be
+      able to tell data from commentary with the page out of focus.
+
+   3. COLOUR IS SEMANTIC. Green is long, red is short, amber is caution, cyan
+      is the system speaking about itself. Nothing is coloured to look nice;
+      if a colour appears, it carries a claim. The result is a mostly
+      achromatic interface where the eye goes straight to what matters.
+
+   4. ONE SCALE, NO EXCEPTIONS. Type, spacing and radii come from fixed ramps.
+      Ad-hoc values are how interfaces rot.
+
+   5. MOTION ONLY WHERE IT MEANS SOMETHING. The ticker scrolls because a tape
+      scrolls. Nothing else moves on its own, and everything stops under
+      prefers-reduced-motion.
+
+   6. LEGIBILITY IS NOT NEGOTIABLE. Body text clears WCAG AA (4.5:1) on its own
+      surface, large text clears 3:1, and focus is always visible. A number you
+      cannot read at a glance is a number you will misread under pressure.
+
+   Layer order below: reset → tokens → base → primitives → components →
+   Streamlit overrides → responsive → motion/print.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap');
+
+/* ─────────────────────────────────────────────────────────────────────────
+   0 · RESET
+   ───────────────────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   1 · TOKENS
+   ───────────────────────────────────────────────────────────────────────── */
 :root {
-    /* ---- Spacing scale (4px base) ---- */
-    --sp-1: 0.25rem;
-    /* 4  */
-    --sp-2: 0.5rem;
-    /* 8  */
-    --sp-3: 0.75rem;
-    /* 12 */
-    --sp-4: 1rem;
-    /* 16 */
-    --sp-5: 1.25rem;
-    /* 20 */
-    --sp-6: 1.5rem;
-    /* 24 */
-    --sp-8: 2rem;
-    /* 32 */
-    --sp-10: 2.5rem;
-    /* 40 */
-    --sp-12: 3rem;
-    /* 48 */
+    /* Surfaces — a four-step ramp. Anything that needs a fifth is nesting too
+       deep and should be flattened instead. */
+    --bg:            #04070D;   /* Midnight Deep Navy */
+    --surface-1:     #0A111F;   /* Glass panel base */
+    --surface-2:     #121D30;   /* Raised elements */
+    --surface-3:     #1E2C44;   /* Hover / Active */
 
-    /* ---- Surfaces ---- */
-    --bg-deep: #050810;
-    --bg-base: #0A0E17;
-    --bg-elevated: #111827;
-    --bg-surface: #151C2C;
-    --glass: rgba(17, 24, 39, 0.45);
-    --glass-hover: rgba(21, 28, 44, 0.65);
-    --border: rgba(255, 255, 255, 0.05);
-    --border-active: rgba(212, 168, 83, 0.35);
-    --border-subtle: rgba(255, 255, 255, 0.03);
+    /* Ink */
+    --ink:           #F8FAFC;
+    --ink-secondary: #CBD5E1;
+    --ink-tertiary:  #94A3B8;
+    --ink-quaternary:#64748B;
 
-    /* ---- Ink ---- */
-    --ink-primary: #F1F5F9;
-    --ink-secondary: #94A3B8;
-    --ink-tertiary: #5B6675;   /* lifted from #4B5563 (2.55:1) → 3.31:1 on bg-base
-                                  to clear the WCAG UI-contrast floor; still clearly
-                                  the muted/de-emphasized tier (secondary is 7.5:1). */
-    --ink-inverse: #0A0E17;
+    /* Semantic — each carries a claim, never decoration. */
+    --long:          #10B981;   /* Emerald */
+    --short:         #EF4444;   /* Crimson */
+    --caution:       #F59E0B;   /* Amber */
+    --system:        #06B6D4;   /* Electric Cyan */
+    --neutral:       #64748B;   /* Slate */
 
-    /* ---- Accent palette — Terminal Glass ---- */
-    --amber: #D4A853;
-    --amber-dim: rgba(212, 168, 83, 0.6);
-    --amber-glow: rgba(212, 168, 83, 0.25);
-    --amber-bright: #E8C478;
-    --cyan: #06B6D4;
-    --cyan-glow: rgba(6, 182, 212, 0.2);
-    --cyan-dim: rgba(6, 182, 212, 0.5);
-    --emerald: #2DD4A8;
-    --emerald-glow: rgba(45, 212, 168, 0.2);
-    --emerald-bright: #6EE7C8;
-    --rose: #E8555A;
-    --rose-glow: rgba(232, 85, 90, 0.2);
-    --rose-bright: #F07075;
-    --violet: #8B5CF6;
-    --violet-glow: rgba(139, 92, 246, 0.2);
-    --orange: #F59E0B;
-    --orange-glow: rgba(245, 158, 11, 0.2);
-    --slate-warm: #8B7E6A;
+    /* Tinted fills. Deliberately faint: a tint marks a region, a border
+       delimits it, and the text on top must stay the brightest thing there. */
+    --long-fill:     rgba(16, 185, 129, 0.1);
+    --short-fill:    rgba(239, 68, 68, 0.1);
+    --caution-fill:  rgba(245, 158, 11, 0.1);
+    --system-fill:   rgba(6, 182, 212, 0.1);
+    --long-edge:     rgba(16, 185, 129, 0.35);
+    --short-edge:    rgba(239, 68, 68, 0.35);
+    --caution-edge:  rgba(245, 158, 11, 0.35);
+    --system-edge:   rgba(6, 182, 212, 0.35);
 
-    /* ---- Type ---- */
-    --display: 'Space Grotesk', 'Syne', -apple-system, sans-serif;
-    --display-serif: 'Instrument Serif', Georgia, serif;
-    --data: 'IBM Plex Mono', 'JetBrains Mono', 'Fira Code', monospace;
+    /* Structure */
+    --line:          rgba(255, 255, 255, 0.05);
+    --line-strong:   rgba(255, 255, 255, 0.12);
+    --line-faint:    rgba(255, 255, 255, 0.02);
 
-    /* ---- Card shared variables (DRY) ---- */
-    --card-base: linear-gradient(145deg, var(--glass) 0%, rgba(17, 24, 39, 0.4) 100%);
-    --card-base-hover: linear-gradient(145deg, var(--glass-hover) 0%, rgba(21, 28, 44, 0.5) 100%);
-    --card-border-default: var(--border);
+    /* Type */
+    --mono: 'JetBrains Mono', 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+    --sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 
-    /* ---- Radius ---- */
-    --r-sm: 6px;
-    --r-md: 10px;
-    --r-lg: 14px;
-    --r-xl: 20px;
+    --fs-3xs: 0.5625rem;  /*  9px — micro labels, eyebrows */
+    --fs-2xs: 0.625rem;   /* 10px — table headers, chips */
+    --fs-xs:  0.6875rem;  /* 11px — dense metadata */
+    --fs-sm:  0.75rem;    /* 12px — secondary body */
+    --fs-md:  0.8125rem;  /* 13px — BODY */
+    --fs-lg:  0.9375rem;  /* 15px — section titles */
+    --fs-xl:  1.1875rem;  /* 19px — card values */
+    --fs-2xl: 1.5rem;     /* 24px — hero secondary */
+    --fs-3xl: 2rem;       /* 32px — hero signal */
+
+    /* Space — 4px base. Every gap is a multiple; no odd values. */
+    --s1: 0.25rem;  --s2: 0.5rem;   --s3: 0.75rem;  --s4: 1rem;
+    --s5: 1.25rem;  --s6: 1.5rem;   --s8: 2rem;     --s10: 2.5rem;
+
+    --r-sm: 3px;  --r-md: 5px;  --r-lg: 8px;  --r-pill: 100px;
+
+    --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+    --fast: 120ms;  --slow: 260ms;
+
+    /* Legacy aliases — the Python emits these names; mapping them here keeps
+       one source of truth for the value while the markup catches up. */
+    --ink-primary: var(--ink);
+    --emerald: var(--long);   --rose: var(--short);
+    --amber: var(--caution);  --cyan: var(--system);
+    --slate: var(--neutral);  --violet: #A78BFA;
+    --border: var(--line);    --border-subtle: var(--line-faint);
+    --data: var(--mono);      --display: var(--sans);
+    --sp-1: var(--s1); --sp-2: var(--s2); --sp-3: var(--s3); --sp-4: var(--s4);
+    --sp-5: var(--s5); --sp-6: var(--s6); --sp-8: var(--s8);
 }
 
-/* ================================================================
-   Globals & App Overrides
-   ================================================================ */
-* {
-    scrollbar-width: thin;
-    scrollbar-color: var(--ink-tertiary) transparent;
-}
-
-::-webkit-scrollbar {
-    width: 5px;
-    height: 5px;
-}
-
-::-webkit-scrollbar-track {
-    background: transparent;
-}
-
-::-webkit-scrollbar-thumb {
-    background: var(--ink-tertiary);
-    border-radius: 3px;
-}
-
-html,
-body,
-[class*="css"] {
-    font-family: var(--data);
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-}
-
-svg {
-    vertical-align: middle;
-    shape-rendering: geometricPrecision;
-}
-
+/* ─────────────────────────────────────────────────────────────────────────
+   2 · BASE
+   ───────────────────────────────────────────────────────────────────────── */
 .stApp {
-    background: var(--bg-deep) !important;
-    color: var(--ink-primary);
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: var(--fs-md);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
 }
 
-.stApp::before {
-    content: "";
-    position: fixed;
-    inset: 0;
-    background:
-        radial-gradient(ellipse 80% 60% at 20% 10%, rgba(212, 168, 83, 0.03) 0%, transparent 70%),
-        radial-gradient(ellipse 60% 80% at 80% 90%, rgba(34, 211, 238, 0.02) 0%, transparent 70%),
-        url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.015'/%3E%3C/svg%3E");
-    pointer-events: none;
-    z-index: 0;
+/* Every numeral in the app is tabular. Without this, a column of prices
+   shimmers as digits change width and the eye cannot hold a baseline. */
+.stApp [class*="value"], .stApp td, .stApp th,
+.stApp .mono, .tt-item, .hero-signal, .hero-conviction {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1, "zero" 1;
 }
 
-/* Subtle grid pattern overlay */
-.stApp::after {
-    content: "";
-    position: fixed;
-    inset: 0;
-    background-image:
-        linear-gradient(rgba(255, 255, 255, 0.008) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(255, 255, 255, 0.008) 1px, transparent 1px);
-    background-size: 50px 50px;
-    pointer-events: none;
-    z-index: 0;
-    opacity: 0.5;
+/* Focus is never removed, only restyled — keyboard users must be able to see
+   where they are, and an invisible focus ring is an accessibility failure. */
+.stApp :focus-visible {
+    outline: 2px solid var(--system);
+    outline-offset: 2px;
+    border-radius: var(--r-sm);
 }
 
-[data-testid="stHeader"] {
-    background: transparent !important;
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+    background: var(--line-strong); border-radius: var(--r-pill);
+}
+::-webkit-scrollbar-thumb:hover { background: var(--ink-quaternary); }
+
+/* Screen-reader-only, for text that must exist without occupying space. */
+.sr-only {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
 }
 
-footer {
-    visibility: hidden !important;
-}
-
-.block-container {
-    padding-top: var(--sp-8) !important;
-    padding-bottom: var(--sp-6) !important;
-    /* Readability cap — unbounded 98% lets lines/charts stretch unusably
-       wide on ultra-wide monitors (2560px+). No visible change ≤1720px. */
-    max-width: min(98%, 1720px);
-}
-
-/* ================================================================
-   Masthead
-   ================================================================ */
-.premium-header {
-    padding: var(--sp-5) 0 var(--sp-6) 0;
-    margin-bottom: var(--sp-10);
+/* ─────────────────────────────────────────────────────────────────────────
+   3 · TICKER TAPE
+   The one element that moves, because a tape is a thing that moves. Two
+   identical halves scroll as one track and the animation resets at -50%,
+   so the loop is seamless without JavaScript. Hovering pauses it — a
+   number you cannot stop to read is decoration, not data.
+   ───────────────────────────────────────────────────────────────────────── */
+.ticker {
     position: relative;
-    animation: fadeInDown 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
-.premium-header::after {
-    content: "";
-    display: block;
-    width: 100%;
-    height: 2px;
-    background: linear-gradient(90deg, var(--amber) 0%, var(--amber-glow) 40%, transparent 80%);
-    margin-top: var(--sp-5);
-    box-shadow: 0 0 20px var(--amber-glow);
-}
-
-.premium-header h1 {
-    font-family: var(--display);
-    font-weight: 800;
-    font-size: 3rem;
-    line-height: 1;
-    letter-spacing: -0.03em;
-    color: var(--ink-primary);
-    margin: 0 0 0.5rem 0;
-    text-shadow: 0 0 40px var(--amber-glow);
-    position: relative;
-}
-
-.premium-header h1::after {
-    content: "तत्त्व";
-    position: absolute;
-    right: 0;
-    top: 0;
-    font-family: var(--display-serif);
-    font-size: 2rem;
-    font-weight: 400;
-    color: var(--amber-dim);
-    opacity: 0.6;
-    letter-spacing: 0.05em;
-}
-
-.premium-header .tagline {
-    font-family: var(--data);
-    font-size: 0.7rem;
-    font-weight: 500;
-    color: var(--amber-dim);
-    text-transform: uppercase;
-    letter-spacing: 0.18em;
-    margin: 0;
-    position: relative;
-    padding-left: 2rem;
-}
-
-.premium-header .tagline::before {
-    content: "";
-    position: absolute;
-    left: 0;
-    top: 50%;
-    transform: translateY(-50%);
-    width: 1.5rem;
-    height: 1px;
-    background: var(--amber);
-}
-
-/* ================================================================
-   Section Headers — Enhanced with icon badges (DRY accent system)
-   ================================================================ */
-.section-hdr {
-    --accent: var(--amber);
-    --accent-glow: var(--amber-glow);
-    --accent-bg: rgba(212, 168, 83, 0.1);
-    --accent-border: rgba(212, 168, 83, 0.2);
-    display: flex;
-    align-items: flex-start;
-    gap: var(--sp-3);
-    margin: var(--sp-10) 0 var(--sp-5) 0;
-    padding-bottom: var(--sp-3);
-    border-bottom: 1px solid var(--border);
-    position: relative;
-    animation: slideInLeft 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
-/* Animated accent bar */
-.section-hdr::before {
-    content: "";
-    position: absolute;
-    bottom: -1px;
-    left: 0;
-    width: 0;
-    height: 2px;
-    background: linear-gradient(90deg, var(--accent) 0%, var(--accent-glow) 100%);
-    border-radius: 1px;
-    animation: accentBarIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.3s both;
-}
-
-@keyframes accentBarIn {
-    from {
-        width: 0;
-    }
-
-    to {
-        width: 40px;
-    }
-}
-
-.section-hdr:first-child {
-    margin-top: 0;
-}
-
-/* Icon badge system */
-.section-hdr .icon {
-    width: 32px;
-    height: 32px;
+    overflow: hidden;
+    background: linear-gradient(180deg, var(--surface-2), var(--surface-1));
+    border-block: 1px solid var(--line);
+    margin: 0 0 var(--s5);
+    height: 30px;
     display: flex;
     align-items: center;
-    justify-content: center;
-    border-radius: var(--r-sm);
-    background: linear-gradient(135deg, var(--accent-bg) 0%, rgba(212, 168, 83, 0.05) 100%);
-    border: 1px solid var(--accent-border);
-    flex-shrink: 0;
-    margin-top: 1px;
-    position: relative;
-    transition: transform 400ms cubic-bezier(0.16, 1, 0.3, 1),
-                box-shadow 400ms cubic-bezier(0.16, 1, 0.3, 1),
-                border-color 400ms cubic-bezier(0.16, 1, 0.3, 1);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    contain: content;
 }
-
-.section-hdr .icon::after {
-    content: "";
-    position: absolute;
-    inset: -1px;
-    border-radius: var(--r-sm);
-    background: linear-gradient(135deg, var(--accent) 0%, transparent 60%);
-    opacity: 0;
-    transition: opacity 400ms ease;
-    z-index: -1;
+/* Edge fades: the tape should read as continuous rather than clipped. */
+.ticker::before, .ticker::after {
+    content: ""; position: absolute; top: 0; bottom: 0; width: 48px;
+    z-index: 2; pointer-events: none;
 }
+.ticker::before { left: 0;  background: linear-gradient(90deg, var(--surface-1), transparent); }
+.ticker::after  { right: 0; background: linear-gradient(270deg, var(--surface-1), transparent); }
 
-.section-hdr:hover .icon {
-    transform: scale(1.1) rotate(-5deg);
-    box-shadow: 0 4px 16px var(--accent-glow);
-    border-color: rgba(212, 168, 83, 0.3);
-}
-
-.section-hdr:hover .icon::after {
-    opacity: 0.3;
-}
-
-.section-hdr .icon svg {
-    width: 16px;
-    height: 16px;
-    color: var(--accent);
-    stroke: var(--accent);
-    transition: transform 400ms cubic-bezier(0.16, 1, 0.3, 1),
-                filter 400ms cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.section-hdr:hover .icon svg {
-    transform: scale(1.1);
-    filter: drop-shadow(0 0 6px var(--accent-glow));
-}
-
-.section-hdr.cyan {
-    --accent: var(--cyan);
-    --accent-glow: var(--cyan-glow);
-    --accent-bg: rgba(6, 182, 212, 0.12);
-    --accent-border: rgba(6, 182, 212, 0.25);
-}
-
-.section-hdr.cyan::before {
-    background: linear-gradient(90deg, var(--accent) 0%, var(--accent-glow) 100%);
-}
-
-.section-hdr.cyan .icon {
-    background: linear-gradient(135deg, var(--accent-bg) 0%, rgba(6, 182, 212, 0.06) 100%);
-    border-color: var(--accent-border);
-    box-shadow: 0 2px 8px rgba(6, 182, 212, 0.15);
-}
-
-.section-hdr.cyan .icon::after {
-    background: linear-gradient(135deg, var(--accent) 0%, transparent 60%);
-}
-
-.section-hdr.cyan:hover .icon {
-    box-shadow: 0 4px 16px var(--accent-glow);
-    border-color: rgba(6, 182, 212, 0.4);
-}
-
-.section-hdr.cyan .icon svg {
-    color: var(--accent);
-    stroke: var(--accent);
-}
-
-.section-hdr.cyan:hover .icon svg {
-    filter: drop-shadow(0 0 6px var(--accent-glow));
-}
-
-.section-hdr.emerald {
-    --accent: var(--emerald);
-    --accent-glow: var(--emerald-glow);
-    --accent-bg: rgba(45, 212, 168, 0.12);
-    --accent-border: rgba(45, 212, 168, 0.25);
-}
-
-.section-hdr.emerald::before {
-    background: linear-gradient(90deg, var(--accent) 0%, var(--accent-glow) 100%);
-}
-
-.section-hdr.emerald .icon {
-    background: linear-gradient(135deg, var(--accent-bg) 0%, rgba(45, 212, 168, 0.06) 100%);
-    border-color: var(--accent-border);
-    box-shadow: 0 2px 8px rgba(45, 212, 168, 0.15);
-}
-
-.section-hdr.emerald .icon::after {
-    background: linear-gradient(135deg, var(--accent) 0%, transparent 60%);
-}
-
-.section-hdr.emerald:hover .icon {
-    box-shadow: 0 4px 16px var(--accent-glow);
-    border-color: rgba(45, 212, 168, 0.4);
-}
-
-.section-hdr.emerald .icon svg {
-    color: var(--accent);
-    stroke: var(--accent);
-}
-
-.section-hdr.emerald:hover .icon svg {
-    filter: drop-shadow(0 0 6px var(--accent-glow));
-}
-
-.section-hdr.rose {
-    --accent: var(--rose);
-    --accent-glow: var(--rose-glow);
-    --accent-bg: rgba(232, 85, 90, 0.12);
-    --accent-border: rgba(232, 85, 90, 0.25);
-}
-
-.section-hdr.rose::before {
-    background: linear-gradient(90deg, var(--accent) 0%, var(--accent-glow) 100%);
-}
-
-.section-hdr.rose .icon {
-    background: linear-gradient(135deg, var(--accent-bg) 0%, rgba(232, 85, 90, 0.06) 100%);
-    border-color: var(--accent-border);
-    box-shadow: 0 2px 8px rgba(232, 85, 90, 0.15);
-}
-
-.section-hdr.rose .icon::after {
-    background: linear-gradient(135deg, var(--accent) 0%, transparent 60%);
-}
-
-.section-hdr.rose:hover .icon {
-    box-shadow: 0 4px 16px var(--accent-glow);
-    border-color: rgba(232, 85, 90, 0.4);
-}
-
-.section-hdr.rose .icon svg {
-    color: var(--accent);
-    stroke: var(--accent);
-}
-
-.section-hdr.rose:hover .icon svg {
-    filter: drop-shadow(0 0 6px var(--accent-glow));
-}
-
-.section-hdr.violet {
-    --accent: var(--violet);
-    --accent-glow: var(--violet-glow);
-    --accent-bg: rgba(139, 92, 246, 0.12);
-    --accent-border: rgba(139, 92, 246, 0.25);
-}
-
-.section-hdr.violet::before {
-    background: linear-gradient(90deg, var(--accent) 0%, var(--accent-glow) 100%);
-}
-
-.section-hdr.violet .icon {
-    background: linear-gradient(135deg, var(--accent-bg) 0%, rgba(139, 92, 246, 0.06) 100%);
-    border-color: var(--accent-border);
-    box-shadow: 0 2px 8px rgba(139, 92, 246, 0.15);
-}
-
-.section-hdr.violet .icon::after {
-    background: linear-gradient(135deg, var(--accent) 0%, transparent 60%);
-}
-
-.section-hdr.violet:hover .icon {
-    box-shadow: 0 4px 16px var(--accent-glow);
-    border-color: rgba(139, 92, 246, 0.4);
-}
-
-.section-hdr.violet .icon svg {
-    color: var(--accent);
-    stroke: var(--accent);
-}
-
-.section-hdr.violet:hover .icon svg {
-    filter: drop-shadow(0 0 6px var(--accent-glow));
-}
-
-.section-hdr .text {
-    flex: 1;
-    min-width: 0;
-}
-
-.section-hdr .text h3 {
-    font-family: var(--display);
-    font-size: 1.05rem;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--ink-primary);
-    margin: 0;
-    line-height: 1;
-}
-
-.section-hdr .text .desc {
-    font-family: var(--data);
-    font-size: 0.68rem;
-    color: var(--ink-secondary);
-    margin-top: 0.2rem;
-    line-height: 1.4;
+.tt-track {
+    display: flex;
+    gap: var(--s6);
     white-space: nowrap;
+    will-change: transform;
+    animation: tt-scroll var(--tt-duration, 90s) linear infinite;
+    padding-left: var(--s6);
+}
+.ticker:hover .tt-track,
+.ticker:focus-within .tt-track { animation-play-state: paused; }
+
+@keyframes tt-scroll {
+    from { transform: translate3d(0, 0, 0); }
+    to   { transform: translate3d(-50%, 0, 0); }
 }
 
-/* ================================================================
-   Collapsible Sections
-   ================================================================ */
-.collapsible-section {
-    margin: var(--sp-4) 0;
-    border: 1px solid var(--border);
-    border-radius: var(--r-md);
-    overflow: hidden;
-    background: var(--glass);
-    backdrop-filter: blur(8px);
-    transition: border-color 250ms ease;
+.tt-item {
+    display: inline-flex; align-items: baseline; gap: var(--s2);
+    font-family: var(--mono); font-size: var(--fs-xs);
 }
-
-.collapsible-section:hover {
-    border-color: rgba(255, 255, 255, 0.1);
+.tt-sym {
+    color: var(--ink-secondary); font-weight: 600;
+    letter-spacing: 0.04em; text-transform: uppercase;
 }
+.tt-px { color: var(--ink); font-weight: 500; }
+.tt-chg { font-weight: 600; }
+.tt-chg.up   { color: var(--long); }
+.tt-chg.down { color: var(--short); }
+.tt-chg.flat { color: var(--ink-tertiary); }
+/* Direction is carried by a glyph as well as a colour — colour alone fails
+   for the ~8% of men with red/green deficiency, and this is the one reading
+   in the app where getting the sign wrong is unrecoverable. */
+.tt-chg::before { content: attr(data-arrow); margin-right: 2px; }
+.tt-sep { color: var(--line-strong); }
 
-.collapsible-header {
-    display: flex;
-    align-items: center;
-    gap: var(--sp-3);
-    padding: var(--sp-4) var(--sp-5);
-    cursor: pointer;
-    user-select: none;
-    transition: background 200ms ease;
+/* ─────────────────────────────────────────────────────────────────────────
+   4 · APP HEADER
+   ───────────────────────────────────────────────────────────────────────── */
+.premium-header {
+    display: flex; align-items: baseline; gap: var(--s3);
+    padding: var(--s2) 0 var(--s5);
+    border-bottom: 1px solid var(--line);
+    margin-bottom: var(--s6);
+    flex-wrap: wrap;
 }
-
-.collapsible-header:hover {
-    background: rgba(255, 255, 255, 0.02);
+.premium-header .title {
+    font-family: var(--sans); font-size: var(--fs-lg); font-weight: 700;
+    letter-spacing: -0.01em; color: var(--ink);
 }
-
-.collapsible-header .chevron {
-    width: 16px;
-    height: 16px;
-    transition: transform 200ms ease;
-    flex-shrink: 0;
+.premium-header .tagline {
+    font-family: var(--mono); font-size: var(--fs-2xs);
+    color: var(--ink-tertiary); text-transform: uppercase; letter-spacing: 0.14em;
 }
-
-.collapsible-section.open .collapsible-header .chevron {
-    transform: rotate(90deg);
+.app-footer {
+    margin-top: var(--s10); padding-top: var(--s4);
+    border-top: 1px solid var(--line);
+    font-family: var(--mono); font-size: var(--fs-2xs);
+    color: var(--ink-quaternary); text-align: center;
 }
+.app-footer .content { letter-spacing: 0.06em; }
 
-.collapsible-header h4 {
-    font-family: var(--display);
-    font-size: 0.85rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--ink-primary);
+/* ─────────────────────────────────────────────────────────────────────────
+   5 · SECTION HEADERS
+   A section header is a question the section answers. Rule, then title, then
+   the answer's terms — in that visual order so scanning down the page reads
+   as an outline.
+   ───────────────────────────────────────────────────────────────────────── */
+.section-hdr {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: var(--s3);
+    align-items: start;
+    margin: var(--s6) 0 var(--s4);
+    padding-top: var(--s4);
+    border-top: 1px solid var(--line);
+}
+.section-hdr .icon {
+    display: grid; place-items: center;
+    width: 22px; height: 22px; border-radius: var(--r-sm);
+    background: var(--surface-2); color: var(--ink-tertiary);
+    border: 1px solid var(--line);
+}
+.section-hdr .icon svg { width: 13px; height: 13px; }
+.section-hdr .text { grid-column: 2; min-width: 0; }
+.section-hdr h3 {
     margin: 0;
-    flex: 1;
+    font-family: var(--sans); font-size: var(--fs-lg); font-weight: 650;
+    letter-spacing: -0.01em; color: var(--ink); line-height: 1.3;
+}
+.section-hdr .desc {
+    margin-top: var(--s2);
+    font-family: var(--mono); font-size: var(--fs-xs);
+    line-height: 1.65; color: var(--ink-tertiary); max-width: 78ch;
+}
+/* Accents tint only the icon. A coloured heading competes with the data. */
+.section-hdr.cyan    .icon { color: var(--system);  border-color: var(--system-edge);  background: var(--system-fill); }
+.section-hdr.emerald .icon { color: var(--long);    border-color: var(--long-edge);    background: var(--long-fill); }
+.section-hdr.rose    .icon { color: var(--short);   border-color: var(--short-edge);   background: var(--short-fill); }
+.section-hdr.amber   .icon { color: var(--caution); border-color: var(--caution-edge); background: var(--caution-fill); }
+.section-hdr.violet  .icon { color: var(--violet);  border-color: rgba(167,139,250,0.32); background: rgba(167,139,250,0.09); }
+
+.section-divider { height: 1px; background: var(--line); margin: var(--s5) 0; }
+.section-gap { height: var(--s6); }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   6 · METRIC CARDS
+   The workhorse. Label above, value dominant, note below — one glance gets
+   the number, a second gets its meaning. State is carried on the left rule
+   so a column of cards can be scanned for red without reading any of them.
+   ───────────────────────────────────────────────────────────────────────── */
+.metric-card {
+    position: relative;
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.03) 0%, rgba(255, 255, 255, 0.005) 100%);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--line-strong);
+    border-left: 2px solid var(--ink-quaternary);
+    border-radius: var(--r-lg);
+    padding: var(--s4);
+    height: 100%;
+    box-shadow: 0 4px 24px -1px rgba(0, 0, 0, 0.2);
+    transition: all var(--slow) var(--ease);
+}
+.metric-card:hover { 
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0.01) 100%);
+    border-color: var(--ink-quaternary); 
+    box-shadow: 0 8px 32px -2px rgba(0, 0, 0, 0.3);
+    transform: translateY(-2px);
+}
+.card-icon { display: inline-flex; vertical-align: -1px; opacity: 0.75; }
+.card-icon svg { width: 11px; height: 11px; }
+.metric-card .label {
+    font-family: var(--mono); font-size: var(--fs-3xs); font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.12em;
+    color: var(--ink-tertiary); display: block; margin-bottom: var(--s2);
+}
+.metric-card h2, .metric-card .value {
+    font-family: var(--mono); font-size: var(--fs-xl); font-weight: 600;
+    letter-spacing: -0.02em; color: var(--ink); margin: 0; line-height: 1.15;
+}
+.metric-card .sub-metric, .metric-card .subtext {
+    display: block; margin-top: var(--s2);
+    font-family: var(--mono); font-size: var(--fs-xs); line-height: 1.55;
+    color: var(--ink-tertiary);
+}
+.metric-card.success { border-left-color: var(--long); }
+.metric-card.danger  { border-left-color: var(--short); }
+.metric-card.warning { border-left-color: var(--caution); }
+.metric-card.info    { border-left-color: var(--system); }
+.metric-card.neutral { border-left-color: var(--ink-quaternary); }
+.metric-card.success h2, .metric-card.success .value { color: var(--long); }
+.metric-card.danger  h2, .metric-card.danger  .value { color: var(--short); }
+.metric-card.warning h2, .metric-card.warning .value { color: var(--caution); }
+
+/* Tooltip — keyboard reachable, not hover-only. */
+.metric-tooltip { position: relative; display: inline-flex; }
+.metric-tooltip-text {
+    position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 60;
+    min-width: 220px; max-width: 340px;
+    background: var(--surface-3); border: 1px solid var(--line-strong);
+    border-radius: var(--r-md); padding: var(--s3);
+    font-family: var(--mono); font-size: var(--fs-xs); line-height: 1.6;
+    color: var(--ink-secondary);
+    opacity: 0; visibility: hidden; transform: translateY(3px);
+    transition: opacity var(--fast) var(--ease), transform var(--fast) var(--ease);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+    white-space: normal;
+}
+.metric-tooltip:hover .metric-tooltip-text,
+.metric-tooltip:focus-within .metric-tooltip-text {
+    opacity: 1; visibility: visible; transform: translateY(0);
 }
 
-.collapsible-body {
-    max-height: 0;
-    overflow: hidden;
-    transition: max-height 300ms cubic-bezier(0.4, 0, 0.2, 1);
+/* ─────────────────────────────────────────────────────────────────────────
+   7 · HERO CARD — the conviction chain
+   Reads top-down as the decision itself: what and how strongly, then the one
+   thing limiting it, then the chain that produced both. A reader who stops
+   after the second block has everything they need to act.
+   ───────────────────────────────────────────────────────────────────────── */
+.hero-card {
+    position: relative; overflow: hidden;
+    background: linear-gradient(160deg, rgba(30, 44, 68, 0.4) 0%, rgba(10, 17, 31, 0.6) 100%);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid var(--line-strong);
+    border-radius: 12px;
+    padding: var(--s5) var(--s6);
+    margin-bottom: var(--s6);
+    box-shadow: 0 12px 40px -4px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255,255,255,0.1);
+}
+.hero-card::before {
+    content: ""; position: absolute; inset: 0 auto 0 0; width: 3px;
+    background: var(--ink-quaternary);
+}
+.hero-card.buy::before  { background: var(--long); }
+.hero-card.sell::before { background: var(--short); }
+.hero-card.hold::before { background: var(--neutral); }
+
+.hero-top {
+    display: flex; justify-content: space-between; align-items: flex-start;
+    gap: var(--s5); flex-wrap: wrap;
+}
+.hero-signal-block { min-width: 0; }
+.hero-eyebrow {
+    font-family: var(--mono); font-size: var(--fs-3xs); font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.16em;
+    color: var(--ink-tertiary); margin-bottom: var(--s2);
+}
+.hero-signal {
+    font-family: var(--sans); font-size: var(--fs-3xl); font-weight: 700;
+    letter-spacing: -0.03em; line-height: 1; color: var(--ink);
+}
+.hero-card.buy  .hero-signal { color: var(--long); }
+.hero-card.sell .hero-signal { color: var(--short); }
+
+.hero-conviction-block { text-align: right; }
+.hero-chip {
+    display: inline-block; padding: 3px 10px; border-radius: var(--r-pill);
+    font-family: var(--mono); font-size: var(--fs-3xs); font-weight: 700;
+    letter-spacing: 0.1em; text-transform: uppercase;
+    border: 1px solid currentColor;
+}
+.hero-conviction {
+    font-family: var(--mono); font-size: var(--fs-lg); font-weight: 700;
+    letter-spacing: 0.01em; margin-top: var(--s2);
+}
+.hero-conviction-sub {
+    font-family: var(--mono); font-size: var(--fs-xs);
+    color: var(--ink-tertiary); margin-top: 2px;
+}
+.hero-headline {
+    margin-top: var(--s5);
+    font-family: var(--sans); font-size: var(--fs-md);
+    line-height: 1.6; color: var(--ink);
+}
+/* The binding constraint. Given a rule and a tint because it is the single
+   most useful sentence on the card — the specific reason conviction is not
+   higher — and it must not read as another line of body copy. */
+.hero-limit {
+    margin-top: var(--s3);
+    padding: var(--s3) var(--s4);
+    border-left: 2px solid var(--caution);
+    background: var(--caution-fill);
+    border-radius: 0 var(--r-md) var(--r-md) 0;
+    font-family: var(--mono); font-size: var(--fs-sm);
+    line-height: 1.6; color: var(--ink-secondary);
+}
+.hero-gates {
+    margin-top: var(--s5); padding-top: var(--s4);
+    border-top: 1px solid var(--line);
+    display: flex; flex-direction: column; gap: var(--s3);
+}
+.hero-gate {
+    display: grid;
+    grid-template-columns: 84px 56px minmax(110px, max-content) 1fr;
+    align-items: center; gap: var(--s3);
+    font-family: var(--mono); font-size: var(--fs-xs);
+}
+.hero-gate-name {
+    font-size: var(--fs-3xs); font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.1em; color: var(--ink-tertiary);
+}
+.hero-gate-bar {
+    display: block; height: 3px; border-radius: var(--r-pill);
+    background: var(--line-strong); overflow: hidden;
+}
+.hero-gate-bar i { display: block; height: 100%; border-radius: var(--r-pill); }
+.hero-gate-label { color: var(--ink); font-weight: 600; }
+.hero-gate-detail { color: var(--ink-tertiary); line-height: 1.5; }
+/* The gate that caps conviction is the one the reader must see first. */
+.hero-gate.binding .hero-gate-name,
+.hero-gate.binding .hero-gate-label { color: var(--caution); }
+.hero-risk {
+    margin-top: var(--s4);
+    font-family: var(--mono); font-size: var(--fs-xs); color: var(--short);
+}
+.hero-foot {
+    margin-top: var(--s5); padding-top: var(--s3);
+    border-top: 1px solid var(--line);
+    font-family: var(--mono); font-size: var(--fs-3xs);
+    color: var(--ink-quaternary); line-height: 1.6;
 }
 
-.collapsible-section.open .collapsible-body {
-    max-height: 3000px;
+/* ─────────────────────────────────────────────────────────────────────────
+   8 · INTERPRETATION & SYSTEM CARDS
+   ───────────────────────────────────────────────────────────────────────── */
+.interp-card, .warning-box, .info-box {
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.03) 0%, rgba(255, 255, 255, 0.01) 100%);
+    backdrop-filter: blur(8px);
+    border: 1px solid var(--line-strong);
+    border-left: 2px solid var(--ink-quaternary);
+    border-radius: var(--r-lg);
+    padding: var(--s4);
+    margin: var(--s3) 0;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
 }
-
-.collapsible-body-inner {
-    padding: 0 var(--sp-5) var(--sp-5) var(--sp-5);
+.interp-title {
+    font-family: var(--mono); font-size: var(--fs-2xs); font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.12em;
+    color: var(--ink-secondary); margin-bottom: var(--s2);
 }
-
-/* ================================================================
-   Section spacing
-   ================================================================ */
-.section-gap {
-    height: var(--sp-8);
+.interp-body {
+    font-family: var(--mono); font-size: var(--fs-sm);
+    line-height: 1.7; color: var(--ink-secondary);
 }
-
-/* ================================================================
-   System cards (landing page)
-   ================================================================ */
-
-/* Equal-height columns — single source of truth (flex, not grid) */
-[data-testid="stHorizontalBlock"] {
-    display: flex !important;
-    align-items: stretch !important;
-}
-
-[data-testid="stHorizontalBlock"]>div,
-[data-testid="stHorizontalBlock"]>div>div,
-[data-testid="stHorizontalBlock"]>div>div>div {
-    display: flex !important;
-    flex-direction: column !important;
-    height: 100% !important;
-}
-
-.stColumns>div {
-    height: 100% !important;
-}
+.interp-card.success { border-left-color: var(--long);    background: var(--long-fill); }
+.interp-card.danger  { border-left-color: var(--short);   background: var(--short-fill); }
+.interp-card.warning { border-left-color: var(--caution); background: var(--caution-fill); }
+.interp-card.neutral { border-left-color: var(--neutral); }
+.interp-card.success .interp-title { color: var(--long); }
+.interp-card.danger  .interp-title { color: var(--short); }
+.interp-card.warning .interp-title { color: var(--caution); }
+.warning-box { border-left-color: var(--caution); background: var(--caution-fill); }
 
 .system-card {
-    background: linear-gradient(135deg, var(--glass) 0%, rgba(17, 24, 39, 0.35) 100%);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border: 1px solid var(--border);
-    border-radius: var(--r-lg);
-    padding: var(--sp-6) var(--sp-6) var(--sp-5);
-    position: relative;
-    transition: background 400ms cubic-bezier(0.16, 1, 0.3, 1),
-                border-color 400ms cubic-bezier(0.16, 1, 0.3, 1),
-                transform 400ms cubic-bezier(0.16, 1, 0.3, 1),
-                box-shadow 400ms cubic-bezier(0.16, 1, 0.3, 1);
-    overflow: hidden;
-    cursor: default;
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.02) 0%, rgba(255, 255, 255, 0.005) 100%);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--r-lg); 
+    padding: var(--s4); 
     height: 100%;
-    min-height: 320px;
-    display: flex;
-    flex-direction: column;
+    box-shadow: 0 4px 16px -2px rgba(0, 0, 0, 0.2);
+    transition: transform var(--slow) var(--ease), box-shadow var(--slow) var(--ease);
 }
-
-
-/* Force the column row containing system-cards to stretch all columns
-   to the height of the tallest card. Targets only Streamlit horizontal
-   blocks that contain a system-card, so the rest of the app is unaffected. */
-[data-testid="stHorizontalBlock"]:has(.system-card) {
-    align-items: stretch;
-}
-[data-testid="stHorizontalBlock"]:has(.system-card) > [data-testid="stColumn"],
-[data-testid="stHorizontalBlock"]:has(.system-card) > [data-testid="stColumn"] > div {
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-}
-
-/* ────────────────────────────────────────────────────────────────────────
-   Equal-height metric cards — robust against Streamlit DOM changes.
-
-   The fragile approach is cascading `height: 100%` through every nested
-   div: it depends on the entire chain having an explicit height, which
-   breaks the moment Streamlit inserts a new wrapper (stVerticalBlock,
-   stColumn, etc.).
-
-   The robust approach is **flex-grow all the way down**:
-     - The horizontal block is a flex row with `align-items: stretch`
-       so every column gets the height of the tallest sibling automatically.
-     - Every descendant inside the column is set to a flex column with
-       `flex: 1 1 auto`, so it claims whatever vertical space its parent
-       gives it — without needing an explicit `height: 100%`.
-     - The card itself uses `flex: 1 1 auto` and `min-height` to set
-       a floor while letting the tallest sibling drive the row height.
-
-   The universal selector ` * ` is scoped to rows that *contain* a
-   metric-card (via `:has`), so the rule only affects metric-card rows.
-   ──────────────────────────────────────────────────────────────────────── */
-[data-testid="stHorizontalBlock"]:has(.metric-card) {
-    display: flex !important;
-    align-items: stretch !important;
-}
-
-/* Each column (direct child of horizontal block) is a flex column that
-   stretches to row height. */
-[data-testid="stHorizontalBlock"]:has(.metric-card) > * {
-    display: flex !important;
-    flex-direction: column !important;
-    align-self: stretch !important;
-    flex: 1 1 0 !important;
-}
-
-/* Wrapper DIVs between the column and the card (up to 6 levels of Streamlit's
-   nesting) propagate the flex chain. Using `> div > div > ...` instead of `*`
-   so the rule only matches plain wrappers — NOT <h4>, <h2>, <span> inside
-   the card itself, which would otherwise inherit `flex-direction: column`
-   and (combined with `align-items: center`) accidentally center text. */
-[data-testid="stHorizontalBlock"]:has(.metric-card) > * > div,
-[data-testid="stHorizontalBlock"]:has(.metric-card) > * > div > div,
-[data-testid="stHorizontalBlock"]:has(.metric-card) > * > div > div > div,
-[data-testid="stHorizontalBlock"]:has(.metric-card) > * > div > div > div > div,
-[data-testid="stHorizontalBlock"]:has(.metric-card) > * > div > div > div > div > div {
-    display: flex !important;
-    flex-direction: column !important;
-    flex: 1 1 auto !important;
-}
-
-/* Cover Streamlit's testid-named wrappers (covers DOM variants across versions). */
-[data-testid="stHorizontalBlock"]:has(.metric-card) [data-testid="stVerticalBlock"],
-[data-testid="stHorizontalBlock"]:has(.metric-card) [data-testid="element-container"],
-[data-testid="stHorizontalBlock"]:has(.metric-card) [data-testid="stElementContainer"],
-[data-testid="stHorizontalBlock"]:has(.metric-card) [data-testid="stMarkdownContainer"] {
-    display: flex !important;
-    flex-direction: column !important;
-    flex: 1 1 auto !important;
-}
-
-/* The card itself fills the column it lives in. */
-[data-testid="stHorizontalBlock"]:has(.metric-card) .metric-card {
-    flex: 1 1 auto !important;
-    height: auto !important;
-    align-self: stretch !important;
-}
-
-/* Diagonal accent line */
-.system-card::before {
-    content: "";
-    position: absolute;
-    top: -50%;
-    right: -20%;
-    width: 1px;
-    height: 200%;
-    background: linear-gradient(180deg, transparent 0%, var(--ink-tertiary) 50%, transparent 100%);
-    opacity: 0.3;
-    transform: rotate(25deg);
-    transition: opacity 400ms ease;
-}
-
-/* Top gradient bar */
-.system-card::after {
-    content: "";
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 2px;
-    background: linear-gradient(90deg, transparent 0%, var(--ink-tertiary) 50%, transparent 100%);
-    opacity: 0.4;
-}
-
 .system-card:hover {
-    background: linear-gradient(135deg, var(--glass-hover) 0%, rgba(21, 28, 44, 0.55) 100%);
-    border-color: var(--border-active);
-    transform: translateY(-4px);
-    box-shadow:
-        0 12px 40px rgba(0, 0, 0, 0.3),
-        0 4px 12px rgba(0, 0, 0, 0.2);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px -4px rgba(0, 0, 0, 0.3);
 }
-
-.system-card:hover::before {
-    opacity: 0.6;
-}
-
 .system-card h3 {
-    font-family: var(--display);
-    font-size: 1.05rem;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    margin: 0 0 var(--sp-4) 0;
-    display: flex;
-    align-items: center;
-    gap: 0.7rem;
-    text-transform: uppercase;
-    position: relative;
-    z-index: 1;
+    display: flex; align-items: center; gap: var(--s2);
+    margin: 0 0 var(--s2);
+    font-family: var(--sans); font-size: var(--fs-sm); font-weight: 650;
+    color: var(--ink);
 }
-
-.system-card h3 svg {
-    flex-shrink: 0;
-    width: 20px;
-    height: 20px;
-    padding: 4px;
-    border-radius: var(--r-sm);
-    background: rgba(255, 255, 255, 0.05);
-    border: 1px solid var(--border);
-    transition: transform 400ms cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.system-card:hover h3 svg {
-    transform: rotate(-5deg) scale(1.05);
-}
-
+.system-card h3 svg { width: 14px; height: 14px; }
 .system-card p {
-    font-family: var(--data);
-    font-size: 0.78rem;
-    color: var(--ink-secondary);
-    line-height: 1.7;
-    margin: 0 0 var(--sp-5) 0;
-    position: relative;
-    z-index: 1;
-}
-
-/* Push the spec list to the bottom regardless of paragraph length —
-   keeps all three landing cards visually aligned even if one card's
-   paragraph wraps to a different number of lines. */
-.system-card .spec {
-    font-family: var(--data);
-    font-size: 0.68rem;
-    color: var(--ink-tertiary);
-    line-height: 2;
-    border-top: 1px solid var(--border);
-    padding-top: var(--sp-4);
-    margin-top: auto;
-    flex-grow: 0;
-    position: relative;
-    z-index: 1;
-}
-
-.system-card .spec span {
-    font-weight: 600;
-    position: relative;
-}
-
-/* Portfolio variant — uses same DRY color system */
-.system-card.portfolio {
-    --card-accent: var(--amber);
-    --card-accent-glow: var(--amber-glow);
-    --card-accent-bright: var(--amber-bright);
-    --card-accent-border: rgba(212, 168, 83, 0.15);
-    border: 1px solid var(--card-accent-border);
-}
-
-.system-card.portfolio::after {
-    background: linear-gradient(90deg, var(--card-accent) 0%, var(--card-accent-glow) 50%, transparent 100%);
-    opacity: 0.8;
-    box-shadow: 0 0 12px var(--card-accent-glow);
-}
-
-.system-card.portfolio::before {
-    background: linear-gradient(180deg, transparent 0%, var(--card-accent) 50%, transparent 100%);
-    opacity: 0.2;
-}
-
-.system-card.portfolio:hover {
-    border-color: rgba(212, 168, 83, 0.3);
-    box-shadow:
-        0 12px 40px rgba(0, 0, 0, 0.3),
-        0 0 24px var(--card-accent-glow);
-}
-
-.system-card.portfolio h3 {
-    color: var(--card-accent);
-}
-
-.system-card.portfolio h3 svg {
-    color: var(--card-accent);
-    border-color: rgba(212, 168, 83, 0.3);
-    background: rgba(212, 168, 83, 0.08);
-    filter: drop-shadow(0 0 6px var(--card-accent-glow));
-}
-
-.system-card.portfolio .spec span {
-    color: var(--card-accent-bright);
-}
-
-/* Regime variant — uses same DRY color system */
-.system-card.regime {
-    --card-accent: var(--cyan);
-    --card-accent-glow: var(--cyan-glow);
-    --card-accent-bright: var(--cyan);
-    --card-accent-border: rgba(6, 182, 212, 0.15);
-    border: 1px solid var(--card-accent-border);
-}
-
-.system-card.regime::after {
-    background: linear-gradient(90deg, var(--card-accent) 0%, var(--card-accent-glow) 50%, transparent 100%);
-    opacity: 0.8;
-    box-shadow: 0 0 12px var(--card-accent-glow);
-}
-
-.system-card.regime::before {
-    background: linear-gradient(180deg, transparent 0%, var(--card-accent) 50%, transparent 100%);
-    opacity: 0.2;
-}
-
-.system-card.regime:hover {
-    border-color: rgba(6, 182, 212, 0.3);
-    box-shadow:
-        0 12px 40px rgba(0, 0, 0, 0.3),
-        0 0 24px var(--card-accent-glow);
-}
-
-.system-card.regime h3 {
-    color: var(--card-accent);
-}
-
-.system-card.regime h3 svg {
-    color: var(--card-accent);
-    border-color: rgba(6, 182, 212, 0.3);
-    background: rgba(6, 182, 212, 0.08);
-    filter: drop-shadow(0 0 6px var(--card-accent-glow));
-}
-
-.system-card.regime .spec span {
-    color: var(--card-accent-bright);
-}
-
-/* Strategies variant — uses same DRY color system */
-.system-card.strategies {
-    --card-accent: var(--emerald);
-    --card-accent-glow: var(--emerald-glow);
-    --card-accent-bright: var(--emerald-bright);
-    --card-accent-border: rgba(45, 212, 168, 0.15);
-    border: 1px solid var(--card-accent-border);
-}
-
-.system-card.strategies::after {
-    background: linear-gradient(90deg, var(--card-accent) 0%, var(--card-accent-glow) 50%, transparent 100%);
-    opacity: 0.8;
-    box-shadow: 0 0 12px var(--card-accent-glow);
-}
-
-.system-card.strategies::before {
-    background: linear-gradient(180deg, transparent 0%, var(--card-accent) 50%, transparent 100%);
-    opacity: 0.2;
-}
-
-.system-card.strategies:hover {
-    border-color: rgba(45, 212, 168, 0.3);
-    box-shadow:
-        0 12px 40px rgba(0, 0, 0, 0.3),
-        0 0 24px var(--card-accent-glow);
-}
-
-.system-card.strategies h3 {
-    color: var(--card-accent);
-}
-
-.system-card.strategies h3 svg {
-    color: var(--card-accent);
-    border-color: rgba(45, 212, 168, 0.3);
-    background: rgba(45, 212, 168, 0.08);
-    filter: drop-shadow(0 0 6px var(--card-accent-glow));
-}
-
-.system-card.strategies .spec span {
-    color: var(--card-accent-bright);
-}
-
-/* ================================================================
-   Metric cards — Corner accent system
-   ================================================================ */
-.metric-card {
-    background: var(--card-bg);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
-    border: 1px solid var(--card-border);
-    border-radius: var(--r-md);
-    padding: var(--sp-5) var(--sp-5);
-    position: relative;
-    transition: background 350ms cubic-bezier(0.16, 1, 0.3, 1),
-                border-color 350ms cubic-bezier(0.16, 1, 0.3, 1),
-                transform 350ms cubic-bezier(0.16, 1, 0.3, 1),
-                box-shadow 350ms cubic-bezier(0.16, 1, 0.3, 1);
-    min-height: 120px;
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-    justify-content: flex-start;
-    overflow: hidden;
-    cursor: default;
-    animation: metricIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
-    box-sizing: border-box;
-}
-
-/* Entrance stagger for card ROWS. `.metric-card:nth-child(N)` (the prior
-   rule here) never matched in practice — a metric card is always the sole
-   child of its own Streamlit column wrapper, so it was permanently
-   nth-child(1). The stagger has to key off the COLUMN's position within
-   the horizontal block instead. Streamlit reruns on every widget
-   interaction, so this fires often — kept short (total row entrance
-   <=300ms) and excluded from charts/hero via the `:has(.metric-card)` scope. */
-[data-testid="stHorizontalBlock"]:has(.metric-card) > div:nth-child(2) .metric-card { animation-delay: 60ms; }
-[data-testid="stHorizontalBlock"]:has(.metric-card) > div:nth-child(3) .metric-card { animation-delay: 120ms; }
-[data-testid="stHorizontalBlock"]:has(.metric-card) > div:nth-child(4) .metric-card { animation-delay: 180ms; }
-[data-testid="stHorizontalBlock"]:has(.metric-card) > div:nth-child(5) .metric-card { animation-delay: 240ms; }
-[data-testid="stHorizontalBlock"]:has(.metric-card) > div:nth-child(6) .metric-card { animation-delay: 300ms; }
-
-/* Corner accent dot */
-.metric-card::before {
-    content: "";
-    position: absolute;
-    top: var(--sp-3);
-    right: var(--sp-3);
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--card-accent);
-    transition: transform 350ms cubic-bezier(0.16, 1, 0.3, 1),
-                box-shadow 350ms cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-/* Bottom gradient sweep on hover */
-.metric-card::after {
-    content: "";
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    height: 0;
-    background: linear-gradient(0deg, var(--card-glow) 0%, transparent 100%);
-    opacity: 0;
-    transition: height 350ms cubic-bezier(0.16, 1, 0.3, 1),
-                opacity 350ms cubic-bezier(0.16, 1, 0.3, 1);
-    pointer-events: none;
-}
-
-.metric-card:hover {
-    background: var(--card-bg-hover);
-    border-color: rgba(255, 255, 255, 0.1);
-    transform: translateY(-3px) scale(1.01);
-    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.25), 0 4px 12px rgba(0, 0, 0, 0.15);
-}
-
-.metric-card:hover::before {
-    transform: scale(1.5);
-    box-shadow: 0 0 12px var(--card-accent);
-}
-
-.metric-card:hover::after {
-    height: 60%;
-    opacity: 0.15;
-}
-
-.metric-card h4 {
-    font-family: var(--data);
-    color: var(--ink-tertiary);
-    font-size: 0.62rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.12em;
-    margin: 0 0 var(--sp-3) 0;
-    position: relative;
-    z-index: 1;
-    display: flex;
-    flex-direction: row;        /* horizontal flow: icon then label */
-    align-items: center;        /* vertical centering of icon + text */
-    justify-content: flex-start;/* lock to left edge */
-    text-align: left;
-    /* Reserves the corner-dot/tooltip-icon corner so a long label (e.g.
-       "OVERBOUGHT INSTRUMENTS" in a 6-column row at 992-1200px) doesn't
-       wrap under or collide with it. */
-    padding-right: 20px;
-}
-
-.card-icon {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    margin-right: 0.45rem;
-    opacity: 0.9;
-    vertical-align: middle;
-}
-
-.card-icon svg {
-    display: block;
-}
-
-.metric-card h2 {
-    font-family: var(--display);
-    font-size: 1.85rem;
-    font-weight: 700;
-    line-height: 1;
-    margin: 0 0 var(--sp-2) 0;
-    color: var(--card-value);
-    letter-spacing: -0.02em;
-    position: relative;
-    z-index: 1;
-    text-align: left;
-    /* Fixed-width digits — a ticking value must not jitter the card's
-       width/layout as it updates. */
-    font-variant-numeric: tabular-nums;
-}
-
-/* Equal-height columns defined above — DRY, single source */
-.metric-card .sub-metric {
-    font-family: var(--data);
-    font-size: 0.68rem;
-    color: var(--ink-secondary);
-    margin: 0;
-    line-height: 1.4;
-    flex-grow: 1;
-}
-
-@keyframes metricIn {
-    from {
-        opacity: 0;
-        transform: translateY(8px);
-    }
-
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
-}
-
-/* ================================================================
-   Unified Card Color System — DRY definitions
-   Each variant defines: --card-accent, --card-glow, --card-value
-   Shared base: --card-bg, --card-border, --card-bg-hover
-   ================================================================ */
-
-/* Default / neutral */
-.metric-card {
-    --card-accent: var(--slate-warm);
-    --card-glow: rgba(139, 126, 106, 0.15);
-    --card-value: var(--ink-primary);
-    --card-bg: var(--card-base);
-    --card-border: var(--card-border-default);
-    --card-bg-hover: var(--card-base-hover);
-}
-
-.metric-card.success {
-    --card-accent: var(--emerald);
-    --card-glow: var(--emerald-glow);
-    --card-value: var(--emerald-bright);
-    --card-bg: linear-gradient(145deg, rgba(45, 212, 168, 0.04) 0%, rgba(17, 24, 39, 0.4) 100%);
-    --card-border: rgba(45, 212, 168, 0.2);
-    --card-bg-hover: linear-gradient(145deg, rgba(45, 212, 168, 0.08) 0%, rgba(21, 28, 44, 0.5) 100%);
-}
-
-.metric-card.success::before {
-    box-shadow: 0 0 12px var(--emerald-glow);
-}
-
-.metric-card.success h2 {
-    text-shadow: 0 0 20px var(--emerald-glow);
-}
-
-.metric-card.success:hover::after {
-    background: linear-gradient(0deg, var(--emerald-glow) 0%, transparent 100%);
-}
-
-.metric-card.danger {
-    --card-accent: var(--rose);
-    --card-glow: var(--rose-glow);
-    --card-value: var(--rose-bright);
-    --card-bg: linear-gradient(145deg, rgba(232, 85, 90, 0.04) 0%, rgba(17, 24, 39, 0.4) 100%);
-    --card-border: rgba(232, 85, 90, 0.2);
-    --card-bg-hover: linear-gradient(145deg, rgba(232, 85, 90, 0.08) 0%, rgba(21, 28, 44, 0.5) 100%);
-}
-
-.metric-card.danger::before {
-    box-shadow: 0 0 12px var(--rose-glow);
-}
-
-.metric-card.danger h2 {
-    text-shadow: 0 0 20px var(--rose-glow);
-}
-
-.metric-card.danger:hover::after {
-    background: linear-gradient(0deg, var(--rose-glow) 0%, transparent 100%);
-}
-
-.metric-card.warning {
-    --card-accent: var(--amber);
-    --card-glow: var(--amber-glow);
-    --card-value: var(--amber-bright);
-    --card-bg: linear-gradient(145deg, rgba(212, 168, 83, 0.04) 0%, rgba(17, 24, 39, 0.4) 100%);
-    --card-border: rgba(212, 168, 83, 0.2);
-    --card-bg-hover: linear-gradient(145deg, rgba(212, 168, 83, 0.08) 0%, rgba(21, 28, 44, 0.5) 100%);
-}
-
-.metric-card.warning::before {
-    box-shadow: 0 0 12px var(--amber-glow);
-}
-
-.metric-card.warning h2 {
-    text-shadow: 0 0 20px var(--amber-glow);
-}
-
-.metric-card.warning:hover::after {
-    background: linear-gradient(0deg, var(--amber-glow) 0%, transparent 100%);
-}
-
-.metric-card.info {
-    --card-accent: var(--cyan);
-    --card-glow: var(--cyan-glow);
-    --card-value: var(--cyan);
-    --card-bg: linear-gradient(145deg, rgba(6, 182, 212, 0.04) 0%, rgba(17, 24, 39, 0.4) 100%);
-    --card-border: rgba(6, 182, 212, 0.2);
-    --card-bg-hover: linear-gradient(145deg, rgba(6, 182, 212, 0.08) 0%, rgba(21, 28, 44, 0.5) 100%);
-}
-
-.metric-card.info::before {
-    box-shadow: 0 0 12px var(--cyan-glow);
-}
-
-.metric-card.info h2 {
-    text-shadow: 0 0 20px var(--cyan-glow);
-}
-
-.metric-card.info:hover::after {
-    background: linear-gradient(0deg, var(--cyan-glow) 0%, transparent 100%);
-}
-
-.metric-card.violet {
-    --card-accent: var(--violet);
-    --card-glow: var(--violet-glow);
-    --card-value: var(--violet);
-    --card-bg: linear-gradient(145deg, rgba(139, 92, 246, 0.04) 0%, rgba(17, 24, 39, 0.4) 100%);
-    --card-border: rgba(139, 92, 246, 0.2);
-    --card-bg-hover: linear-gradient(145deg, rgba(139, 92, 246, 0.08) 0%, rgba(21, 28, 44, 0.5) 100%);
-}
-
-.metric-card.violet::before {
-    box-shadow: 0 0 12px var(--violet-glow);
-}
-
-.metric-card.violet h2 {
-    text-shadow: 0 0 20px var(--violet-glow);
-}
-
-.metric-card.violet:hover::after {
-    background: linear-gradient(0deg, var(--violet-glow) 0%, transparent 100%);
-}
-
-/* Metric card tooltip — 12×12 ring centered concentrically on the 6×6 ::before glow dot */
-.metric-tooltip {
-    position: absolute;
-    top: calc(var(--sp-3) - 3px);
-    right: calc(var(--sp-3) - 3px);
-    width: 12px;
-    height: 12px;
-    color: var(--ink-tertiary);
-    cursor: help;
-    opacity: 0.5;
-    transition: opacity 200ms ease;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-
-.metric-tooltip:hover {
-    opacity: 1;
-}
-
-.metric-tooltip:hover .metric-tooltip-text {
-    opacity: 1;
-    visibility: visible;
-    transform: translateY(0);
-}
-
-.metric-tooltip-text {
-    position: absolute;
-    top: calc(100% + 8px);
-    right: 0;
-    background: var(--bg-elevated);
-    color: var(--ink-primary);
-    font-family: var(--data);
-    font-size: 0.7rem;
-    line-height: 1.5;
-    padding: var(--sp-2) var(--sp-3);
-    border-radius: var(--r-sm);
-    border: 1px solid var(--border);
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-    max-width: 260px;
-    white-space: normal;
-    opacity: 0;
-    visibility: hidden;
-    transform: translateY(-4px);
-    transition: opacity 200ms ease, transform 200ms ease, visibility 200ms ease;
-    z-index: 100;
-    pointer-events: none;
-}
-
-/* Last metric column in a row: open the tooltip leftward so it never
-   clips the viewport edge. Streamlit columns are horizontalBlock children. */
-[data-testid="stHorizontalBlock"] > div:last-child .metric-tooltip-text {
-    right: 0;
-    left: auto;
-}
-
-/* ================================================================
-   Signal cards
-   ================================================================ */
-/* Hero signal card — same design language as .metric-card (corner dot, bottom
-   sweep, gradient-tinted background, matching easing) but with larger padding
-   and typography for hero placement. */
-.signal-card {
-    --card-accent: var(--slate-warm);
-    --card-glow: rgba(139, 126, 106, 0.15);
-    --card-bg: var(--card-base);
-    --card-border: var(--card-border-default);
-    --card-bg-hover: var(--card-base-hover);
-
-    background: var(--card-bg);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border: 1px solid var(--card-border);
-    border-radius: var(--r-lg);
-    padding: var(--sp-8) var(--sp-10);
-    position: relative;
-    overflow: hidden;
-    transition: background 350ms cubic-bezier(0.16, 1, 0.3, 1),
-                border-color 350ms cubic-bezier(0.16, 1, 0.3, 1),
-                transform 350ms cubic-bezier(0.16, 1, 0.3, 1),
-                box-shadow 350ms cubic-bezier(0.16, 1, 0.3, 1);
-    animation: cardIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
-/* Corner accent dot — matches .metric-card::before placement */
-.signal-card::before {
-    content: "";
-    position: absolute;
-    top: calc(var(--sp-3) + 3px);
-    right: calc(var(--sp-3) + 3px);
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--card-accent);
-    box-shadow: 0 0 12px var(--card-glow);
-    transition: transform 350ms cubic-bezier(0.16, 1, 0.3, 1),
-                box-shadow 350ms cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-/* Bottom gradient sweep on hover */
-.signal-card::after {
-    content: "";
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    height: 0;
-    background: linear-gradient(0deg, var(--card-glow) 0%, transparent 100%);
-    opacity: 0;
-    transition: height 350ms cubic-bezier(0.16, 1, 0.3, 1),
-                opacity 350ms cubic-bezier(0.16, 1, 0.3, 1);
-    pointer-events: none;
-}
-
-.signal-card:hover {
-    background: var(--card-bg-hover);
-    border-color: rgba(255, 255, 255, 0.1);
-    transform: translateY(-3px) scale(1.005);
-    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25), 0 4px 12px rgba(0, 0, 0, 0.15);
-}
-
-.signal-card:hover::before {
-    transform: scale(1.5);
-    box-shadow: 0 0 16px var(--card-accent);
-}
-
-.signal-card:hover::after {
-    height: 40%;
-    opacity: 0.15;
-}
-
-/* Variant tints — emerald (buy/undervalued) */
-.signal-card.buy,
-.signal-card.undervalued {
-    --card-accent: var(--emerald);
-    --card-glow: var(--emerald-glow);
-    --card-bg: linear-gradient(145deg, rgba(45, 212, 168, 0.04) 0%, rgba(17, 24, 39, 0.4) 100%);
-    --card-border: rgba(45, 212, 168, 0.2);
-    --card-bg-hover: linear-gradient(145deg, rgba(45, 212, 168, 0.08) 0%, rgba(21, 28, 44, 0.5) 100%);
-}
-
-/* Variant tints — rose (sell/overvalued) */
-.signal-card.sell,
-.signal-card.overvalued {
-    --card-accent: var(--rose);
-    --card-glow: var(--rose-glow);
-    --card-bg: linear-gradient(145deg, rgba(232, 85, 90, 0.04) 0%, rgba(17, 24, 39, 0.4) 100%);
-    --card-border: rgba(232, 85, 90, 0.2);
-    --card-bg-hover: linear-gradient(145deg, rgba(232, 85, 90, 0.08) 0%, rgba(21, 28, 44, 0.5) 100%);
-}
-
-/* Variant tints — amber (hold/fair) */
-.signal-card.hold,
-.signal-card.fair {
-    --card-accent: var(--amber);
-    --card-glow: var(--amber-glow);
-    --card-bg: linear-gradient(145deg, rgba(212, 168, 83, 0.04) 0%, rgba(17, 24, 39, 0.4) 100%);
-    --card-border: rgba(212, 168, 83, 0.2);
-    --card-bg-hover: linear-gradient(145deg, rgba(212, 168, 83, 0.08) 0%, rgba(21, 28, 44, 0.5) 100%);
-}
-
-@keyframes cardIn {
-    from {
-        opacity: 0;
-        transform: translateY(12px);
-    }
-
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
-}
-
-.signal-card .label {
-    font-family: var(--data);
-    font-size: 0.62rem;
-    text-transform: uppercase;
-    letter-spacing: 0.14em;
-    color: var(--ink-tertiary);
-    font-weight: 600;
-    margin-bottom: var(--sp-6);
-}
-
-.signal-card .value {
-    font-family: var(--display);
-    font-size: 2.5rem;
-    font-weight: 800;
-    line-height: 1;
-    margin-bottom: var(--sp-3);
-    display: flex;
-    align-items: baseline;
-    gap: var(--sp-6);
-    letter-spacing: -0.03em;
-}
-
-.signal-card .subtext {
-    font-family: var(--data);
-    font-size: 0.72rem;
-    color: var(--ink-secondary);
-    line-height: 1.6;
-}
-
-.signal-card.buy .value,
-.signal-card.undervalued .value {
-    color: var(--emerald);
-}
-
-.signal-card.sell .value,
-.signal-card.overvalued .value {
-    color: var(--rose);
-}
-
-.signal-card.hold .value,
-.signal-card.fair .value {
-    color: var(--amber);
-}
-
-/* ── Hero verdict card — structured evidence layout ─────────────────
-   Extends .signal-card (same shell, tokens, and tinting) with the
-   rebuilt hero anatomy: source eyebrow · value+score · trust chip ·
-   headline · tagged evidence rows. */
-.signal-card .hero-source {
-    font-family: var(--data);
-    font-size: 0.6rem;
-    color: var(--ink-tertiary);
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    margin-bottom: var(--sp-2);
-}
-
-.signal-card .hero-score {
-    font-family: var(--data);
-    font-size: 1.1rem;
-    font-weight: 600;
-    color: var(--ink-secondary);
-    letter-spacing: -0.01em;
-    margin-left: var(--sp-3);
-    vertical-align: 0.35em;
-    font-variant-numeric: tabular-nums;
-}
-
-.signal-card .hero-chip-row {
-    margin-top: var(--sp-3);
-}
-
-.signal-card .hero-chip {
-    display: inline-block;
-    padding: 2px 9px;
-    border-radius: 100px;
-    font-family: var(--data);
-    font-size: 0.62rem;
-    font-weight: 600;
-    letter-spacing: 0.06em;
-}
-
-.signal-card .hero-headline {
-    margin-top: var(--sp-4);
-    font-family: var(--data);
-    font-size: 0.84rem;
-    line-height: 1.6;
-    color: var(--ink-primary);
-}
-
-.signal-card .hero-evidence {
-    margin-top: var(--sp-5);
-    padding-top: var(--sp-5);
-    border-top: 1px solid var(--border);
-    display: flex;
-    flex-direction: column;
-    gap: var(--sp-3);
-}
-
-.signal-card .hero-evidence-row {
-    display: flex;
-    gap: var(--sp-4);
-    /* flex-start, not baseline: .hero-text wraps to 2+ lines for longer
-       evidence copy, and baseline alignment references the text's own
-       baseline (which shifts with wrap count) rather than a fixed row top —
-       the tag+dot would ride low against multi-line text. */
-    align-items: flex-start;
-}
-
-.signal-card .hero-tag {
-    flex: 0 0 108px;
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-    font-family: var(--display);
-    font-size: 0.6rem;
-    font-weight: 700;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--ink-tertiary);
-    white-space: nowrap;
-    /* Compensates for .hero-text's line-height so the tag's own text
-       optically aligns with the first line of wrapped evidence copy. */
-    padding-top: 2px;
-}
-
-.signal-card .hero-tag .dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--ink-tertiary);
-    flex: none;
-}
-
-.signal-card .hero-evidence-row.confirm .dot { background: var(--emerald); }
-.signal-card .hero-evidence-row.conflict .dot { background: var(--rose); }
-.signal-card .hero-evidence-row.info .dot { background: var(--cyan); }
-
-.signal-card .hero-text {
-    font-family: var(--data);
-    font-size: 0.76rem;
-    line-height: 1.65;
-    color: var(--ink-secondary);
-}
-
-.signal-card .hero-evidence-row.conflict .hero-text {
-    color: var(--ink-primary);
-}
-
-/* DECISION line — the integrated action tier synthesized from ALL evidence
-   rows (see ui/components._synthesize_action). Sits below the evidence it is
-   derived from; tier color mirrors the evidence-dot vocabulary. */
-.signal-card .hero-action {
-    margin-top: var(--sp-5);
-    padding: var(--sp-4) var(--sp-5);
-    border-radius: var(--r-sm);
-    border: 1px solid var(--border);
-    background: rgba(148, 163, 184, 0.06);
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    gap: var(--sp-3) var(--sp-4);
-}
-
-.signal-card .hero-action-label {
-    font-family: var(--display);
-    font-size: 0.66rem;
-    font-weight: 700;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    white-space: nowrap;
-    color: var(--ink-secondary);
-}
-
-.signal-card .hero-action-prose {
-    font-family: var(--data);
-    font-size: 0.76rem;
-    line-height: 1.6;
-    color: var(--ink-secondary);
-}
-
-.signal-card .hero-action-drivers {
-    flex-basis: 100%;
-    font-family: var(--data);
-    font-size: 0.66rem;
-    letter-spacing: 0.02em;
-    color: var(--ink-tertiary);
-}
-
-.signal-card .hero-action.high { border-color: rgba(52, 211, 153, 0.4); background: rgba(52, 211, 153, 0.08); }
-.signal-card .hero-action.high .hero-action-label { color: var(--emerald); }
-.signal-card .hero-action.moderate { border-color: rgba(52, 211, 153, 0.25); background: rgba(52, 211, 153, 0.05); }
-.signal-card .hero-action.moderate .hero-action-label { color: var(--emerald); }
-.signal-card .hero-action.low { border-color: rgba(212, 168, 83, 0.35); background: rgba(212, 168, 83, 0.07); }
-.signal-card .hero-action.low .hero-action-label { color: #D4A853; }
-.signal-card .hero-action.stand_aside { border-color: rgba(251, 113, 133, 0.4); background: rgba(251, 113, 133, 0.08); }
-.signal-card .hero-action.stand_aside .hero-action-label { color: var(--rose); }
-.signal-card .hero-action.stand_aside .hero-action-prose { color: var(--ink-primary); }
-
-/* ================================================================
-   Status badges
-   ================================================================ */
-.status-badge {
-    display: inline-flex;
-    align-items: center;
-    padding: 0.3rem 0.8rem;
-    border-radius: var(--r-sm);
-    font-family: var(--data);
-    font-size: 0.68rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-}
-
-.status-badge.buy {
-    color: var(--emerald);
-    background: rgba(52, 211, 153, 0.08);
-    border: 1px solid rgba(52, 211, 153, 0.25);
-}
-
-.status-badge.sell {
-    color: var(--rose);
-    background: rgba(251, 113, 133, 0.08);
-    border: 1px solid rgba(251, 113, 133, 0.25);
-}
-
-.status-badge.neutral {
-    color: var(--ink-secondary);
-    border: 1px solid var(--border);
-}
-
-.status-badge.divergence {
-    color: var(--amber);
-    background: rgba(212, 168, 83, 0.08);
-    border: 1px solid rgba(212, 168, 83, 0.25);
-}
-
-/* ================================================================
-   Info / warning boxes
-   ================================================================ */
-.info-box {
-    background: var(--glass);
-    backdrop-filter: blur(8px);
-    border: 1px solid var(--border);
-    border-radius: var(--r-md);
-    padding: var(--sp-5) var(--sp-6);
-    margin: var(--sp-6) 0;
-}
-
-.info-box h4 {
-    font-family: var(--display);
-    color: var(--cyan);
-    margin: 0 0 var(--sp-2) 0;
-    font-size: 0.68rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-}
-
-.info-box p {
-    color: var(--ink-secondary);
-    margin: 0;
-    font-size: 0.8rem;
-    line-height: 1.7;
-    font-family: var(--data);
-}
-
-/* Color modifier classes for render_info_box(color=...). The base
-   .info-box/.info-box h4 rules above only ever styled the default (cyan)
-   case — passing e.g. color="amber" set the class but had no matching rule,
-   so every info box rendered visually identical regardless of the color
-   argument (audit finding E2). */
-.info-box.amber h4 {
-    color: var(--amber);
-}
-
-.info-box.amber {
-    border-color: rgba(212, 168, 83, 0.22);
-    background: rgba(212, 168, 83, 0.06);
-}
-
-.info-box.emerald h4 {
-    color: var(--emerald);
-}
-
-.info-box.emerald {
-    border-color: rgba(52, 211, 153, 0.22);
-    background: rgba(52, 211, 153, 0.06);
-}
-
-.info-box.rose h4 {
-    color: var(--rose);
-}
-
-.info-box.rose {
-    border-color: rgba(251, 113, 133, 0.22);
-    background: rgba(251, 113, 133, 0.06);
-}
-
-.info-box.violet h4 {
-    color: var(--violet);
-}
-
-.info-box.violet {
-    border-color: rgba(167, 139, 250, 0.22);
-    background: rgba(167, 139, 250, 0.06);
-}
-
-/* ================================================================
-   System Spec Card — Terminal Readout
-   ================================================================ */
-.system-spec {
-    position: relative;
-    background: rgba(255, 255, 255, 0.015);
-    border: 1px solid var(--border);
-    border-radius: var(--r-sm);
-    padding: var(--sp-3) var(--sp-4);
-    overflow: hidden;
-    animation: specFadeIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.5s both;
-}
-
-/* Amber top accent line */
-.system-spec::before {
-    content: "";
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 1px;
-    background: linear-gradient(90deg, var(--amber) 0%, var(--amber-glow) 60%, transparent 100%);
-    opacity: 0.6;
-}
-
-/* Subtle scanline texture */
-.system-spec::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    background-image: repeating-linear-gradient(0deg,
-            transparent,
-            transparent 2px,
-            rgba(255, 255, 255, 0.008) 2px,
-            rgba(255, 255, 255, 0.008) 4px);
-    pointer-events: none;
-}
-
+    margin: 0; font-family: var(--mono); font-size: var(--fs-xs);
+    line-height: 1.65; color: var(--ink-tertiary);
+}
+.system-card.fvo       { border-top: 2px solid var(--caution); }
+.system-card.swayam    { border-top: 2px solid var(--system); }
+.system-card.convergence { border-top: 2px solid var(--long); }
+.system-spec { margin-top: var(--s3); display: flex; flex-direction: column; gap: var(--s1); }
 .spec-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    font-family: var(--data);
-    font-size: 0.6rem;
-    line-height: 1.8;
+    display: flex; justify-content: space-between; gap: var(--s3);
+    font-family: var(--mono); font-size: var(--fs-2xs);
 }
+.spec-label { color: var(--ink-quaternary); text-transform: uppercase; letter-spacing: 0.08em; }
+.spec-value { color: var(--ink-secondary); font-weight: 600; }
 
-.spec-label {
-    color: var(--ink-tertiary);
-    font-weight: 500;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    font-size: 0.55rem;
-}
-
-.spec-value {
-    color: var(--ink-secondary);
-    font-size: 0.6rem;
-    font-weight: 400;
-    text-align: right;
-    font-variant-numeric: tabular-nums;
-}
-
-/* Version value — amber */
-.spec-row:first-child .spec-value {
-    color: var(--amber);
-    font-weight: 600;
-    letter-spacing: 0.05em;
-}
-
-@keyframes specFadeIn {
-    from {
-        opacity: 0;
-        transform: translateY(4px);
-    }
-
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
-}
-
-/* ================================================================
-   Regime badge
-   ================================================================ */
-.regime-badge {
-    background: var(--glass);
-    backdrop-filter: blur(12px);
-    border: 1px solid var(--border);
-    border-radius: var(--r-lg);
-    padding: var(--sp-8);
-    text-align: center;
-    position: relative;
-    overflow: hidden;
-    transition: border-color 300ms ease, box-shadow 300ms ease;
-    min-height: 285px;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
-}
-
-.regime-badge:hover {
-    border-color: var(--border-active);
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-}
-
-.regime-icon {
-    margin-bottom: var(--sp-2);
-    display: flex;
-    justify-content: center;
-    align-items: center;
-}
-
-.regime-name {
-    font-family: var(--display);
-    font-size: 1.2rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    margin-bottom: var(--sp-2);
-}
-
-.regime-sub {
-    font-family: var(--data);
-    font-size: 0.7rem;
-    color: var(--ink-secondary);
-    margin-bottom: var(--sp-3);
-}
-
-.regime-score {
-    font-family: var(--data);
-    font-size: 0.9rem;
-    font-weight: 600;
-    color: var(--ink-primary);
-    margin-bottom: var(--sp-3);
-}
-
-.regime-conf {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: var(--sp-2);
-}
-
-.conf-bar-bg {
-    width: 100%;
-    height: 6px;
-    background: rgba(255, 255, 255, 0.05);
-    border-radius: 3px;
-    overflow: hidden;
-}
-
-.conf-bar-fill {
-    height: 100%;
-    border-radius: 3px;
-    transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-/* ================================================================
-   Interpretation cards
-   ================================================================ */
-.interp-card {
-    background: var(--glass);
-    backdrop-filter: blur(8px);
-    border: 1px solid var(--border);
-    border-radius: var(--r-md);
-    padding: var(--sp-5) var(--sp-6);
-    margin: var(--sp-6) 0;
-    position: relative;
-    overflow: hidden;
-}
-
-.interp-card::before {
-    content: "";
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 2px;
-    background: var(--ink-tertiary);
-}
-
-.interp-card::after {
-    content: "";
-    position: absolute;
-    top: 2px;
-    left: 0;
-    right: 0;
-    height: 1px;
-    background: linear-gradient(90deg, rgba(255, 255, 255, 0.04) 0%, transparent 60%);
-}
-
-.interp-card.success::before {
-    background: var(--emerald);
-}
-
-.interp-card.danger::before {
-    background: var(--rose);
-}
-
-.interp-card.warning::before {
-    background: var(--amber);
-}
-
-.interp-card.info::before {
-    background: var(--cyan);
-}
-
-.interp-card.success::after {
-    background: linear-gradient(90deg, rgba(52, 211, 153, 0.2) 0%, transparent 60%);
-}
-
-.interp-card.danger::after {
-    background: linear-gradient(90deg, rgba(251, 113, 133, 0.2) 0%, transparent 60%);
-}
-
-.interp-card.warning::after {
-    background: linear-gradient(90deg, rgba(212, 168, 83, 0.2) 0%, transparent 60%);
-}
-
-.interp-card.info::after {
-    background: linear-gradient(90deg, rgba(34, 211, 238, 0.2) 0%, transparent 60%);
-}
-
-.interp-title {
-    font-family: var(--display);
-    font-size: 0.68rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    margin-bottom: var(--sp-2);
-}
-
-.interp-card.success .interp-title {
-    color: var(--emerald);
-}
-
-.interp-card.danger .interp-title {
-    color: var(--rose);
-}
-
-.interp-card.warning .interp-title {
-    color: var(--amber);
-}
-
-.interp-card.info .interp-title {
-    color: var(--cyan);
-}
-
-.interp-body {
-    color: var(--ink-secondary);
-    font-size: 0.75rem;
-    line-height: 1.65;
-    font-family: var(--data);
-}
-
-/* ================================================================
-   Buttons
-   ================================================================ */
-.stButton>button {
-    border: 1px solid var(--border) !important;
-    background: transparent !important;
-    color: var(--ink-primary) !important;
-    font-family: var(--display) !important;
-    font-weight: 500;
-    font-size: 0.8rem;
-    letter-spacing: 0.04em;
-    border-radius: 8px;
-    padding: 0.6rem 1.75rem;
-    transition: border-color 200ms cubic-bezier(0.4, 0, 0.2, 1),
-                color 200ms cubic-bezier(0.4, 0, 0.2, 1),
-                background 200ms cubic-bezier(0.4, 0, 0.2, 1),
-                box-shadow 200ms cubic-bezier(0.4, 0, 0.2, 1) !important;
-    cursor: pointer;
-}
-
-.stButton>button:hover {
-    border-color: var(--amber) !important;
-    color: var(--amber) !important;
-    background: rgba(212, 168, 83, 0.05) !important;
-}
-
-.stButton>button[kind="primary"] {
-    background: var(--amber) !important;
-    border-color: var(--amber) !important;
-    color: var(--ink-inverse) !important;
-    font-weight: 700 !important;
-}
-
-.stButton>button[kind="primary"]:hover {
-    background: var(--amber-bright) !important;
-    border-color: var(--amber-bright) !important;
-    box-shadow: 0 0 20px var(--amber-glow);
-}
-
-.stButton>button:disabled {
-    opacity: 0.35 !important;
-    cursor: not-allowed !important;
-}
-
-/* Keyboard focus visibility — the dark theme's default focus outline is
-   nearly invisible. :focus-visible (not :focus) so mouse clicks don't ring,
-   only keyboard/AT navigation does. */
-.stButton button:focus-visible,
-.stDownloadButton button:focus-visible,
-[data-baseweb="tab"]:focus-visible {
-    outline: 2px solid var(--amber-dim);
-    outline-offset: 2px;
-}
-
-/* ================================================================
-   Tabs
-   ================================================================ */
-.stTabs [data-baseweb="tab-list"] {
-    gap: 36px;
-    background: transparent;
-    border-bottom: 1px solid var(--border);
-    padding-bottom: 0;
-}
-
-.stTabs [data-baseweb="tab"] {
-    color: var(--ink-tertiary);
-    background: transparent;
-    font-family: var(--display);
-    font-weight: 600;
-    font-size: 0.76rem;
-    padding: 14px 0;
-    border-bottom: 2px solid transparent;
-    transition: color 200ms ease, border-color 200ms ease;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-}
-
-.stTabs [data-baseweb="tab"]:hover {
-    color: var(--ink-secondary);
-}
-
-.stTabs [aria-selected="true"] {
-    color: var(--amber) !important;
-    border-bottom: 2px solid var(--amber) !important;
-    background: transparent !important;
-}
-
-/* ================================================================
-   Plotly charts — Frameless glass containers
-   ================================================================ */
-.stPlotlyChart {
-    border-radius: var(--r-md) !important;
-    border: 1px solid var(--border);
-    overflow: hidden;
-    background: var(--glass);
-    /* Bottom margin is 0 — .section-gap (32px) owns inter-section spacing.
-       A chart that is the LAST element before a section boundary must not
-       add its own bottom margin on top of that gap (previously 16px + 32px
-       = 48px there, vs 32px everywhere else a card row precedes a gap). */
-    margin: var(--sp-2) 0 0 0;
-    transition: border-color 250ms ease, box-shadow 250ms ease;
-}
-
-.stPlotlyChart:hover {
-    border-color: rgba(255, 255, 255, 0.1);
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
-}
-
-/* ================================================================
-   Section divider
-   ================================================================ */
-.section-divider {
-    height: 1px;
-    background: linear-gradient(90deg, var(--border) 0%, transparent 100%);
-    margin: var(--sp-3) 0;
-    border: none;
-}
-
-/* Sidebar-scoped: tighter rhythm between consecutive settings groups */
-[data-testid="stSidebar"] .section-divider {
-    margin: var(--sp-2) 0;
-}
-
-/* ================================================================
-   Inputs & Sidebar
-   ================================================================ */
-[data-testid="stSidebar"] {
-    background: rgba(5, 8, 16, 0.92) !important;
-    backdrop-filter: blur(16px) !important;
-    -webkit-backdrop-filter: blur(16px) !important;
-    border-right: 1px solid var(--border);
-}
-
-.sidebar-title {
-    font-family: var(--display);
-    font-size: 0.68rem;
-    font-weight: 700;
-    color: var(--ink-tertiary);
-    text-transform: uppercase;
-    letter-spacing: 0.12em;
-    margin: var(--sp-3) 0 var(--sp-2) 0;
-}
-
-.stTextInput input,
-.stNumberInput input,
-.stDateInput input,
-.stSelectbox>div>div,
-.stSelectbox select {
-    background: rgba(10, 14, 23, 0.6) !important;
-    border: 1px solid var(--border) !important;
-    border-radius: 8px !important;
-    color: var(--ink-primary) !important;
-    font-family: var(--data) !important;
-    font-size: 0.8rem !important;
-    transition: border-color 200ms cubic-bezier(0.4, 0, 0.2, 1),
-                box-shadow 200ms cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.stTextInput input:focus,
-.stSelectbox>div>div:focus {
-    border-color: var(--amber) !important;
-    box-shadow: 0 0 0 1px var(--amber) !important;
-}
-
-/* ================================================================
-   Dataframes / Tables — "Terminal Glass" System
-   ================================================================ */
-[data-testid="stDataFrame"] {
-    border-radius: var(--r-md);
-    overflow: hidden;
-    border: 1px solid var(--border);
-    background: linear-gradient(145deg, var(--glass) 0%, rgba(17, 24, 39, 0.4) 100%);
+/* ─────────────────────────────────────────────────────────────────────────
+   9 · ANALOG CARDS (Precedent)
+   ───────────────────────────────────────────────────────────────────────── */
+.analog-card {
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.02) 0%, rgba(255, 255, 255, 0.005) 100%);
     backdrop-filter: blur(8px);
     -webkit-backdrop-filter: blur(8px);
+    border: 1px solid var(--line-strong);
+    border-left: 2px solid var(--ink-quaternary);
+    border-radius: var(--r-lg); padding: var(--s4); margin-bottom: var(--s3);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }
-
-[data-testid="stDataFrame"] table {
-    font-family: var(--data) !important;
-    font-size: 0.75rem !important;
+.analog-card.tier-strong-buy { border-left-color: var(--long); }
+.analog-card.tier-buy        { border-left-color: var(--long-edge); }
+.analog-card.tier-caution    { border-left-color: var(--short); }
+.analog-card.tier-hold       { border-left-color: var(--neutral); }
+.analog-card-head {
+    display: flex; justify-content: space-between; align-items: flex-start;
+    gap: var(--s3); margin-bottom: var(--s3);
 }
-
-[data-testid="stDataFrame"] th {
-    background: linear-gradient(180deg, rgba(10, 14, 23, 0.95) 0%, rgba(10, 14, 23, 0.85) 100%) !important;
-    color: var(--ink-tertiary) !important;
-    font-family: var(--data) !important;
-    font-size: 0.62rem !important;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    font-weight: 600;
-    border-bottom: 2px solid rgba(212, 168, 83, 0.3) !important;
-    padding: var(--sp-3) var(--sp-4) !important;
-    position: sticky;
-    top: 0;
-    z-index: 10;
+.analog-eyebrow {
+    font-family: var(--mono); font-size: var(--fs-3xs); font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.12em; color: var(--ink-quaternary);
 }
-
-[data-testid="stDataFrame"] td {
-    color: var(--ink-primary) !important;
-    border-bottom: 1px solid var(--border-subtle) !important;
-    padding: var(--sp-3) var(--sp-4) !important;
-    transition: background 200ms ease;
+.analog-symbol {
+    font-family: var(--mono); font-size: var(--fs-md); font-weight: 700;
+    color: var(--ink); margin-top: 2px;
 }
-
-[data-testid="stDataFrame"] tr:hover td {
-    background: linear-gradient(90deg, rgba(212, 168, 83, 0.06) 0%, transparent 100%) !important;
-}
-
-/* ================================================================
-   Custom Portfolio Table — "Position Ticket" System
-   ================================================================ */
-.portfolio-table {
-    margin: var(--sp-4) 0;
-    border-radius: var(--r-md);
-    overflow: hidden;
-    border: 1px solid var(--border);
-    background: linear-gradient(145deg, var(--glass) 0%, rgba(17, 24, 39, 0.4) 100%);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
-}
-
-.portfolio-table table {
-    width: 100%;
-    border-collapse: collapse;
-    font-family: var(--data);
-    font-size: 0.75rem;
-}
-
-/* Header row */
-.portfolio-table thead th {
-    background: linear-gradient(180deg, rgba(10, 14, 23, 0.95) 0%, rgba(10, 14, 23, 0.85) 100%);
-    color: var(--ink-tertiary);
-    font-size: 0.62rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    padding: var(--sp-3) var(--sp-4);
-    border-bottom: 2px solid rgba(212, 168, 83, 0.3);
-    text-align: left;
-    position: sticky;
-    top: 0;
-    z-index: 10;
-    white-space: nowrap;
-}
-
-.portfolio-table thead th:first-child {
-    text-align: left;
-}
-
-.portfolio-table thead th:last-child {
-    text-align: right;
-}
-
-.portfolio-table thead th.numeric {
-    text-align: right;
-}
-
-/* Data rows */
-.portfolio-table tbody tr {
-    border-bottom: 1px solid var(--border-subtle);
-    transition: background 250ms cubic-bezier(0.16, 1, 0.3, 1),
-                transform 250ms cubic-bezier(0.16, 1, 0.3, 1);
-    position: relative;
-}
-
-/* Alternating row tints */
-.portfolio-table tbody tr:nth-child(odd) {
-    background: rgba(255, 255, 255, 0.01);
-}
-
-.portfolio-table tbody tr:nth-child(even) {
-    background: rgba(255, 255, 255, 0.005);
-}
-
-/* Row hover with gradient sweep */
-.portfolio-table tbody tr:hover {
-    background: linear-gradient(90deg, rgba(212, 168, 83, 0.08) 0%, rgba(212, 168, 83, 0.02) 50%, transparent 100%);
-    transform: translateX(2px);
-}
-
-.portfolio-table tbody tr:hover::before {
-    content: "";
-    position: absolute;
-    left: 0;
-    top: 0;
-    bottom: 0;
-    width: 3px;
-    background: linear-gradient(180deg, var(--amber) 0%, var(--amber-glow) 100%);
-    box-shadow: 0 0 8px var(--amber-glow);
-}
-
-.portfolio-table tbody tr:last-child {
-    border-bottom: none;
-}
-
-.portfolio-table tbody td {
-    padding: var(--sp-3) var(--sp-4);
-    color: var(--ink-primary);
-    vertical-align: middle;
-    transition: color 200ms ease;
-}
-
-/* Symbol column */
-.portfolio-table tbody td.symbol {
-    font-weight: 700;
-    color: var(--ink-primary);
-    font-size: 0.78rem;
-    letter-spacing: 0.02em;
-}
-
-/* Numeric columns */
-.portfolio-table tbody td.numeric {
-    text-align: right;
-    font-family: var(--data);
-    font-variant-numeric: tabular-nums;
-}
-
-/* Currency columns */
-.portfolio-table tbody td.currency {
-    text-align: right;
-    font-family: var(--data);
-    font-variant-numeric: tabular-nums;
-    position: relative;
-}
-
-/* Percentage columns */
-.portfolio-table tbody td.percentage {
-    text-align: right;
-    font-family: var(--data);
-    font-variant-numeric: tabular-nums;
-}
-
-/* ================================================================
-   Position Guide Cards — "Signal Ticket" System
-   ================================================================ */
-.position-guide-list {
-    display: flex;
-    flex-direction: column;
-    gap: var(--sp-3);
-    margin: var(--sp-4) 0;
-}
-
-.position-card {
-    background: linear-gradient(145deg, var(--glass) 0%, rgba(17, 24, 39, 0.4) 100%);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
-    border: 1px solid var(--border);
-    border-radius: var(--r-md);
-    padding: var(--sp-4) var(--sp-5);
-    position: relative;
-    overflow: hidden;
-    transition: background 350ms cubic-bezier(0.16, 1, 0.3, 1),
-                border-color 350ms cubic-bezier(0.16, 1, 0.3, 1),
-                transform 350ms cubic-bezier(0.16, 1, 0.3, 1),
-                box-shadow 350ms cubic-bezier(0.16, 1, 0.3, 1);
-    animation: positionCardIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
-.position-card::before {
-    content: "";
-    position: absolute;
-    left: 0;
-    top: 0;
-    bottom: 0;
-    width: 3px;
-    background: var(--ink-tertiary);
-    transition: box-shadow 350ms cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.position-card:hover {
-    background: linear-gradient(145deg, var(--glass-hover) 0%, rgba(21, 28, 44, 0.5) 100%);
-    border-color: rgba(255, 255, 255, 0.1);
-    transform: translateX(4px);
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
-}
-
-.position-card:hover::before {
-    box-shadow: 0 0 16px currentColor;
-}
-
-/* Conviction tiers */
-.position-card.tier-strong-buy::before {
-    background: linear-gradient(180deg, var(--emerald) 0%, var(--emerald-bright) 100%);
-    box-shadow: 0 0 12px var(--emerald-glow);
-}
-
-.position-card.tier-buy::before {
-    background: linear-gradient(180deg, var(--emerald-bright) 0%, #9AE6B4 100%);
-    box-shadow: 0 0 10px var(--emerald-glow);
-}
-
-.position-card.tier-hold::before {
-    background: linear-gradient(180deg, var(--amber) 0%, var(--amber-bright) 100%);
-    box-shadow: 0 0 10px var(--amber-glow);
-}
-
-.position-card.tier-caution::before {
-    background: linear-gradient(180deg, var(--rose) 0%, var(--rose-bright) 100%);
-    box-shadow: 0 0 10px var(--rose-glow);
-}
-
-.position-card.tier-strong-buy {
-    border: 1px solid rgba(52, 211, 153, 0.15);
-}
-
-.position-card.tier-buy {
-    border: 1px solid rgba(52, 211, 153, 0.1);
-}
-
-.position-card.tier-hold {
-    border: 1px solid rgba(212, 168, 83, 0.15);
-}
-
-.position-card.tier-caution {
-    border: 1px solid rgba(251, 113, 133, 0.15);
-}
-
-@keyframes positionCardIn {
-    from {
-        opacity: 0;
-        transform: translateX(-12px);
-    }
-
-    to {
-        opacity: 1;
-        transform: translateX(0);
-    }
-}
-
-.position-card:nth-child(1) {
-    animation-delay: 0.05s;
-}
-
-.position-card:nth-child(2) {
-    animation-delay: 0.1s;
-}
-
-.position-card:nth-child(3) {
-    animation-delay: 0.15s;
-}
-
-.position-card:nth-child(4) {
-    animation-delay: 0.2s;
-}
-
-.position-card:nth-child(5) {
-    animation-delay: 0.25s;
-}
-
-.position-card:nth-child(6) {
-    animation-delay: 0.3s;
-}
-
-.position-card:nth-child(7) {
-    animation-delay: 0.35s;
-}
-
-.position-card:nth-child(8) {
-    animation-delay: 0.4s;
-}
-
-.position-card:nth-child(9) {
-    animation-delay: 0.45s;
-}
-
-.position-card:nth-child(10) {
-    animation-delay: 0.5s;
-}
-
-/* Position card header */
-.position-card-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: var(--sp-3);
-    padding-bottom: var(--sp-3);
-    border-bottom: 1px solid var(--border-subtle);
-}
-
-.position-card-symbol {
-    font-family: var(--display);
-    font-size: 1.1rem;
-    font-weight: 700;
-    color: var(--ink-primary);
-    letter-spacing: 0.02em;
-}
-
-.position-card-conviction {
-    display: flex;
-    align-items: center;
-    gap: var(--sp-2);
-}
-
-.position-card-score {
-    font-family: var(--data);
-    font-size: 1.25rem;
-    font-weight: 700;
-    color: var(--ink-primary);
-    font-variant-numeric: tabular-nums;
-}
-
 .position-card-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.3rem;
-    padding: 0.3rem 0.75rem;
-    border-radius: 20px;
-    font-size: 0.72rem;
-    font-weight: 600;
-    font-family: var(--data);
-    position: relative;
-    overflow: hidden;
+    padding: 2px 8px; border-radius: var(--r-pill);
+    font-family: var(--mono); font-size: var(--fs-3xs); font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.09em;
+    border: 1px solid currentColor; white-space: nowrap;
 }
-
-.position-card-badge::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    border-radius: 20px;
-    opacity: 0.15;
+.badge-strong-buy { color: var(--long);    background: var(--long-fill); }
+.badge-buy        { color: var(--long);    background: transparent; }
+.badge-caution    { color: var(--short);   background: var(--short-fill); }
+.badge-hold       { color: var(--neutral); background: transparent; }
+.analog-stat-row {
+    display: flex; flex-wrap: wrap; gap: var(--s4);
+    padding-bottom: var(--s3); border-bottom: 1px solid var(--line-faint);
 }
-
-.position-card-badge.badge-strong-buy {
-    background: rgba(52, 211, 153, 0.15);
-    color: var(--emerald-bright);
-    border: 1px solid rgba(52, 211, 153, 0.3);
+.analog-stat { display: flex; flex-direction: column; gap: 1px; }
+.analog-stat-label {
+    font-family: var(--mono); font-size: var(--fs-3xs);
+    text-transform: uppercase; letter-spacing: 0.1em; color: var(--ink-quaternary);
 }
-
-.position-card-badge.badge-buy {
-    background: rgba(52, 211, 153, 0.1);
-    color: var(--emerald);
-    border: 1px solid rgba(52, 211, 153, 0.2);
+.analog-stat-value {
+    font-family: var(--mono); font-size: var(--fs-sm); font-weight: 600; color: var(--ink);
 }
-
-.position-card-badge.badge-hold {
-    background: rgba(212, 168, 83, 0.15);
-    color: var(--amber-bright);
-    border: 1px solid rgba(212, 168, 83, 0.3);
+.analog-stat-value.pos { color: var(--long); }
+.analog-stat-value.neg { color: var(--short); }
+.analog-stat-value.amber { color: var(--caution); }
+.analog-fwd-block { margin-top: var(--s3); }
+.analog-fwd-block-label {
+    font-family: var(--mono); font-size: var(--fs-3xs);
+    text-transform: uppercase; letter-spacing: 0.1em;
+    color: var(--ink-quaternary); margin-bottom: var(--s2);
 }
-
-.position-card-badge.badge-caution {
-    background: rgba(251, 113, 133, 0.15);
-    color: var(--rose-bright);
-    border: 1px solid rgba(251, 113, 133, 0.3);
+.analog-fwd-grid { display: grid; gap: var(--s2); }
+.analog-fwd-tile {
+    display: flex; flex-direction: column; align-items: center; gap: 1px;
+    padding: var(--s2) var(--s1); border-radius: var(--r-sm);
+    background: var(--surface-2); border: 1px solid var(--line-faint);
 }
-
-/* Position card signals */
-.position-card-signals {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-    gap: var(--sp-3);
+.analog-fwd-label {
+    font-family: var(--mono); font-size: var(--fs-3xs);
+    color: var(--ink-quaternary); letter-spacing: 0.06em;
 }
-
-.position-signal {
-    display: flex;
-    flex-direction: column;
-    gap: var(--sp-1);
+.analog-fwd-value { font-family: var(--mono); font-size: var(--fs-xs); font-weight: 700; }
+.analog-fwd-tile.pos .analog-fwd-value { color: var(--long); }
+.analog-fwd-tile.neg .analog-fwd-value { color: var(--short); }
+.analog-fwd-tile.flat .analog-fwd-value { color: var(--ink-tertiary); }
+.analog-card-foot {
+    display: flex; justify-content: space-between; align-items: center;
+    gap: var(--s3); margin-top: var(--s3);
+    padding-top: var(--s2); border-top: 1px solid var(--line-faint);
+    font-family: var(--mono); font-size: var(--fs-3xs); color: var(--ink-quaternary);
 }
-
-.position-signal-label {
-    font-family: var(--data);
-    font-size: 0.6rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    color: var(--ink-tertiary);
-}
-
-.position-signal-value {
-    font-family: var(--data);
-    font-size: 0.85rem;
-    font-weight: 500;
-    color: var(--ink-secondary);
-    font-variant-numeric: tabular-nums;
-}
-
-.position-signal-value.bullish {
-    color: var(--emerald-bright);
-}
-
-.position-signal-value.bearish {
-    color: var(--rose-bright);
-}
-
-.position-signal-value.neutral {
-    color: var(--amber-bright);
-}
-
-/* Position card footer */
-.position-card-footer {
-    margin-top: var(--sp-3);
-    padding-top: var(--sp-3);
-    border-top: 1px solid var(--border-subtle);
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-}
-
-.position-card-price {
-    font-family: var(--data);
-    font-size: 0.75rem;
-    color: var(--ink-secondary);
-}
-
-.position-card-weight {
-    font-family: var(--data);
-    font-size: 0.75rem;
-    color: var(--ink-secondary);
-    font-weight: 600;
-}
-
-/* ================================================================
-   Conviction progress bar inline */
+.analog-foot-label { text-transform: uppercase; letter-spacing: 0.1em; }
+.analog-foot-pct { color: var(--caution); font-weight: 700; }
 .conviction-bar {
-    width: 100%;
-    height: 4px;
-    background: rgba(255, 255, 255, 0.05);
-    border-radius: 2px;
-    overflow: hidden;
-    margin-top: var(--sp-2);
+    flex: 1; height: 2px; border-radius: var(--r-pill);
+    background: var(--line-strong); overflow: hidden;
 }
+.conviction-bar-fill { height: 100%; border-radius: var(--r-pill); background: var(--caution); }
+.conviction-bar-fill.fill-strong-buy { background: var(--long); }
+.conviction-bar-fill.fill-buy        { background: var(--long-edge); }
+.conviction-bar-fill.fill-caution    { background: var(--short); }
+.conviction-bar-fill.fill-hold       { background: var(--neutral); }
 
-.conviction-bar-fill {
-    height: 100%;
-    border-radius: 2px;
-    transition: width 0.8s cubic-bezier(0.16, 1, 0.3, 1);
-    position: relative;
+/* .position-card is emitted alongside .analog-card; the analog rules carry
+   the styling, so it exists only as a hook for future variants. */
+.analog-card-id { min-width: 0; }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   10 · SIDEBAR & CONTROLS
+   ───────────────────────────────────────────────────────────────────────── */
+[data-testid="stSidebar"] {
+    background: var(--surface-1);
+    border-right: 1px solid var(--line);
 }
-
-.conviction-bar-fill::after {
-    content: "";
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.2) 50%, transparent 100%);
-    animation: shimmer 2s infinite;
+[data-testid="stSidebar"] .block-container { padding-top: var(--s5); }
+.sidebar-title {
+    font-family: var(--mono); font-size: var(--fs-3xs); font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.16em;
+    color: var(--ink-quaternary); margin: var(--s4) 0 var(--s2);
 }
-
-.conviction-bar-fill.fill-strong-buy {
-    background: linear-gradient(90deg, var(--emerald) 0%, var(--emerald-bright) 100%);
-    box-shadow: 0 0 8px var(--emerald-glow);
+.control-hint, .sidebar-hint {
+    font-family: var(--mono); font-size: var(--fs-2xs); line-height: 1.6;
+    color: var(--ink-tertiary); margin: var(--s1) 0 var(--s3);
 }
+.sidebar-hint-label { color: var(--ink-quaternary); text-transform: uppercase; letter-spacing: 0.1em; }
+.sidebar-hint-arrow { color: var(--caution); }
 
-.conviction-bar-fill.fill-buy {
-    background: linear-gradient(90deg, var(--emerald-bright) 0%, #9AE6B4 100%);
-}
-
-.conviction-bar-fill.fill-hold {
-    background: linear-gradient(90deg, var(--amber) 0%, var(--amber-bright) 100%);
-}
-
-.conviction-bar-fill.fill-caution {
-    background: linear-gradient(90deg, var(--rose) 0%, var(--rose-bright) 100%);
-}
-
-/* Styled tables from markdown */
-.stMarkdown table {
-    font-family: var(--data) !important;
-    border-collapse: collapse;
-    background: var(--glass);
-    border-radius: var(--r-md);
-    overflow: hidden;
-    border: 1px solid var(--border);
-    width: 100%;
-}
-
-.stMarkdown table th {
-    background: rgba(10, 14, 23, 0.9) !important;
-    color: var(--ink-tertiary) !important;
-    font-family: var(--data) !important;
-    font-size: 0.65rem !important;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    font-weight: 600;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
-    padding: var(--sp-3) var(--sp-4) !important;
-    text-align: left !important;
-}
-
-.stMarkdown table td {
-    color: var(--ink-primary) !important;
-    border-bottom: 1px solid var(--border-subtle) !important;
-    padding: var(--sp-2) var(--sp-4) !important;
-    font-family: var(--data) !important;
-    font-size: 0.75rem !important;
-    text-align: left !important;
-}
-
-.stMarkdown table tr:hover td {
-    background: rgba(212, 168, 83, 0.03) !important;
-}
-
-.stMarkdown table tr:last-child td {
-    border-bottom: none;
-}
-
-/* ================================================================
-   Progress / loading
-   ================================================================ */
+/* Progress — the pipeline's own state, so it reads as instrumentation
+   rather than as a loading spinner. */
 .progress-card {
-    background: var(--glass);
-    backdrop-filter: blur(8px);
-    border: 1px solid var(--border);
-    border-radius: var(--r-md);
-    padding: var(--sp-5) var(--sp-6);
-    margin: var(--sp-4) 0;
-    transition: border-color 250ms ease;
+    background: var(--surface-1); border: 1px solid var(--line);
+    border-radius: var(--r-md); padding: var(--s3) var(--s4); margin-bottom: var(--s4);
 }
-
 .progress-label {
-    font-family: var(--display);
-    font-size: 0.8rem;
-    font-weight: 500;
-    color: var(--ink-primary);
-    display: flex;
-    align-items: center;
-    gap: 0.7rem;
-    letter-spacing: 0.02em;
+    font-family: var(--mono); font-size: var(--fs-2xs); font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.1em; color: var(--ink-secondary);
 }
-
-.progress-sub {
-    font-family: var(--data);
-    font-size: 0.68rem;
-    color: var(--ink-tertiary);
-    margin-top: 0.35rem;
-}
-
-.progress-track {
-    margin-top: var(--sp-4);
-    height: 3px;
-    background: rgba(255, 255, 255, 0.03);
-    border-radius: 2px;
-    overflow: hidden;
-}
-
-.progress-fill {
-    height: 100%;
-    border-radius: 2px;
-    transition: width 300ms cubic-bezier(0.4, 0, 0.2, 1);
-    position: relative;
-    overflow: hidden;
-}
-
-/* Light sweep across the filled portion while the run is in progress — conveys
-   "working" without distracting. Removed at completion (no .working class). */
-.progress-fill.working::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.28), transparent);
-    transform: translateX(-100%);
-    animation: progressSheen 1.6s ease-in-out infinite;
-}
-
-@keyframes progressSheen {
-    0% {
-        transform: translateX(-100%);
-    }
-
-    55%,
-    100% {
-        transform: translateX(220%);
-    }
-}
-
 .progress-pct {
-    text-align: right;
-    font-size: 0.65rem;
-    color: var(--ink-tertiary);
-    margin-top: 0.35rem;
-    font-family: var(--data);
+    font-family: var(--mono); font-size: var(--fs-2xs); font-weight: 700;
+    color: var(--caution); float: right;
+}
+.progress-track {
+    height: 2px; background: var(--line-strong); border-radius: var(--r-pill);
+    margin: var(--s2) 0; overflow: hidden;
+}
+.progress-track > i {
+    display: block; height: 100%; background: var(--caution);
+    transition: width var(--slow) var(--ease);
+}
+.progress-sub {
+    font-family: var(--mono); font-size: var(--fs-3xs); color: var(--ink-quaternary);
 }
 
-.pulse-dot {
-    display: inline-block;
-    width: 8px;
-    height: 8px;
-    background: var(--amber);
-    border-radius: 50%;
-    animation: pulseDot 1.5s ease-in-out infinite;
+/* ─────────────────────────────────────────────────────────────────────────
+   11 · HUD MASTER GRID (Streamlit Overrides)
+   ───────────────────────────────────────────────────────────────────────── */
+/* Reverted to keep default sidebar and header visible */
+
+/* Modernized Tabs for HUD */
+.stTabs [data-baseweb="tab-list"] {
+    gap: var(--s2); background: transparent;
+    border-bottom: 1px solid var(--line-strong); padding: 0; margin-top: var(--s4);
+}
+.stTabs [data-baseweb="tab"] {
+    background: transparent !important; border: none !important;
+    border-radius: var(--r-sm) var(--r-sm) 0 0 !important; 
+    padding: var(--s3) var(--s4) !important;
+    font-family: var(--sans) !important; font-size: var(--fs-xs) !important;
+    font-weight: 600 !important; text-transform: uppercase;
+    letter-spacing: 0.1em; color: var(--ink-tertiary) !important;
+    transition: all var(--fast) var(--ease);
+}
+.stTabs [data-baseweb="tab"]:hover { 
+    color: var(--ink) !important; 
+    background: rgba(255,255,255,0.02) !important; 
+}
+.stTabs [aria-selected="true"] { 
+    color: var(--system) !important; 
+}
+.stTabs [data-baseweb="tab-highlight"] { background: var(--system) !important; height: 2px; }
+.stTabs [data-baseweb="tab-border"] { display: none; }
+
+.stButton > button, .stDownloadButton > button {
+    background: var(--surface-2); color: var(--ink-secondary);
+    border: 1px solid var(--line-strong); border-radius: var(--r-md);
+    font-family: var(--mono); font-size: var(--fs-xs); font-weight: 600;
+    letter-spacing: 0.06em; padding: var(--s2) var(--s4);
+    transition: all var(--fast) var(--ease);
+}
+.stButton > button:hover, .stDownloadButton > button:hover {
+    background: var(--surface-3); color: var(--ink); border-color: var(--ink-quaternary);
+}
+.stButton > button[kind="primary"] {
+    background: var(--caution-fill); color: var(--caution); border-color: var(--caution-edge);
+}
+.stButton > button[kind="primary"]:hover {
+    background: var(--caution); color: var(--bg); border-color: var(--caution);
 }
 
-.pulse-dot.complete {
-    background: var(--emerald);
-    box-shadow: 0 0 8px var(--emerald-glow);
+.stSelectbox [data-baseweb="select"] > div,
+.stTextInput input, .stNumberInput input {
+    background: rgba(255, 255, 255, 0.03) !important;
+    border: 1px solid var(--line-strong) !important;
+    border-radius: var(--r-md) !important;
+    font-family: var(--mono) !important; font-size: var(--fs-xs) !important;
+    color: var(--ink) !important;
+    backdrop-filter: blur(8px) !important;
+    transition: border-color var(--fast) var(--ease) !important;
 }
-
-@keyframes pulseDot {
-
-    0%,
-    100% {
-        opacity: 1;
-        transform: scale(1);
-    }
-
-    50% {
-        opacity: 0.3;
-        transform: scale(0.85);
-    }
+.stSelectbox [data-baseweb="select"] > div:hover,
+.stTextInput input:hover, .stNumberInput input:hover {
+    border-color: var(--system) !important;
 }
+.stSlider [data-baseweb="slider"] div[role="slider"] { background: var(--caution) !important; }
 
-/* ================================================================
-   Landing page prompt — Enhanced with pattern
-   ================================================================ */
-.landing-prompt {
-    background:
-        linear-gradient(135deg, var(--glass) 0%, rgba(17, 24, 39, 0.4) 100%),
-        radial-gradient(circle at 25% 25%, rgba(212, 168, 83, 0.05) 0%, transparent 50%),
-        radial-gradient(circle at 75% 75%, rgba(34, 211, 238, 0.03) 0%, transparent 50%);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border: 1px solid var(--border);
-    border-radius: var(--r-lg);
-    padding: var(--sp-8) var(--sp-8);
-    margin: var(--sp-6) 0;
-    position: relative;
-    overflow: hidden;
-    animation: fadeInUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.3s both;
-}
-
-/* Animated gradient top border */
-.landing-prompt::before {
-    content: "";
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 3px;
-    background: linear-gradient(90deg, var(--amber), var(--cyan), var(--emerald), var(--violet), var(--amber));
-    background-size: 200% 100%;
-    animation: gradientShift 6s ease infinite;
-    box-shadow: 0 0 20px var(--amber-glow);
-}
-
-/* Subtle dot pattern background */
-.landing-prompt::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    background-image: radial-gradient(circle, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
-    background-size: 30px 30px;
-    opacity: 0.5;
-    pointer-events: none;
-}
-
-.landing-prompt h4 {
-    font-family: var(--display);
-    color: var(--amber);
-    margin: 0 0 var(--sp-4) 0;
-    font-size: 0.9rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.12em;
-    display: flex;
-    align-items: center;
-    gap: 0.7rem;
-    position: relative;
-    z-index: 1;
-}
-
-.landing-prompt h4 svg {
-    width: 18px;
-    height: 18px;
-    animation: pulse 2s ease-in-out infinite;
-    filter: drop-shadow(0 0 8px var(--amber-glow));
-}
-
-.landing-prompt p {
-    color: var(--ink-secondary);
-    margin: 0;
-    font-size: 0.82rem;
-    line-height: 1.8;
-    font-family: var(--data);
-    position: relative;
-    z-index: 1;
-}
-
-.landing-prompt p strong {
-    color: var(--ink-primary);
-    font-weight: 600;
-}
-
-/* ================================================================
-   Expander
-   ================================================================ */
-.streamlit-expanderHeader {
-    background: var(--glass) !important;
-    border: 1px solid var(--border) !important;
-    border-radius: 8px !important;
-}
-
-.streamlit-expanderHeader:hover {
-    border-color: rgba(255, 255, 255, 0.08) !important;
-}
-
-/* ================================================================
-   Footer
-   ================================================================ */
-.app-footer {
-    margin-top: var(--sp-8);
-    padding: var(--sp-6) 0 var(--sp-4) 0;
-    border-top: 1px solid var(--border);
-    text-align: center;
-}
-
-.app-footer .content {
-    font-family: var(--data);
-    font-size: 0.65rem;
-    color: var(--ink-tertiary);
-    letter-spacing: 0.04em;
-}
-
-.app-footer .content strong {
-    color: var(--ink-secondary);
-}
-
-/* ================================================================
-   Download button
-   ================================================================ */
-.stDownloadButton>button {
-    border: 1px solid var(--border) !important;
-    background: var(--glass) !important;
-    color: var(--ink-secondary) !important;
-    font-family: var(--data) !important;
-    font-size: 0.75rem !important;
-    font-weight: 500;
-    border-radius: 8px;
-    padding: 0.5rem 1.5rem;
-    transition: border-color 200ms ease, color 200ms ease, background 200ms ease !important;
-}
-
-.stDownloadButton>button:hover {
-    border-color: var(--amber) !important;
-    color: var(--amber) !important;
-    background: rgba(212, 168, 83, 0.05) !important;
-}
-
-/* ================================================================
-   Plotly unified hover tooltip — custom spikeline styling (matches Nishkarsh)
-   ================================================================ */
-.js-plotly-plot .plotly .hoverlayer .spikeline {
-    stroke: rgba(148, 163, 184, 0.25) !important;
-    stroke-width: 1 !important;
-    stroke-dasharray: 4, 3 !important;
-}
-
-/* ================================================================
-   z-index layering
-   ================================================================
-   Documented ladder (verified against every z-index in this file):
-     -1   decorative glows/gradients tucked BEHIND their own card
-          (e.g. .section-hdr .icon::after, .chart-container::after)
-      0   ambient background textures (noise/grid overlays, tab-background
-          patterns) — sit above the page but behind all real content
-      1   card/section content and interactive Streamlit widgets (this
-          block) — the normal content plane
-     10   sticky table headers (must stay above scrolling table body rows)
-    100   hover tooltips (.metric-tooltip-text) — must clear any card
-          content, including sticky headers, at the point of hover
-    999   the fixed sidebar-hint pointer — the only page-fixed element,
-          always on top
-   Metric/system cards DO create their own stacking context in the base
-   state (backdrop-filter: blur(...) is always-on, not hover-only) — but
-   because that context is scoped to each card individually and .metric-
-   tooltip-text sets z-index:100 which is honored WITHIN that context,
-   the tooltip still clears its own card's content. What it must never be
-   trapped under is a LATER SIBLING card's stacking context painting on
-   top — verified: sibling cards in a row share the same z-index:1 parent
-   (the .stHorizontalBlock), so paint order alone (not z-index) determines
-   overlap there, and a tooltip overflowing into a sibling column is a
-   layout question (§P0.2's overflow fix), not a z-index one.
-   ================================================================ */
-.stMarkdown,
-.stPlotlyChart,
-.stDataFrame,
-.stButton,
-.stSelectbox,
-.stTextInput,
-.stNumberInput,
-.stRadio,
-.stCheckbox,
-.stDownloadButton {
-    position: relative;
-    z-index: 1;
-}
-
-/* ================================================================
-   Chart Container Patterns — System-specific texture overlays
-   ================================================================ */
-.chart-container {
-    position: relative;
-    overflow: hidden;
-}
-
-.chart-container::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    z-index: 0;
-    opacity: 0.03;
-}
-
-.chart-container.portfolio::before {
-    background-image:
-        linear-gradient(rgba(212, 168, 83, 0.5) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(212, 168, 83, 0.5) 1px, transparent 1px);
-    background-size: 24px 24px;
-    opacity: 0.04;
-}
-
-.chart-container.regime::before {
-    background-image: repeating-linear-gradient(45deg,
-            rgba(34, 211, 238, 0.4) 0px,
-            rgba(34, 211, 238, 0.4) 1px,
-            transparent 1px,
-            transparent 12px);
-    opacity: 0.035;
-}
-
-.chart-container.strategies::before {
-    background-image:
-        repeating-linear-gradient(45deg, rgba(212, 168, 83, 0.4) 0px, rgba(212, 168, 83, 0.4) 1px, transparent 1px, transparent 10px),
-        repeating-linear-gradient(-45deg, rgba(212, 168, 83, 0.4) 0px, rgba(212, 168, 83, 0.4) 1px, transparent 1px, transparent 10px);
-    opacity: 0.03;
-}
-
-.chart-container.system::before {
-    background-image: radial-gradient(circle, rgba(148, 163, 184, 0.5) 1px, transparent 1px);
-    background-size: 16px 16px;
-    opacity: 0.05;
-}
-
-/* ================================================================
-   Tab Background Patterns — Fixed radial gradients
-   ================================================================ */
-.tab-bg {
-    position: fixed;
-    inset: 0;
-    pointer-events: none;
-    z-index: 0;
-    opacity: 0.015;
-    transition: opacity 400ms ease;
-}
-
-.tab-bg.portfolio {
-    background: radial-gradient(ellipse 50% 50% at 30% 40%, rgba(212, 168, 83, 0.3) 0%, transparent 70%);
-}
-
-.tab-bg.regime {
-    background: radial-gradient(ellipse 50% 50% at 70% 60%, rgba(34, 211, 238, 0.3) 0%, transparent 70%);
-}
-
-.tab-bg.strategies {
-    background: radial-gradient(ellipse 50% 50% at 50% 50%, rgba(52, 211, 153, 0.3) 0%, transparent 70%);
-}
-
-.tab-bg.system {
-    background: radial-gradient(ellipse 50% 50% at 60% 30%, rgba(167, 139, 250, 0.2) 0%, transparent 70%);
-}
-
-/* ================================================================
-   Warning Box
-   ================================================================ */
-.warning-box {
-    background: rgba(212, 168, 83, 0.04);
-    border: 1px solid rgba(212, 168, 83, 0.12);
-    border-radius: var(--r-md);
-    padding: var(--sp-4) var(--sp-5);
-    margin-bottom: var(--sp-5);
-    display: flex;
-    align-items: flex-start;
-    gap: var(--sp-3);
-}
-
-.warning-box .icon {
-    width: 8px;
-    height: 8px;
-    background: var(--amber);
-    border-radius: 50%;
-    box-shadow: 0 0 10px var(--amber-glow);
-    margin-top: 5px;
-    flex-shrink: 0;
-}
-
-.warning-box .title {
-    color: var(--amber);
-    font-weight: 700;
-    text-transform: uppercase;
-    font-family: var(--display);
-    font-size: 0.72rem;
-    letter-spacing: 0.08em;
-}
-
-.warning-box .content {
-    color: var(--ink-secondary);
-    font-size: 0.8rem;
-    line-height: 1.6;
-    font-family: var(--data);
-    margin-top: var(--sp-1);
-}
-
-/* ================================================================
-   Loading Skeletons
-   ================================================================ */
-@keyframes shimmerSkeleton {
-    0% {
-        background-position: 200% 0;
-    }
-
-    100% {
-        background-position: -200% 0;
-    }
-}
-
-.skeleton-chart {
-    background: var(--glass);
-    border: 1px solid var(--border);
-    border-radius: var(--r-md);
-    padding: var(--sp-6);
-    margin: var(--sp-2) 0 var(--sp-4) 0;
-    min-height: 280px;
-    display: flex;
-    flex-direction: column;
-    gap: var(--sp-4);
-}
-
-.skeleton-line {
-    height: 12px;
-    background: linear-gradient(90deg, var(--bg-surface) 25%, var(--bg-elevated) 50%, var(--bg-surface) 75%);
-    background-size: 200% 100%;
-    animation: shimmerSkeleton 1.6s infinite;
-    border-radius: var(--r-sm);
-    width: 60%;
-}
-
-.skeleton-block {
-    height: 180px;
-    background: linear-gradient(90deg, var(--bg-surface) 25%, var(--bg-elevated) 50%, var(--bg-surface) 75%);
-    background-size: 200% 100%;
-    animation: shimmerSkeleton 1.6s infinite;
-    border-radius: var(--r-md);
-    flex: 1;
-}
-
-.skeleton-pulse {
-    animation-duration: 1.6s;
-}
-
-/* ================================================================
-   Export Button Row
-   ================================================================ */
-.export-btn-row {
-    display: flex;
-    justify-content: flex-end;
-    gap: var(--sp-3);
-    margin-top: var(--sp-4);
-}
-
-/* ================================================================
-   Sidebar Hint
-   ================================================================ */
-/* Passive directional pointer toward the sidebar collapse control (which
-   lives in Streamlit's own chrome) — not an interactive element, so no
-   pointer cursor and no click handling here. */
-.sidebar-hint {
-    position: fixed;
-    left: 12px;
-    top: 50%;
-    transform: translateY(-50%);
-    z-index: 999;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 4px;
-    animation: slideHint 0.5s cubic-bezier(0.16, 1, 0.3, 1) 1s both;
-    cursor: default;
-    pointer-events: none;
-}
-
-.sidebar-hint-arrow {
-    color: var(--amber);
-    transition: color 200ms ease, transform 200ms ease;
-    filter: drop-shadow(0 0 8px var(--amber-glow));
-}
-
-.sidebar-hint-label {
-    font-family: var(--data);
-    font-size: 0.6rem;
-    color: var(--amber-dim);
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    writing-mode: vertical-rl;
-    text-orientation: mixed;
-    transform: rotate(180deg);
-}
-
-/* ================================================================
-   Control hint — canonical terse helper caption beneath a control
-   (the "Nirnay basket · producer cross-section" tier). One coherent
-   fine-print hierarchy across sidebar, main page and tabs.
-   ================================================================ */
-.control-hint {
-    font-family: var(--data);
-    font-size: 0.58rem;
-    color: var(--ink-tertiary);
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    line-height: 1.5;
-    margin: -0.1rem 0 0.4rem 0;
-}
-
-/* Theme Streamlit's default caption so any remaining inline data-notes
-   (e.g. "120 overlapping trading days") share the palette/font — sentence
-   case (not uppercased), one tier below .control-hint. Harmless if the
-   testid differs across Streamlit versions (selector simply won't match). */
-[data-testid="stCaptionContainer"],
+.stMarkdown p { font-size: var(--fs-md); line-height: 1.65; color: var(--ink-secondary); }
 [data-testid="stCaptionContainer"] p {
-    font-family: var(--data) !important;
-    color: var(--ink-tertiary) !important;
-    font-size: 0.66rem !important;
-    letter-spacing: 0.01em;
+    font-family: var(--mono) !important; font-size: var(--fs-xs) !important;
+    color: var(--ink-tertiary) !important; line-height: 1.6;
 }
-
-@keyframes slideHint {
-    from {
-        opacity: 0;
-        transform: translateY(-50%) translateX(-20px);
-    }
-
-    to {
-        opacity: 0.7;
-        transform: translateY(-50%) translateX(0);
-    }
+.stPlotlyChart {
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.02) 0%, rgba(255, 255, 255, 0.005) 100%);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--r-lg); padding: var(--s2);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
 }
-
-/* ================================================================
-   Timeframe Buttons
-   ================================================================ */
-.timeframe-btn {
-    font-family: var(--data) !important;
-    font-size: 0.72rem !important;
-    font-weight: 500 !important;
-    letter-spacing: 0.06em;
-    padding: 0.45rem 0 !important;
-    border-radius: var(--r-sm) !important;
-    border: 1px solid var(--border) !important;
-    background: transparent !important;
-    color: var(--ink-tertiary) !important;
-    transition: color 200ms cubic-bezier(0.4, 0, 0.2, 1),
-                border-color 200ms cubic-bezier(0.4, 0, 0.2, 1),
-                background 200ms cubic-bezier(0.4, 0, 0.2, 1) !important;
-    text-align: center;
+[data-testid="stExpander"] details {
+    background: var(--surface-1); border: 1px solid var(--line);
+    border-radius: var(--r-md);
 }
-
-.timeframe-btn:hover {
-    color: var(--ink-primary) !important;
-    border-color: var(--ink-secondary) !important;
-    background: rgba(255, 255, 255, 0.02) !important;
+[data-testid="stExpander"] summary {
+    font-family: var(--mono); font-size: var(--fs-xs); color: var(--ink-secondary);
 }
+[data-testid="stAlert"] {
+    background: var(--surface-2); border: 1px solid var(--line-strong);
+    border-radius: var(--r-md);
+    font-family: var(--mono); font-size: var(--fs-xs);
+}
+.tab-bg { display: none; }
 
-/* ================================================================
-   Lookback State Rows
-   ================================================================ */
+/* Data tables rendered inside the app (not the iframe component). */
+[data-testid="stDataFrame"] {
+    border: 1px solid var(--line); border-radius: var(--r-md);
+}
 .lookback-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: var(--sp-3) var(--sp-3);
-    border-bottom: 1px solid var(--border-subtle);
-    transition: background 150ms ease;
+    display: flex; justify-content: space-between; gap: var(--s3);
+    padding: var(--s2) 0; border-bottom: 1px solid var(--line-faint);
+    font-family: var(--mono); font-size: var(--fs-xs);
+}
+.lookback-row .lbl { color: var(--ink-tertiary); }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   12 · RESPONSIVE
+   Density is the point, so the layout holds as long as it can and then
+   degrades by stacking — never by shrinking type below the legibility floor.
+   ───────────────────────────────────────────────────────────────────────── */
+@media (max-width: 1100px) {
+    .block-container { padding: var(--s3) var(--s4) var(--s6) !important; }
+    .hero-gate { grid-template-columns: 76px 44px 1fr; }
+    .hero-gate-detail { grid-column: 1 / -1; padding-left: 76px; }
+}
+@media (max-width: 720px) {
+    .hero-top { flex-direction: column; gap: var(--s3); }
+    .hero-conviction-block { text-align: left; }
+    .hero-signal { font-size: var(--fs-2xl); }
+    .hero-gate { grid-template-columns: 1fr; gap: 2px; }
+    .hero-gate-detail { padding-left: 0; }
+    .hero-gate-bar { max-width: 120px; }
+    .analog-stat-row { gap: var(--s3); }
+    .stTabs [data-baseweb="tab-list"] { gap: var(--s3); overflow-x: auto; }
+    .ticker { height: 26px; }
 }
 
-.lookback-row:hover {
-    background: rgba(255, 255, 255, 0.015);
-}
-
-.lookback-row:last-child {
-    border-bottom: none;
-}
-
-.lookback-row .label {
-    font-family: var(--data);
-    color: var(--ink-secondary);
-    font-size: 0.76rem;
-}
-
-.lookback-row .value {
-    font-weight: 600;
-    font-family: var(--data);
-    font-size: 0.76rem;
-}
-
-/* ================================================================
-   Dataframe Search
-   ================================================================ */
-[data-testid="stDataFrame"] .dataframe-search {
-    padding: var(--sp-3) var(--sp-4);
-    border-bottom: 1px solid var(--border);
-    background: rgba(10, 14, 23, 0.4);
-}
-
-[data-testid="stDataFrame"] .dataframe-search input {
-    width: 100%;
-    background: rgba(10, 14, 23, 0.6);
-    border: 1px solid var(--border);
-    border-radius: var(--r-sm);
-    color: var(--ink-primary);
-    font-family: var(--data);
-    font-size: 0.75rem;
-    padding: var(--sp-2) var(--sp-3);
-    outline: none;
-    transition: border-color 200ms ease;
-}
-
-[data-testid="stDataFrame"] .dataframe-search input:focus {
-    border-color: var(--amber);
-    box-shadow: 0 0 0 1px var(--amber);
-}
-
-[data-testid="stDataFrame"] .dataframe-search input::placeholder {
-    color: var(--ink-tertiary);
-}
-
-/* ================================================================
-   Responsive Design
-   ================================================================ */
+/* ─────────────────────────────────────────────────────────────────────────
+   13 · MOTION & PRINT
+   ───────────────────────────────────────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
-
-    *,
-    *::before,
-    *::after {
+    *, *::before, *::after {
         animation-duration: 0.01ms !important;
         animation-iteration-count: 1 !important;
-        animation-delay: 0ms !important;
         transition-duration: 0.01ms !important;
     }
-
-    .pulse-dot {
-        animation: none !important;
-    }
-}
-
-@media (max-width: 1200px) {
-    .premium-header h1 {
-        font-size: 2.2rem;
-    }
-
-    .system-card {
-        padding: var(--sp-5);
-    }
-
-    .signal-card {
-        padding: var(--sp-6) var(--sp-8);
-    }
-}
-
-@media (max-width: 992px) {
-    .block-container {
-        max-width: 100%;
-        padding-left: var(--sp-4) !important;
-        padding-right: var(--sp-4) !important;
-    }
-
-    .metric-card {
-        min-height: 100px;
-        padding: var(--sp-4);
-    }
-
-    .metric-card h2 {
-        font-size: 1.4rem;
-    }
-
-    .signal-card .value {
-        font-size: 2rem;
-    }
-
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 16px;
-    }
-}
-
-@media (max-width: 768px) {
-    .premium-header h1 {
-        font-size: 1.8rem;
-    }
-
-    .premium-header .tagline {
-        font-size: 0.6rem;
-    }
-
-    .section-hdr .text h3 {
-        font-size: 0.9rem;
-    }
-
-    .metric-card {
-        min-height: 90px;
-    }
-
-    .metric-card h2 {
-        font-size: 1.2rem;
-    }
-
-    .signal-card {
-        padding: var(--sp-5) var(--sp-6);
-    }
-
-    .signal-card .value {
-        font-size: 1.6rem;
-        flex-direction: column;
-        gap: var(--sp-2);
-    }
-
-    .system-card {
-        padding: var(--sp-4);
-    }
-
-    .system-card h3 {
-        font-size: 0.9rem;
-    }
-
-    /* Charts keep their own layout heights — a previous rule force-clamped
-       every chart container to 300px here, which crushed/cropped the 680px
-       3-row Unified Signal stack (and every other subplot figure) on phones.
-       Plotly is already width-responsive; height must stay chart-owned. */
-
-    /* 6 tabs don't fit a phone viewport — let the tab bar scroll
-       horizontally instead of wrapping/clipping. */
-    .stTabs [data-baseweb="tab-list"] {
-        overflow-x: auto;
-        flex-wrap: nowrap;
-        scrollbar-width: none;
-        -webkit-overflow-scrolling: touch;
-    }
-
-    .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar {
-        display: none;
-    }
-
-    .stTabs [data-baseweb="tab"] {
-        flex: none;
-    }
-
-    /* Touch targets: WCAG 2.5.8 / platform HIGs want ≥44px interactive
-       height; Streamlit's default buttons sit under that on mobile. */
-    .stButton button,
-    .stDownloadButton button {
-        min-height: 44px;
-    }
-
-    /* Hero verdict card: evidence rows stack label-over-text on narrow
-       screens instead of squeezing the text column. */
-    .signal-card .hero-evidence-row {
-        flex-direction: column;
-        gap: 2px;
-    }
-
-    .signal-card .hero-tag {
-        flex: none;
-    }
-
-    .signal-card .hero-score {
-        display: block;
-        margin-left: 0;
-        margin-top: var(--sp-1);
-    }
-}
-
-@media (max-width: 480px) {
-    :root {
-        --sp-8: 1.5rem;
-        --sp-10: 2rem;
-        --sp-12: 2.5rem;
-    }
-
-    .premium-header h1 {
-        font-size: 1.5rem;
-    }
-
-    .section-hdr {
-        gap: var(--sp-2);
-    }
-
-    .section-hdr .icon {
-        width: 24px;
-        height: 24px;
-    }
-
-    .section-hdr .icon svg {
-        width: 12px;
-        height: 12px;
-    }
-
-    .metric-card h2 {
-        font-size: 1rem;
-    }
-
-    .signal-card .value {
-        font-size: 1.3rem;
-    }
-
-    .stTabs [data-baseweb="tab"] {
-        font-size: 0.65rem;
-        padding: 10px 0;
-    }
-
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 8px;
-    }
-}
-
-/* ================================================================
-   KEYFRAME ANIMATIONS
-   ================================================================ */
-
-@keyframes fadeInDown {
-    from {
-        opacity: 0;
-        transform: translateY(-20px);
-    }
-
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
-}
-
-@keyframes fadeInUp {
-    from {
-        opacity: 0;
-        transform: translateY(20px);
-    }
-
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
-}
-
-@keyframes fadeIn {
-    from {
-        opacity: 0;
-    }
-
-    to {
-        opacity: 1;
-    }
-}
-
-@keyframes slideInLeft {
-    from {
-        opacity: 0;
-        transform: translateX(-30px);
-    }
-
-    to {
-        opacity: 1;
-        transform: translateX(0);
-    }
-}
-
-@keyframes slideInRight {
-    from {
-        opacity: 0;
-        transform: translateX(30px);
-    }
-
-    to {
-        opacity: 1;
-        transform: translateX(0);
-    }
-}
-
-@keyframes pulse {
-
-    0%,
-    100% {
-        opacity: 1;
-    }
-
-    50% {
-        opacity: 0.5;
-    }
-}
-
-@keyframes shimmer {
-    0% {
-        background-position: -200% 0;
-    }
-
-    100% {
-        background-position: 200% 0;
-    }
-}
-
-@keyframes glow {
-
-    0%,
-    100% {
-        box-shadow: 0 0 5px var(--amber-glow), 0 0 10px var(--amber-glow);
-    }
-
-    50% {
-        box-shadow: 0 0 20px var(--amber-glow), 0 0 30px var(--amber-glow);
-    }
-}
-
-@keyframes gradientShift {
-    0% {
-        background-position: 0% 50%;
-    }
-
-    50% {
-        background-position: 100% 50%;
-    }
-
-    100% {
-        background-position: 0% 50%;
-    }
-}
-
-@keyframes countUp {
-    from {
-        opacity: 0;
-        transform: translateY(10px);
-    }
-
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
-}
-
-/* ================================================================
-   ENHANCED METRIC CARDS WITH ANIMATIONS
-   ================================================================ */
-
-.metric-card {
-    animation: fadeInUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
-.metric-card:nth-child(1) {
-    animation-delay: 0.05s;
-}
-
-.metric-card:nth-child(2) {
-    animation-delay: 0.1s;
-}
-
-.metric-card:nth-child(3) {
-    animation-delay: 0.15s;
-}
-
-.metric-card:nth-child(4) {
-    animation-delay: 0.2s;
-}
-
-.metric-card h2 {
-    animation: countUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.2s both;
-}
-
-/* ================================================================
-   ENHANCED SYSTEM CARDS
-   ================================================================ */
-
-.system-card {
-    animation: fadeInUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
-    position: relative;
-    overflow: hidden;
-}
-
-.system-card::before {
-    content: "";
-    position: absolute;
-    top: 0;
-    left: -100%;
-    width: 100%;
-    height: 2px;
-    background: linear-gradient(90deg, transparent, var(--amber), transparent);
-    animation: shimmer 2s infinite;
-}
-
-.system-card:hover::before {
-    animation: none;
-    left: 0;
-}
-
-.system-card:hover {
-    transform: translateY(-4px);
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-}
-
-/* ================================================================
-   ENHANCED SIGNAL CARDS
-   ================================================================ */
-
-.signal-row {
-    transition: background 0.2s cubic-bezier(0.16, 1, 0.3, 1),
-                transform 0.2s cubic-bezier(0.16, 1, 0.3, 1),
-                border-left-color 0.2s cubic-bezier(0.16, 1, 0.3, 1),
-                padding-left 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-    animation: fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
-.signal-row:nth-child(1) {
-    animation-delay: 0.05s;
-}
-
-.signal-row:nth-child(2) {
-    animation-delay: 0.1s;
-}
-
-.signal-row:nth-child(3) {
-    animation-delay: 0.15s;
-}
-
-.signal-row:nth-child(4) {
-    animation-delay: 0.2s;
-}
-
-.signal-row:nth-child(5) {
-    animation-delay: 0.25s;
-}
-
-.signal-row:hover {
-    background: rgba(212, 168, 83, 0.05);
-    transform: translateX(4px);
-    border-left: 2px solid var(--amber);
-    padding-left: calc(0.5rem - 2px);
-}
-
-.signal-pill {
-    transition: background 0.2s ease, box-shadow 0.2s ease;
-}
-
-.signal-pill.buy:hover {
-    background: rgba(16, 185, 129, 0.2);
-    box-shadow: 0 0 12px var(--emerald-glow);
-}
-
-.signal-pill.hold:hover {
-    background: rgba(245, 158, 11, 0.2);
-    box-shadow: 0 0 12px rgba(245, 158, 11, 0.2);
-}
-
-.signal-pill.sell:hover {
-    background: rgba(239, 68, 68, 0.2);
-    box-shadow: 0 0 12px var(--rose-glow);
-}
-
-.signal-pill.caution:hover {
-    background: rgba(239, 68, 68, 0.2);
-    box-shadow: 0 0 12px rgba(239, 68, 68, 0.2);
-}
-
-.signal-pill .signal-icon {
-    display: inline-flex;
-    align-items: center;
-    flex-shrink: 0;
-}
-
-/* ================================================================
-   ENHANCED SECTION HEADERS
-   ================================================================ */
-
-.section-hdr {
-    animation: slideInLeft 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
-.section-hdr .icon {
-    transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1),
-                box-shadow 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.section-hdr:hover .icon {
-    transform: scale(1.1) rotate(-5deg);
-    box-shadow: 0 0 16px var(--amber-glow);
-}
-
-/* ================================================================
-   ENHANCED REGIME BADGE
-   ================================================================ */
-
-.regime-badge {
-    animation: fadeInUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
-    position: relative;
-    overflow: hidden;
-}
-
-.regime-badge::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(135deg, transparent 0%, rgba(255, 255, 255, 0.02) 50%, transparent 100%);
-    pointer-events: none;
-}
-
-/* ================================================================
-   CHART CONTAINER ENHANCEMENTS
-   ================================================================ */
-
-.chart-container {
-    animation: fadeIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.1s both;
-    position: relative;
-}
-
-.chart-container::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    border-radius: var(--r-md);
-    background: linear-gradient(135deg, var(--amber-glow) 0%, transparent 50%, var(--cyan-glow) 100%);
-    opacity: 0;
-    transition: opacity 0.3s ease;
-    pointer-events: none;
-    z-index: -1;
-}
-
-.chart-container:hover::before {
-    opacity: 0.3;
-}
-
-/* ================================================================
-   LANDING PAGE ENHANCEMENTS
-   ================================================================ */
-
-.landing-prompt {
-    animation: fadeInUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.3s both;
-    position: relative;
-    padding: var(--sp-8);
-    background: var(--glass);
-    backdrop-filter: blur(12px);
-    border: 1px solid var(--border);
-    border-radius: var(--r-lg);
-    overflow: hidden;
-}
-
-.landing-prompt::before {
-    content: "";
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 2px;
-    background: linear-gradient(90deg, var(--amber), var(--cyan), var(--emerald));
-    background-size: 200% 100%;
-    animation: gradientShift 4s ease infinite;
-}
-
-.landing-prompt h4 {
-    font-family: var(--display);
-    font-size: 1.1rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    color: var(--ink-primary);
-    margin: 0 0 var(--sp-3) 0;
-    display: flex;
-    align-items: center;
-    gap: var(--sp-2);
-}
-
-.landing-prompt h4 svg {
-    color: var(--amber);
-    animation: pulse 2s ease-in-out infinite;
-}
-
-/* ================================================================
-   TABLE ENHANCEMENTS
-   ================================================================ */
-
-.stMarkdown table {
-    animation: fadeIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
-.stMarkdown table tbody tr {
-    transition: background 0.2s ease, transform 0.2s ease;
-}
-
-.stMarkdown table tbody tr:hover {
-    background: rgba(212, 168, 83, 0.05);
-    transform: translateX(2px);
-}
-
-/* ================================================================
-   INFO/WARNING BOXES ENHANCEMENT
-   ================================================================ */
-
-.info-box,
-.warning-box,
-.interp-card {
-    animation: slideInRight 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
-    position: relative;
-    overflow: hidden;
-}
-
-.interp-card::before {
-    content: "";
-    position: absolute;
-    left: 0;
-    top: 0;
-    bottom: 0;
-    width: 3px;
-    background: linear-gradient(180deg, var(--amber), var(--cyan));
-}
-
-/* ================================================================
-   INTELLIGENCE TAB ENHANCEMENTS
-   ================================================================ */
-
-.intel-table-wrap {
-    overflow-x: auto;
-    border: 1px solid var(--border);
-    border-radius: var(--r-md);
-    background: var(--card-base);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    /* Match .interp-card vertical rhythm so both columns in the Intelligence
-       tab align their top edges directly under their section headers. */
-    margin: var(--sp-6) 0;
-}
-
-.portfolio-table-2col {
-    width: 100%;
-    border-collapse: collapse;
-    table-layout: fixed;
-}
-
-.portfolio-table-2col th,
-.portfolio-table-2col td {
-    padding: var(--sp-3) var(--sp-3);
-    font-size: 0.78rem;
-}
-
-.portfolio-table-2col thead th {
-    background: linear-gradient(180deg, rgba(10, 14, 23, 0.95) 0%, rgba(10, 14, 23, 0.85) 100%);
-    color: var(--ink-tertiary);
-    font-family: var(--display);
-    font-size: 0.62rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    border-bottom: 2px solid var(--border-active);
-}
-
-.portfolio-table-2col tbody tr {
-    border-bottom: 1px solid var(--border-subtle);
-    transition: background 200ms ease;
-}
-
-.portfolio-table-2col tbody tr:last-child {
-    border-bottom: none;
-}
-
-.portfolio-table-2col tbody tr:hover {
-    background: rgba(212, 168, 83, 0.04);
-}
-
-div[data-multi-file-uploader] > div {
-    gap: 0;
-}
-
-.col-iw-factor {
-    width: 35%;
-    font-family: var(--display);
-    font-weight: 600;
-    letter-spacing: 0.01em;
-    white-space: nowrap;
-    color: var(--ink-primary);
-}
-
-.col-iw-long,
-.col-iw-short {
-    width: 32.5%;
-    font-variant-numeric: tabular-nums;
-    text-align: right;
-    font-weight: 600;
-    font-family: var(--data);
-}
-
-.iw-delta {
-    font-size: 0.65rem;
-    font-weight: 400;
-    opacity: 0.7;
-    margin-left: 0.25rem;
-}
-
-/* Intelligence — Σ row under the Active Weights table */
-.intel-sigma {
-    text-align: right;
-    margin-top: var(--sp-2);
-    color: var(--ink-tertiary);
-    font-size: 0.7rem;
-    font-family: var(--data);
-    letter-spacing: 0.04em;
-}
-
-/* ================================================================
-   INTELLIGENCE — Method card (Obsidian Quant fidelity)
-   ================================================================ */
-
-.intel-method-card {
-    position: relative;
-    overflow: hidden;
-    background: var(--card-base);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border: 1px solid var(--border);
-    border-radius: var(--r-lg);
-    padding: var(--sp-5) var(--sp-6);
-    margin-top: var(--sp-5);
-    transition: background 400ms cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.intel-method-card:hover {
-    background: var(--card-base-hover);
-}
-
-/* Diagonal accent sweep — emerald, signature of the Intelligence module */
-.intel-method-card::before {
-    content: "";
-    position: absolute;
-    top: -34px;
-    right: -34px;
-    width: 160px;
-    height: 4px;
-    background: linear-gradient(90deg, var(--emerald) 0%, var(--emerald-glow) 40%, transparent 80%);
-    box-shadow: 0 0 18px var(--emerald-glow);
-    transform: rotate(25deg);
-    transform-origin: 100% 50%;
-    pointer-events: none;
-}
-
-/* Bottom gradient sweep on hover (mirrors system-card pattern) */
-.intel-method-card::after {
-    content: "";
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    height: 0;
-    background: linear-gradient(180deg, transparent 0%, var(--emerald-glow) 100%);
-    opacity: 0.4;
-    pointer-events: none;
-    transition: height 400ms cubic-bezier(0.16, 1, 0.3, 1);
-}
-.intel-method-card:hover::after {
-    height: 35%;
-}
-
-.intel-method-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: var(--sp-4);
-    position: relative;
-    z-index: 1;
-}
-
-.intel-method-title {
-    font-family: var(--display);
-    font-size: 0.78rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.14em;
-    color: var(--emerald);
-    text-shadow: 0 0 24px var(--emerald-glow);
-}
-
-.intel-method-pill {
-    font-family: var(--data);
-    font-size: 0.68rem;
-    color: var(--ink-secondary);
-    padding: 0.35rem 0.85rem;
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    background: rgba(10, 14, 23, 0.5);
-    letter-spacing: 0.04em;
-}
-
-.intel-method-lede {
-    color: var(--ink-secondary);
-    font-size: 0.82rem;
-    line-height: 1.7;
-    font-family: var(--data);
-    margin-bottom: var(--sp-5);
-    position: relative;
-    z-index: 1;
-}
-
-.intel-method-lede strong {
-    color: var(--ink-primary);
-    font-weight: 600;
-}
-
-.intel-method-grid {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: var(--sp-3);
-    position: relative;
-    z-index: 1;
-}
-
-@media (max-width: 900px) {
-    .intel-method-grid {
-        grid-template-columns: repeat(2, 1fr);
-    }
-}
-
-.intel-method-tile {
-    position: relative;
-    overflow: hidden;
-    background: rgba(10, 14, 23, 0.45);
-    border: 1px solid var(--border);
-    border-radius: var(--r-md);
-    padding: var(--sp-4);
-    transition: background 250ms cubic-bezier(0.16, 1, 0.3, 1),
-                border-color 250ms cubic-bezier(0.16, 1, 0.3, 1),
-                transform 250ms cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.intel-method-tile:hover {
-    background: rgba(10, 14, 23, 0.65);
-    border-color: rgba(255, 255, 255, 0.1);
-    transform: translateY(-2px);
-}
-
-/* Corner dot accent — matches metric-card pattern */
-.intel-method-tile::before {
-    content: "";
-    position: absolute;
-    top: var(--sp-3);
-    right: var(--sp-3);
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--tile-accent, var(--emerald));
-    box-shadow: 0 0 10px var(--tile-accent-glow, var(--emerald-glow));
-    opacity: 0.85;
-    transition: transform 250ms cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.intel-method-tile:hover::before {
-    transform: scale(1.5);
-}
-
-/* Per-tile accent assignments */
-.intel-method-tile.tile-learns { --tile-accent: var(--emerald); --tile-accent-glow: var(--emerald-glow); }
-.intel-method-tile.tile-how    { --tile-accent: #4A9EFF;       --tile-accent-glow: rgba(74, 158, 255, 0.25); }
-.intel-method-tile.tile-obj    { --tile-accent: var(--amber);  --tile-accent-glow: var(--amber-glow); }
-.intel-method-tile.tile-safety { --tile-accent: #F472B6;       --tile-accent-glow: rgba(244, 114, 182, 0.25); }
-
-.intel-method-tile .tile-label {
-    font-family: var(--display);
-    font-size: 0.62rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.14em;
-    color: var(--tile-accent, var(--emerald));
-    margin-bottom: var(--sp-2);
-    padding-right: var(--sp-4); /* room for the corner dot */
-}
-
-.intel-method-tile .tile-body {
-    color: var(--ink-secondary);
-    font-size: 0.74rem;
-    line-height: 1.65;
-    font-family: var(--data);
-}
-
-.intel-method-tile .tile-body strong {
-    color: var(--ink-primary);
-    font-weight: 600;
-}
-
-.intel-method-tile .tile-body code {
-    color: var(--tile-accent, var(--emerald));
-    background: rgba(255, 255, 255, 0.04);
-    padding: 0.08rem 0.4rem;
-    border-radius: var(--r-sm);
-    font-family: var(--data);
-    font-size: 0.72rem;
-    letter-spacing: 0.02em;
-}
-
-/* ================================================================
-   BUTTON ENHANCEMENTS
-   ================================================================ */
-
-/* This second .stButton>button rule (ENHANCEMENTS section) is later in the
-   cascade than the base rule above and its own `transition` property wins
-   outright for the whole element — so it must list every property either
-   rule's hover state animates (border-color/color/background from the base
-   rule's hover, transform/box-shadow from this section's), not just its own. */
-.stButton>button {
-    transition: border-color 0.3s cubic-bezier(0.16, 1, 0.3, 1),
-                color 0.3s cubic-bezier(0.16, 1, 0.3, 1),
-                background 0.3s cubic-bezier(0.16, 1, 0.3, 1),
-                transform 0.3s cubic-bezier(0.16, 1, 0.3, 1),
-                box-shadow 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-    position: relative;
-    overflow: hidden;
-}
-
-.stButton>button::before {
-    content: "";
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    width: 0;
-    height: 0;
-    border-radius: 50%;
-    background: rgba(255, 255, 255, 0.1);
-    transform: translate(-50%, -50%);
-    transition: width 0.6s ease, height 0.6s ease;
-}
-
-.stButton>button:hover::before {
-    width: 300px;
-    height: 300px;
-}
-
-.stButton>button:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 16px var(--amber-glow);
-}
-
-/* ================================================================
-   TAB ENHANCEMENTS
-   ================================================================ */
-
-.stTabs [data-baseweb="tab-list"] {
-    position: relative;
-}
-
-.stTabs [data-baseweb="tab-list"]::after {
-    content: "";
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    height: 1px;
-    background: linear-gradient(90deg, transparent, var(--amber-dim), transparent);
-    opacity: 0.3;
-}
-
-/* Second .stTabs [data-baseweb="tab"] rule (ENHANCEMENTS section) — its
-   `transition` wins outright over the base rule's, so it must cover both
-   rules' animated properties (color/border-color from the base hover,
-   transform/color from this section's hover — color listed once). */
-.stTabs [data-baseweb="tab"] {
-    transition: color 0.3s cubic-bezier(0.16, 1, 0.3, 1),
-                border-color 0.3s cubic-bezier(0.16, 1, 0.3, 1),
-                transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.stTabs [data-baseweb="tab"]:hover {
-    transform: translateY(-2px);
-    color: var(--amber-bright);
-}
-
-/* ================================================================
-   DOWNLOAD BUTTON ENHANCEMENT
-   ================================================================ */
-
-/* Second .stDownloadButton>button rule (ENHANCEMENTS section) — its
-   `transition` wins outright over the base rule's; covers both rules'
-   animated properties (border-color/color/background from the base hover,
-   transform/box-shadow from this section's). */
-.stDownloadButton>button {
-    transition: border-color 0.3s cubic-bezier(0.16, 1, 0.3, 1),
-                color 0.3s cubic-bezier(0.16, 1, 0.3, 1),
-                background 0.3s cubic-bezier(0.16, 1, 0.3, 1),
-                transform 0.3s cubic-bezier(0.16, 1, 0.3, 1),
-                box-shadow 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.stDownloadButton>button:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 16px var(--amber-glow);
-}
-
-/* ================================================================
-   PROGRESS BAR ENHANCEMENT
-   ================================================================ */
-
-.progress-card {
-    animation: fadeInUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
-.progress-bar-fill {
-    position: relative;
-    overflow: hidden;
+    /* The tape stops and becomes a scrollable strip rather than a blur. */
+    .tt-track { animation: none !important; }
+    .ticker { overflow-x: auto; }
 }
 
-.progress-bar-fill::after {
-    content: "";
-    position: absolute;
-    top: 0;
-    left: -100%;
-    width: 100%;
-    height: 100%;
-    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
-    animation: shimmer 2s infinite;
-}
-
-/* ================================================================
-   SKELETON LOADING ENHANCEMENT
-   ================================================================ */
-
-.skeleton-pulse {
-    background: linear-gradient(90deg, var(--bg-elevated) 25%, var(--bg-surface) 50%, var(--bg-elevated) 75%);
-    background-size: 200% 100%;
-    animation: shimmer 1.6s ease-in-out infinite;
-}
-
-/* ================================================================
-   FOOTER ENHANCEMENT
-   ================================================================ */
-
-.app-footer {
-    animation: fadeIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.4s both;
-    margin-top: var(--sp-10);
-    padding: var(--sp-6) 0;
-    border-top: 1px solid var(--border);
-    position: relative;
-}
-
-.app-footer::before {
-    content: "";
-    position: absolute;
-    top: -1px;
-    left: 0;
-    width: 100%;
-    height: 1px;
-    background: linear-gradient(90deg, transparent, var(--amber-dim), transparent);
-}
-
-/* ================================================================
-   SCROLL-TRIGGERED ANIMATIONS (CSS-only with intersection observer via Streamlit)
-   ================================================================ */
-
-@media (prefers-reduced-motion: no-preference) {
-
-    .metric-card,
-    .signal-card,
-    .system-card,
-    .section-hdr,
-    .chart-container {
-        will-change: transform, opacity;
-    }
-}
-
-/* ================================================================
-   MOBILE PERFORMANCE — Reduce GPU load on small screens
-   ================================================================ */
-@media (max-width: 768px) {
-
-    /* Disable expensive backdrop-filter on mobile */
-    .metric-card,
-    .system-card,
-    .signal-card,
-    .position-card,
-    .stPlotlyChart,
-    [data-testid="stSidebar"] {
-        backdrop-filter: none !important;
-        -webkit-backdrop-filter: none !important;
-    }
-
-    /* Reduce infinite animations on mobile (keep 1 cycle, stop) */
-    .system-card::before,
-    .conviction-bar-fill::after,
-    .progress-bar-fill::after,
-    .skeleton-pulse {
-        animation-iteration-count: 1 !important;
-        animation-duration: 3s !important;
-    }
-
-    .landing-prompt::before {
-        animation-duration: 12s !important;
-    }
-
-    .landing-prompt h4 svg {
-        animation-duration: 4s !important;
-    }
-
-    /* Remove GPU-heavy hover states on touch */
-    .section-hdr:hover .icon {
-        transform: none;
-        box-shadow: none;
-    }
-
-    .section-hdr:hover .icon svg {
-        transform: none;
-        filter: none;
-    }
-
-    .stButton>button::before {
-        display: none;
-    }
-}
-
-/* ================================================================
-   TABLE RESPONSIVE — Horizontal scroll on narrow screens
-   ================================================================ */
-@media (max-width: 992px) {
-
-    .portfolio-table,
-    [data-testid="stDataFrame"],
-    .stMarkdown table {
-        overflow-x: auto;
-        -webkit-overflow-scrolling: touch;
-    }
-
-    .portfolio-table table,
-    [data-testid="stDataFrame"] table,
-    .stMarkdown table {
-        min-width: 600px;
-    }
-}
-
-/* ================================================================
-   FIXED-POSITION ELEMENTS — Prevent overlap on mobile
-   ================================================================ */
-@media (max-width: 768px) {
-
-    /* Sidebar hint — hide on mobile (no sidebar overlap risk) */
-    .sidebar-hint {
-        display: none !important;
-    }
-}
-
-/* ================================================================
-   METRIC TOOLTIP — Prevent overflow on small screens
-   ================================================================ */
-@media (max-width: 480px) {
-
-    .metric-tooltip-text {
-        max-width: 200px;
-        right: -40px;
-        font-size: 0.6rem;
-    }
-}
-
-/* ================================================================
-   LANDSCAPE PHONE — Handle width > height at narrow breakpoints
-   ================================================================ */
-@media (max-width: 992px) and (orientation: landscape) {
-
-    .block-container {
-        padding-top: var(--sp-4) !important;
-        padding-bottom: var(--sp-4) !important;
-    }
-
-    .premium-header {
-        margin-bottom: var(--sp-6) !important;
-    }
-
-    .premium-header h1 {
-        font-size: 1.6rem !important;
-    }
-
-    .premium-header .tagline {
-        font-size: 0.55rem !important;
-    }
-
-    /* Reduce card minimum heights in landscape */
-    .metric-card {
-        min-height: 70px !important;
-        padding: var(--sp-3) var(--sp-3) !important;
-    }
-
-    .metric-card h2 {
-        font-size: 1.1rem !important;
-    }
-
-    .system-card {
-        min-height: 180px !important;
-    }
-
-    /* Charts shorter in landscape */
-    .stPlotlyChart>div {
-        height: 220px !important;
-    }
-}
-
-/* ================================================================
-   BLOCK CONTAINER — Better mobile spacing
-   ================================================================ */
-@media (max-width: 768px) {
-
-    .block-container {
-        max-width: 100%;
-        padding-left: var(--sp-3) !important;
-        padding-right: var(--sp-3) !important;
-    }
-
-    /* Landing prompt padding reduced on mobile */
-    .landing-prompt {
-        padding: var(--sp-5) var(--sp-4) !important;
-    }
-
-    /* System spec card tighter on mobile */
-    .system-spec {
-        padding: var(--sp-2) var(--sp-3) !important;
-    }
-
-    .spec-row {
-        font-size: 0.55rem !important;
-    }
-
-    .spec-label {
-        font-size: 0.5rem !important;
-    }
-
-    .spec-value {
-        font-size: 0.55rem !important;
-    }
-}
-
-/* ================================================================
-   480px ADDITIONAL — Fill gaps in existing breakpoints
-   ================================================================ */
-@media (max-width: 480px) {
-
-    /* Section headers not yet scaled */
-    .section-hdr .text h3 {
-        font-size: 0.85rem !important;
-    }
-
-    /* System cards tighter */
-    .system-card {
-        padding: var(--sp-4) !important;
-        min-height: 200px !important;
-    }
-
-    .system-card h3 {
-        font-size: 0.8rem !important;
-    }
-
-    .system-card p {
-        font-size: 0.7rem !important;
-    }
-
-    .system-card .spec {
-        font-size: 0.6rem !important;
-    }
-
-    /* Metric cards minimal */
-    .metric-card {
-        min-height: 80px !important;
-        padding: var(--sp-3) !important;
-    }
-
-    .metric-card h4 {
-        font-size: 0.55rem !important;
-    }
-
-    .metric-card h2 {
-        font-size: 1rem !important;
-    }
-
-    /* Position guide tables */
-    .position-card {
-        padding: var(--sp-3) !important;
-    }
-
-    .position-card-header {
-        flex-direction: column;
-        align-items: flex-start !important;
-        gap: var(--sp-2);
-    }
-
-    .position-card-signals {
-        grid-template-columns: repeat(2, 1fr) !important;
-    }
-
-    /* Regime badge compact */
-    .regime-badge {
-        padding: var(--sp-3) !important;
-    }
-
-    /* Info/warning boxes compact */
-    .info-box,
-    .warning-box,
-    .interp-card {
-        padding: var(--sp-3) var(--sp-4) !important;
-    }
-}
-
-/* ================================================================
-   FILE UPLOADER ENHANCEMENTS — Obsidian Quant
-   ================================================================ */
-[data-testid="stFileUploader"] {
-    background: transparent !important;
-    padding: 0 !important;
-}
-
-[data-testid="stFileUploadDropzone"] {
-    background: var(--glass) !important;
-    border: 1px dashed var(--border) !important;
-    border-radius: var(--r-md) !important;
-    backdrop-filter: blur(12px) !important;
-    transition: border-color 400ms cubic-bezier(0.16, 1, 0.3, 1),
-                background 400ms cubic-bezier(0.16, 1, 0.3, 1),
-                box-shadow 400ms cubic-bezier(0.16, 1, 0.3, 1),
-                transform 400ms cubic-bezier(0.16, 1, 0.3, 1) !important;
-    padding: var(--sp-8) var(--sp-6) !important;
-    display: flex !important;
-    flex-direction: column !important;
-    align-items: center !important;
-    justify-content: center !important;
-    gap: var(--sp-4) !important;
-}
-
-[data-testid="stFileUploadDropzone"]:hover {
-    border-color: var(--amber-dim) !important;
-    background: var(--glass-hover) !important;
-    box-shadow: 0 0 30px var(--amber-glow);
-    transform: translateY(-1px);
-}
-
-/* Drag & Drop Label */
-[data-testid="stFileUploadDropzone"] .st-emotion-cache-1ae8k9d,
-[data-testid="stFileUploadDropzone"] span {
-    font-family: var(--display) !important;
-    color: var(--ink-primary) !important;
-    font-weight: 700 !important;
-    font-size: 0.78rem !important;
-    letter-spacing: 0.02em !important;
-    text-transform: uppercase !important;
-}
-
-/* Limit & Type Metadata */
-[data-testid="stFileUploadDropzone"] .st-emotion-cache-v065sh,
-[data-testid="stFileUploadDropzone"] small {
-    font-family: var(--data) !important;
-    color: var(--ink-tertiary) !important;
-    font-size: 0.58rem !important;
-    text-transform: uppercase !important;
-    letter-spacing: 0.06em !important;
-    margin-top: -0.15rem !important;
-    opacity: 0.7;
-}
-
-/* "Browse files" Button Overhaul */
-[data-testid="stFileUploadDropzone"] button {
-    background: rgba(212, 168, 83, 0.06) !important;
-    border: 1px solid rgba(212, 168, 83, 0.25) !important;
-    color: var(--amber) !important;
-    font-family: var(--data) !important;
-    text-transform: uppercase !important;
-    letter-spacing: 0.12em !important;
-    font-size: 0.68rem !important;
-    font-weight: 600 !important;
-    padding: 0.4rem 1.2rem !important;
-    border-radius: var(--r-sm) !important;
-    transition: background 300ms ease, border-color 300ms ease,
-                box-shadow 300ms ease, color 300ms ease, transform 300ms ease !important;
-    margin-top: var(--sp-2) !important;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2) !important;
-}
-
-[data-testid="stFileUploadDropzone"] button:hover {
-    background: rgba(212, 168, 83, 0.12) !important;
-    border-color: var(--amber) !important;
-    box-shadow: 0 0 15px var(--amber-glow) !important;
-    color: var(--amber-bright) !important;
-    transform: scale(1.02);
-}
-
-/* Upload Icon Styling */
-[data-testid="stFileUploadDropzone"] svg {
-    color: var(--amber-dim) !important;
-    width: 24px !important;
-    height: 24px !important;
-    margin-bottom: var(--sp-2) !important;
-    filter: drop-shadow(0 0 8px var(--amber-glow));
-}
-
-/* Success State: File List Item */
-[data-testid="stFileUploaderFileName"] {
-    font-family: var(--data) !important;
-    color: var(--emerald-bright) !important;
-    font-size: 0.75rem !important;
-}
-
-[data-testid="stFileUploaderFileData"] {
-    background: rgba(45, 212, 168, 0.05) !important;
-    border: 1px solid rgba(45, 212, 168, 0.15) !important;
-    border-radius: var(--r-sm) !important;
-    padding: var(--sp-2) var(--sp-4) !important;
-}
-/* Custom Tables (Obsidian Quant Style - Matched to Portfolio Table) */
-.kv-table-container {
-    width: 100%;
-    margin: 1rem 0;
-    border-radius: 10px;
-    overflow: hidden;
-    border: 1px solid rgba(255, 255, 255, 0.05);
-    background: linear-gradient(145deg, rgba(17, 24, 39, 0.45) 0%, rgba(17, 24, 39, 0.4) 100%);
-}
-
-.kv-table {
-    width: 100%;
-    border-collapse: collapse;
-}
-
-.kv-table thead th {
-    background: linear-gradient(180deg, rgba(10, 14, 23, 0.95) 0%, rgba(10, 14, 23, 0.85) 100%);
-    color: var(--ink-tertiary);   /* was hardcoded #4B5563 — now tracks the token */
-    font-size: 0.62rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    padding: 0.75rem 0.75rem;
-    border-bottom: 2px solid rgba(212, 168, 83, 0.3);
-    text-align: left;
-    white-space: nowrap;
-}
-
-.kv-table tbody td {
-    padding: 0.75rem 0.75rem;
-    color: #F1F5F9;
-    font-size: 0.75rem;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
-    font-family: 'IBM Plex Mono', monospace;
-    vertical-align: middle;
-}
-
-.kv-table tbody tr:last-child td {
-    border-bottom: none;
-}
-
-.kv-table tbody td.key {
-    font-weight: 700;
-    font-size: 0.78rem;
-    letter-spacing: 0.02em;
-    font-family: 'Space Grotesk', sans-serif;
-    color: #F1F5F9;
-    width: 40%;
-}
-
-.kv-table tbody td.value {
-    text-align: right;
-    font-variant-numeric: tabular-nums;
-}
-
-.kv-table tbody tr:hover {
-    background: rgba(212, 168, 83, 0.05);
-}
-
-/* ================================================================
-   Nishkarsh-specific: System card variants (aarambh/nirnay/convergence)
-   ================================================================ */
-.system-card.aarambh {
-    border-left: none;
-}
-
-.system-card.aarambh::after {
-    background: var(--violet);
-    box-shadow: 0 0 14px var(--violet-glow);
-}
-
-.system-card.aarambh h3 {
-    color: var(--violet);
-}
-
-.system-card.aarambh h3 svg {
-    color: var(--violet);
-    filter: drop-shadow(0 0 8px var(--violet-glow));
-}
-
-.system-card.aarambh .spec span {
-    color: var(--violet);
-}
-
-.system-card.nirnay {
-    border-left: none;
-}
-
-.system-card.nirnay::after {
-    background: var(--cyan);
-    box-shadow: 0 0 14px var(--cyan-glow);
-}
-
-.system-card.nirnay h3 {
-    color: var(--cyan);
-}
-
-.system-card.nirnay h3 svg {
-    color: var(--cyan);
-    filter: drop-shadow(0 0 8px var(--cyan-glow));
-}
-
-.system-card.nirnay .spec span {
-    color: var(--cyan);
-}
-
-.system-card.convergence {
-    border-left: none;
-}
-
-.system-card.convergence::after {
-    background: var(--amber);
-    box-shadow: 0 0 14px var(--amber-glow);
-}
-
-.system-card.convergence h3 {
-    color: var(--amber);
-}
-
-.system-card.convergence h3 svg {
-    color: var(--amber);
-    filter: drop-shadow(0 0 8px var(--amber-glow));
-}
-
-.system-card.convergence .spec span {
-    color: var(--amber);
-}
-
-/* ================================================================
-   Nishkarsh-specific: Chart container tab patterns
-   ================================================================ */
-.chart-container.aarambh::before {
-    background-image:
-        linear-gradient(rgba(167, 139, 250, 0.5) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(167, 139, 250, 0.5) 1px, transparent 1px);
-    background-size: 24px 24px;
-    opacity: 0.04;
-}
-
-.chart-container.nirnay::before {
-    background-image: repeating-linear-gradient(45deg,
-            rgba(34, 211, 238, 0.4) 0px,
-            rgba(34, 211, 238, 0.4) 1px,
-            transparent 1px,
-            transparent 12px);
-    opacity: 0.035;
-}
-
-.chart-container.convergence::before {
-    background-image:
-        repeating-linear-gradient(45deg, rgba(212, 168, 83, 0.4) 0px, rgba(212, 168, 83, 0.4) 1px, transparent 1px, transparent 10px),
-        repeating-linear-gradient(-45deg, rgba(212, 168, 83, 0.4) 0px, rgba(212, 168, 83, 0.4) 1px, transparent 1px, transparent 10px);
-    opacity: 0.03;
-}
-
-.chart-container.diagnostics::before {
-    background-image: radial-gradient(circle, rgba(148, 163, 184, 0.5) 1px, transparent 1px);
-    background-size: 16px 16px;
-    opacity: 0.05;
-}
-
-/* ================================================================
-   Nishkarsh-specific: Tab background ambient gradients
-   ================================================================ */
-.tab-bg {
-    position: fixed;
-    inset: 0;
-    pointer-events: none;
-    z-index: 0;
-    opacity: 0.015;
-    transition: opacity 400ms ease;
-}
-
-.tab-bg.aarambh {
-    background: radial-gradient(ellipse 50% 50% at 30% 40%, rgba(167, 139, 250, 0.3) 0%, transparent 70%);
-}
-
-.tab-bg.nirnay {
-    background: radial-gradient(ellipse 50% 50% at 70% 60%, rgba(34, 211, 238, 0.3) 0%, transparent 70%);
-}
-
-.tab-bg.convergence {
-    background: radial-gradient(ellipse 50% 50% at 50% 50%, rgba(212, 168, 83, 0.3) 0%, transparent 70%);
-}
-
-.tab-bg.diagnostics {
-    background: radial-gradient(ellipse 50% 50% at 60% 30%, rgba(251, 113, 133, 0.2) 0%, transparent 70%);
-}
-
-/* ================================================================
-   Tattva — Precedent (Analog Period) cards
-   Ported from Arthagati. Extends .position-card with an analog layout:
-     · eyebrow + date "symbol" + tier badge
-     · 3-col stat row (Similarity / Extension Z / Price)
-     · forward-return tile grid (signed-coloured)
-     · footer similarity progress bar
-   ================================================================ */
-.analog-card {
-    padding: var(--sp-5) var(--sp-6) var(--sp-4);
-    /* Left-edge tier accent strip suppressed by user preference — the
-       tier badge on the card head + the conviction bar in the footer
-       already communicate sentiment direction. */
-}
-
-.analog-card::before {
-    display: none;
-}
-
-.analog-card-head {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: var(--sp-4);
-    padding-bottom: var(--sp-4);
-    border-bottom: 1px solid var(--border-subtle);
-    margin-bottom: var(--sp-4);
-}
-
-.analog-card-id {
-    display: flex;
-    flex-direction: column;
-    gap: 0.18rem;
-    min-width: 0;
-}
-
-.analog-eyebrow {
-    font-family: var(--data);
-    font-size: 0.56rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.18em;
-    color: var(--ink-tertiary);
-}
-
-.analog-symbol {
-    font-family: var(--display);
-    font-size: 1.1rem;
-    font-weight: 700;
-    color: var(--ink-primary);
-    letter-spacing: 0.01em;
-    line-height: 1.15;
-}
-
-/* ── Stat row (3 columns: Similarity · Mood · NIFTY) ────────────────── */
-.analog-stat-row {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: var(--sp-3);
-    margin-bottom: var(--sp-5);
-}
-
-.analog-stat {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-    min-width: 0;
-}
-
-.analog-stat-label {
-    font-family: var(--data);
-    font-size: 0.56rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.14em;
-    color: var(--ink-tertiary);
-}
-
-.analog-stat-value {
-    font-family: var(--display);
-    font-size: 1rem;
-    font-weight: 700;
-    color: var(--ink-primary);
-    font-variant-numeric: tabular-nums;
-    letter-spacing: -0.01em;
-    line-height: 1;
-}
-
-.analog-stat-value.amber {
-    color: var(--amber-bright);
-    text-shadow: 0 0 18px var(--amber-glow);
-}
-
-.analog-stat-value.pos {
-    color: var(--emerald-bright);
-    text-shadow: 0 0 16px var(--emerald-glow);
-}
-
-.analog-stat-value.neg {
-    color: var(--rose-bright);
-    text-shadow: 0 0 16px var(--rose-glow);
-}
-
-.analog-stat-value.neutral {
-    color: var(--ink-secondary);
-}
-
-/* ── Forward NIFTY return block ─────────────────────────────────────── */
-.analog-fwd-block {
-    margin-bottom: var(--sp-4);
-}
-
-.analog-fwd-block-label {
-    font-family: var(--data);
-    font-size: 0.56rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.14em;
-    color: var(--ink-tertiary);
-    margin-bottom: var(--sp-2);
-    display: flex;
-    align-items: center;
-    gap: var(--sp-2);
-}
-
-.analog-fwd-block-label::before {
-    content: "";
-    flex: 0 0 14px;
-    height: 1px;
-    background: linear-gradient(90deg, var(--amber-dim) 0%, transparent 100%);
-}
-
-.analog-fwd-grid {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: var(--sp-2);
-}
-
-.analog-fwd-tile {
-    --tile-accent: var(--ink-tertiary);
-    --tile-glow: rgba(255, 255, 255, 0.04);
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.25rem;
-    padding: var(--sp-3) var(--sp-3);
-    border: 1px solid var(--border);
-    border-radius: var(--r-sm);
-    background: linear-gradient(145deg, rgba(255, 255, 255, 0.02) 0%, rgba(0, 0, 0, 0.12) 100%);
-    position: relative;
-    overflow: hidden;
-    transition: transform 250ms cubic-bezier(0.16, 1, 0.3, 1),
-                border-color 250ms ease,
-                box-shadow 250ms ease;
-}
-
-.analog-fwd-tile::before {
-    content: "";
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 1px;
-    background: linear-gradient(90deg, transparent 0%, var(--tile-accent) 50%, transparent 100%);
-    opacity: 0.55;
-}
-
-.analog-fwd-tile:hover {
-    transform: translateY(-1px);
-    border-color: rgba(255, 255, 255, 0.10);
-    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25), 0 0 12px var(--tile-glow);
-}
-
-.analog-fwd-tile.pos {
-    --tile-accent: var(--emerald);
-    --tile-glow: var(--emerald-glow);
-    background: linear-gradient(145deg, rgba(45, 212, 168, 0.05) 0%, rgba(17, 24, 39, 0.4) 100%);
-    border-color: rgba(45, 212, 168, 0.18);
-}
-
-.analog-fwd-tile.neg {
-    --tile-accent: var(--rose);
-    --tile-glow: var(--rose-glow);
-    background: linear-gradient(145deg, rgba(232, 85, 90, 0.05) 0%, rgba(17, 24, 39, 0.4) 100%);
-    border-color: rgba(232, 85, 90, 0.18);
-}
-
-.analog-fwd-tile.neutral {
-    opacity: 0.55;
-}
-
-.analog-fwd-label {
-    font-family: var(--data);
-    font-size: 0.55rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.12em;
-    color: var(--ink-tertiary);
-}
-
-.analog-fwd-value {
-    font-family: var(--display);
-    font-size: 0.95rem;
-    font-weight: 700;
-    line-height: 1;
-    font-variant-numeric: tabular-nums;
-    color: var(--ink-primary);
-}
-
-.analog-fwd-tile.pos .analog-fwd-value { color: var(--emerald-bright); }
-.analog-fwd-tile.neg .analog-fwd-value { color: var(--rose-bright); }
-.analog-fwd-tile.neutral .analog-fwd-value { color: var(--ink-tertiary); }
-
-/* ── Footer: similarity progress bar ────────────────────────────────── */
-.analog-card-foot {
-    display: flex;
-    align-items: center;
-    gap: var(--sp-3);
-    padding-top: var(--sp-3);
-    border-top: 1px solid var(--border-subtle);
-}
-
-.analog-foot-label {
-    font-family: var(--data);
-    font-size: 0.56rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.14em;
-    color: var(--ink-tertiary);
-    flex-shrink: 0;
-}
-
-.analog-card-foot .conviction-bar {
-    flex: 1;
-    margin-top: 0;
-}
-
-.analog-foot-pct {
-    font-family: var(--data);
-    font-size: 0.7rem;
-    font-weight: 700;
-    color: var(--ink-secondary);
-    font-variant-numeric: tabular-nums;
-    min-width: 38px;
-    text-align: right;
-    flex-shrink: 0;
-}
-
-/* Position-card hover override for analog-card — tier accent + glow */
-.position-card.analog-card:hover {
-    transform: translateX(0) translateY(-3px);
-    box-shadow: 0 14px 36px rgba(0, 0, 0, 0.28), 0 0 22px rgba(212, 168, 83, 0.10);
-}
-
-.position-card.analog-card.tier-strong-buy:hover {
-    box-shadow: 0 14px 36px rgba(0, 0, 0, 0.28), 0 0 22px var(--emerald-glow);
-}
-.position-card.analog-card.tier-buy:hover {
-    box-shadow: 0 14px 36px rgba(0, 0, 0, 0.28), 0 0 22px var(--emerald-glow);
-}
-.position-card.analog-card.tier-hold:hover {
-    box-shadow: 0 14px 36px rgba(0, 0, 0, 0.28), 0 0 22px var(--amber-glow);
-}
-.position-card.analog-card.tier-caution:hover {
-    box-shadow: 0 14px 36px rgba(0, 0, 0, 0.28), 0 0 22px var(--rose-glow);
-}
-
-/* Compact form on narrow screens — stack stat row to 2 cols */
-@media (max-width: 480px) {
-    .analog-stat-row,
-    .analog-fwd-grid {
-        grid-template-columns: repeat(2, 1fr);
-    }
-    .analog-fwd-tile {
-        padding: var(--sp-2) var(--sp-3);
+@media print {
+    .stApp { background: #fff; color: #000; }
+    .ticker, [data-testid="stSidebar"], .stTabs [data-baseweb="tab-list"] { display: none; }
+    .hero-card, .metric-card, .analog-card, .system-card {
+        border: 1px solid #ccc; background: #fff; break-inside: avoid;
     }
+    .hero-signal, .metric-card .value, .metric-card h2 { color: #000; }
 }
