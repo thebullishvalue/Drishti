@@ -27,22 +27,17 @@ from plotly.subplots import make_subplots
 import streamlit as st
 
 from analytics.adaptive import tier_now
-from ui.theme import chart_layout, style_axes
+from ui.theme import (chart_layout, style_axes,
+                      chart_color, chart_rgba, grid_rgba)
 from ui.components import (
     render_metric_card,
     render_interpretation_card,
     render_section_header,
+    render_chart_panel,
     section_gap,
 )
 from core.config import (
-    rgba,  # centralized chart palette (single source: config._PALETTE_RGB)
     OU_PROJECTION_DAYS,
-    COLOR_GREEN,
-    COLOR_RED,
-    COLOR_AMBER,
-    COLOR_CYAN,
-    COLOR_PURPLE,
-    COLOR_MUTED,
     get_instrument_config, InstrumentConfig,  # per-instrument display tiers (resolved
     # at render via _active_tiers(); conviction/breadth/model-spread tiers are NOT
     # imported as module globals — they're read off the active instrument's config).
@@ -54,12 +49,10 @@ from core.config import (
 )
 
 # ── Alias colors for tab-local use ────────────────────────────────────────
-EMERALD = COLOR_GREEN
-ROSE = COLOR_RED
-AMBER = COLOR_AMBER
-CYAN = COLOR_CYAN
-VIOLET = COLOR_PURPLE
-SLATE = COLOR_MUTED
+EMERALD = chart_color("emerald")
+ROSE = chart_color("rose")
+VIOLET = chart_color("violet")
+SLATE = chart_rgba("slate", 0.4)
 
 # ── Tooltip definitions ────────────────────────────────────────────────────
 TOOLTIPS = {
@@ -195,28 +188,28 @@ def _render_ddm_conviction_chart(ts_filtered, x_axis, signal):
         fig_conv.add_trace(go.Scatter(
             x=x_axis, y=ts_filtered["ConvictionLower"],
             mode="lines", line=dict(width=0),
-            fill="tonexty", fillcolor=rgba("slate", 0.06),
+            fill="tonexty", fillcolor=chart_rgba("slate", 0.06),
             showlegend=False, hoverinfo="skip",
         ))
     fig_conv.add_trace(go.Scatter(
         x=x_axis, y=ts_filtered["ConvictionBounded"].clip(lower=0),
-        fill="tozeroy", fillcolor=rgba("rose", 0.06),
+        fill="tozeroy", fillcolor=chart_rgba("rose", 0.06),
         line=dict(width=0), showlegend=False, hoverinfo="skip",
     ))
     fig_conv.add_trace(go.Scatter(
         x=x_axis, y=ts_filtered["ConvictionBounded"].clip(upper=0),
-        fill="tozeroy", fillcolor=rgba("emerald", 0.06),
+        fill="tozeroy", fillcolor=chart_rgba("emerald", 0.06),
         line=dict(width=0), showlegend=False, hoverinfo="skip",
     ))
     fig_conv.add_trace(go.Scatter(
         x=x_axis, y=ts_filtered["ConvictionBounded"], mode="lines", name="DDM Conviction",
         line=dict(color=SLATE, width=2),
     ))
-    fig_conv.add_hline(y=0, line_color="rgba(255,255,255,0.06)", line_width=0.5)
+    fig_conv.add_hline(y=0, line_color=grid_rgba(0.06), line_width=0.5)
 
     fig_conv.update_layout(**chart_layout(height=UI_CHART_HEIGHT_MEDIUM, show_legend=False))
     style_axes(fig_conv, y_title="Conviction", y_range=[-100, 100])
-    st.plotly_chart(fig_conv, width='stretch', key="fvo_ddm")
+    render_chart_panel(fig_conv, "fvo_ddm", units="conviction, ±100")
 
     # Interpretation card
     cv = signal["conviction_score"]
@@ -275,19 +268,19 @@ def _render_market_breadth_chart(ts_filtered, x_axis):
     fig_zones = go.Figure()
     fig_zones.add_trace(go.Scatter(
         x=x_axis, y=ts_filtered["OversoldBreadth"],
-        fill="tozeroy", fillcolor=rgba("emerald", 0.1),
+        fill="tozeroy", fillcolor=chart_rgba("emerald", 0.1),
         line=dict(color=EMERALD, width=1.5), name="Oversold",
     ))
     fig_zones.add_trace(go.Scatter(
         x=x_axis, y=ts_filtered["OverboughtBreadth"],
-        fill="tozeroy", fillcolor=rgba("rose", 0.1),
+        fill="tozeroy", fillcolor=chart_rgba("rose", 0.1),
         line=dict(color=ROSE, width=1.5), name="Overbought",
     ))
-    fig_zones.add_hline(y=UI_BREADTH_HIGH, line_dash="dot", line_color=rgba("amber", 0.18), line_width=0.5)
+    fig_zones.add_hline(y=UI_BREADTH_HIGH, line_dash="dot", line_color=chart_rgba("amber", 0.18), line_width=0.5)
 
     fig_zones.update_layout(**chart_layout(height=UI_CHART_HEIGHT_MEDIUM))
     style_axes(fig_zones, y_title="Breadth %", y_range=[0, 100])
-    st.plotly_chart(fig_zones, width='stretch', key="fvo_breadth")
+    render_chart_panel(fig_zones, "fvo_breadth", units="% of windows")
 
 
 def _render_market_state_cards(signal, regime_stats, ts):
@@ -488,7 +481,7 @@ def _render_fair_value_chart(engine, ts_filtered, x_axis, ts, active_target):
         ), row=1, col=1)
         fig.add_trace(go.Scatter(
             x=x_axis, y=ts_filtered["FairValueLo"], mode="lines", line=dict(width=0),
-            fill="tonexty", fillcolor=rgba("violet", 0.10), name="95% band",
+            fill="tonexty", fillcolor=chart_rgba("violet", 0.10), name="95% band",
             hoverinfo="skip",
         ), row=1, col=1)
 
@@ -510,7 +503,7 @@ def _render_fair_value_chart(engine, ts_filtered, x_axis, ts, active_target):
     # the zone/breadth/conviction stack downstream reads.
     series = ts_filtered["Residual"]
     bottom_name, bottom_title = "Mispricing Gap", "log(price / fair value)"
-    pos_fill, neg_fill = rgba("rose", 0.12), rgba("emerald", 0.12)
+    pos_fill, neg_fill = chart_rgba("rose", 0.12), chart_rgba("emerald", 0.12)
 
     fig.add_trace(go.Scatter(
         x=x_axis, y=series.clip(lower=0), fill="tozeroy",
@@ -522,9 +515,9 @@ def _render_fair_value_chart(engine, ts_filtered, x_axis, ts, active_target):
     ), row=2, col=1)
     fig.add_trace(go.Scatter(
         x=x_axis, y=series, mode="lines", name=bottom_name,
-        line=dict(color=CYAN, width=1.5),
+        line=dict(color=chart_color("accent"), width=1.5),
     ), row=2, col=1)
-    fig.add_hline(y=0, line_color="rgba(255,255,255,0.10)", line_width=0.6, row=2, col=1)
+    fig.add_hline(y=0, line_color=grid_rgba(0.10), line_width=0.6, row=2, col=1)
 
     # OU mean-reversion projection of the gap. Genuinely applicable here — the
     # gap IS a candidate mean-reverting spread, which is what the OU model
@@ -541,13 +534,13 @@ def _render_fair_value_chart(engine, ts_filtered, x_axis, ts, active_target):
         ), row=2, col=1)
         if len(engine.ou_projection_upper) > 0:
             fig.add_trace(go.Scatter(x=proj_dates, y=engine.ou_projection_upper, mode="lines", line=dict(width=0), showlegend=False, hoverinfo="skip"), row=2, col=1)
-            fig.add_trace(go.Scatter(x=proj_dates, y=engine.ou_projection_lower, mode="lines", line=dict(width=0), fill="tonexty", fillcolor=rgba("slate", 0.08), showlegend=False, hoverinfo="skip"), row=2, col=1)
+            fig.add_trace(go.Scatter(x=proj_dates, y=engine.ou_projection_lower, mode="lines", line=dict(width=0), fill="tonexty", fillcolor=chart_rgba("slate", 0.08), showlegend=False, hoverinfo="skip"), row=2, col=1)
 
     fig.update_layout(**chart_layout(height=UI_CHART_HEIGHT_XLARGE))
     style_axes(fig, y_title=f"{active_target} Price", row=1, col=1)
     style_axes(fig, y_title=bottom_title, row=2, col=1)
 
-    st.plotly_chart(fig, width='stretch', key="fvo_fairvalue")
+    render_chart_panel(fig, "fvo_fairvalue", units="price · gap")
 
 
 def _render_signal_frequency_chart(ts_filtered, x_axis):
@@ -564,25 +557,32 @@ def _render_signal_frequency_chart(ts_filtered, x_axis):
 
     fig_signals.update_layout(**chart_layout(height=UI_CHART_HEIGHT_SMALL, show_legend=False), barmode="relative")
     style_axes(fig_signals, y_title="Count")
-    st.plotly_chart(fig_signals, width='stretch', key="fvo_signal_freq")
+    render_chart_panel(fig_signals, "fvo_signal_freq", units="crossings")
 
 
 def _render_avg_zscore_chart(ts_filtered, x_axis):
     """Section: Average Z-Score — statistical extremes across windows."""
     fig_z = go.Figure()
-    bar_colors = [EMERALD if z < -1 else ROSE if z > 1 else rgba("slate", 0.75) for z in ts_filtered["AvgZ"]]
+    bar_colors = [EMERALD if z < -1 else ROSE if z > 1 else chart_rgba("slate", 0.75) for z in ts_filtered["AvgZ"]]
     fig_z.add_trace(go.Bar(x=x_axis, y=ts_filtered["AvgZ"], marker_color=bar_colors, opacity=0.85, showlegend=False))
-    fig_z.add_hline(y=0, line_color="rgba(255,255,255,0.06)", line_width=0.5)
-    fig_z.add_hline(y=2, line_dash="dot", line_color=rgba("rose", 0.18), line_width=0.5)
-    fig_z.add_hline(y=-2, line_dash="dot", line_color=rgba("emerald", 0.18), line_width=0.5)
+    fig_z.add_hline(y=0, line_color=grid_rgba(0.06), line_width=0.5)
+    fig_z.add_hline(y=2, line_dash="dot", line_color=chart_rgba("rose", 0.18), line_width=0.5)
+    fig_z.add_hline(y=-2, line_dash="dot", line_color=chart_rgba("emerald", 0.18), line_width=0.5)
 
     fig_z.update_layout(**chart_layout(height=UI_CHART_HEIGHT_SMALL, show_legend=False))
     style_axes(fig_z, y_title="Z-Score")
-    st.plotly_chart(fig_z, width='stretch', key="fvo_avg_z")
+    render_chart_panel(fig_z, "fvo_avg_z", units="z-score")
 
 
 def _render_lookback_states(ts_filtered):
-    """Section: Current Lookback States — per-window z-score and zone."""
+    """Section: Current Lookback States — per-window z-score and zone.
+
+    Zone is a categorical read (Under/Over/neutral), not a signed numeric
+    column, so it doesn't map cleanly onto render_data_table's sign-based
+    cell coloring — this stays a small purpose-built list, but through the
+    same tokens (--surface-1/--line/--r-lg) every other panel uses, not an
+    undefined --glass var.
+    """
     from core.config import LOOKBACK_WINDOWS
     rows_html = []
     for lb in LOOKBACK_WINDOWS:
@@ -590,16 +590,16 @@ def _render_lookback_states(ts_filtered):
             continue
         z = ts_filtered[f"Z_{lb}"].iloc[-1]
         zone = ts_filtered[f"Zone_{lb}"].iloc[-1]
-        zone_color = COLOR_GREEN if "Under" in zone else COLOR_RED if "Over" in zone else SLATE
+        zone_cls = "long" if "Under" in zone else "short" if "Over" in zone else "flat"
         rows_html.append(
             f'<div class="lookback-row">'
-            f'<span class="label">{lb}-Day Lookback</span>'
-            f'<span class="value" style="color:{zone_color};">{zone} ({z:+.2f})</span>'
+            f'<span class="lbl">{lb}-Day Lookback</span>'
+            f'<span class="val {zone_cls}">{zone} ({z:+.2f})</span>'
             f'</div>'
         )
     if rows_html:
         st.markdown(
-            f'<div style="background:var(--glass);border:1px solid var(--border);border-radius:var(--r-md);overflow:hidden;">{"".join(rows_html)}</div>',
+            f'<div class="lookback-panel">{"".join(rows_html)}</div>',
             unsafe_allow_html=True,
         )
 
@@ -661,8 +661,8 @@ def render_fvo_tab(engine, ts_filtered, x_axis, x_title, signal, model_stats, re
 
     render_section_header(
         "DDM-Filtered Conviction with Uncertainty Band",
-        "Evidence-accumulated signal with a heuristic uncertainty band (not a statistical "
-        "confidence interval). Narrow = consistent recent evidence. This is your primary trade signal.",
+        "Evidence-accumulated signal with a heuristic band — narrow means consistent recent "
+        "evidence. Not a statistical confidence interval.",
         icon="shield",
         accent="cyan",
     )

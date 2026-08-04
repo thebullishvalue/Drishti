@@ -11,7 +11,8 @@ import pandas as pd
 import streamlit as st
 from datetime import datetime
 
-from ui.components import render_section_header, render_data_table
+from ui.components import (render_section_header, render_table_panel,
+                           render_note, section_gap)
 
 
 def render_data_tab(ts_filtered, ts, active_target):
@@ -44,12 +45,20 @@ def render_data_tab(ts_filtered, ts, active_target):
     if "BearishDiv" in display_df.columns:
         display_df["BearishDiv"] = display_df["BearishDiv"].apply(lambda x: "●" if x else "○")
 
-    # ── Search/filter ───────────────────────────────────────────────────
-    search_col1, search_col2 = st.columns([1, 4], gap="small")
-    with search_col1:
-        date_range_option = st.selectbox("Date Range", ["All", "Last 30", "Last 90", "Last 180", "Last 365"], key="data_date_range")
-    with search_col2:
-        search_term = st.text_input("Search", placeholder="Filter by regime or value...", key="data_search")
+    # ── Filter bar ──────────────────────────────────────────────────────
+    # Grouped into the same strip the chart-window control uses, rather than
+    # two bare widgets floating above the table. Filters that scope a panel
+    # belong to that panel visually, not to the page.
+    with st.container(key="filterbar"):
+        search_col1, search_col2 = st.columns([1, 4], gap="small",
+                                              vertical_alignment="bottom")
+        with search_col1:
+            date_range_option = st.selectbox(
+                "Date Range", ["All", "Last 30", "Last 90", "Last 180", "Last 365"],
+                key="data_date_range")
+        with search_col2:
+            search_term = st.text_input(
+                "Search", placeholder="Filter by regime or value…", key="data_search")
 
     # Apply date range filter
     filtered_df = display_df.copy()
@@ -74,20 +83,24 @@ def render_data_tab(ts_filtered, ts, active_target):
     # virtualized scroll), so cap the on-screen rows to the most recent 300 —
     # the full set is still exportable via the CSV button below.
     _CAP = 300
-    render_data_table(filtered_df, max_rows=_CAP, max_height=560)
-    if len(filtered_df) > _CAP:
-        st.caption(f"Showing the most recent {_CAP} of {len(filtered_df):,} rows — "
-                   f"export below for the full set.")
-
-    # ── Export section ──────────────────────────────────────────────────
-    st.markdown(
-        '<div style="margin-top:var(--sp-4);"></div>',
-        unsafe_allow_html=True,
+    _cap_note = (f"Showing the most recent {_CAP:,} of {len(filtered_df):,} rows — "
+                 f"export below for the full set." if len(filtered_df) > _CAP else "")
+    render_table_panel(
+        filtered_df, "data-timeseries",
+        units=f"{len(filtered_df):,} rows × {len(filtered_df.columns)} cols",
+        max_rows=_CAP, max_height=560, footer=_cap_note,
     )
+
+    # ── Export ──────────────────────────────────────────────────────────
+    section_gap()
     csv_data = ts.to_csv(index=False).encode("utf-8")
+    # Label is plain text. It carried a "\u2913" glyph — a Unicode arrow standing
+    # in for an icon, from no icon set, drawn at whatever weight the system
+    # font happened to give it. Buttons here are uppercase mono words.
     st.download_button(
-        "\u2913  Download Full CSV",
+        "Download Full CSV",
         csv_data,
         f"tattva_{active_target}_{datetime.now().strftime('%Y%m%d')}.csv",
         "text/csv",
     )
+    render_note(f"Full unfiltered series · {len(ts):,} rows · CSV")

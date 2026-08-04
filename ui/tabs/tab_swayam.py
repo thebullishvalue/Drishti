@@ -27,25 +27,21 @@ import streamlit as st
 
 from analytics.adaptive import tier_now
 
-from ui.theme import chart_layout, style_axes
+from ui.theme import (chart_layout, style_axes,
+                      chart_color, chart_rgba, grid_rgba)
 from ui.components import (render_metric_card, render_section_header, render_control_hint,
-                           section_gap, render_data_table)
+                           section_gap, render_empty_state,
+                           render_chart_panel, render_table_panel)
 from core.config import (
     get_instrument_config, InstrumentConfig, # per-instrument breadth tier
-    rgba, # centralized chart palette (single source: config._PALETTE_RGB)
-    COLOR_GREEN,
-    COLOR_RED,
-    COLOR_AMBER,
-    COLOR_MUTED,
     UI_CHART_HEIGHT_MEDIUM,
     UI_CHART_HEIGHT_LARGE,
 )
 
 # ── Alias colors for tab-local use ────────────────────────────────────────
-EMERALD = COLOR_GREEN
-ROSE = COLOR_RED
-AMBER = COLOR_AMBER
-SLATE = COLOR_MUTED
+EMERALD = chart_color("emerald")
+ROSE = chart_color("rose")
+SLATE = chart_rgba("slate", 0.4)
 
 # ── Tooltip definitions ────────────────────────────────────────────────────
 # Tooltips describe the view bank: every reading here counts Swayam views
@@ -92,28 +88,28 @@ def _render_hmm_regime_chart(df_n, dates):
         fig_hmm.add_trace(go.Scatter(
             x=dates, y=df_n["avg_hmm_bull"].values,
             mode="lines", name="P(Bull)",
-            line=dict(color=COLOR_GREEN, width=1.5),
-            fill="tozeroy", fillcolor=rgba("emerald", 0.08),
+            line=dict(color=chart_color("emerald"), width=1.5),
+            fill="tozeroy", fillcolor=chart_rgba("emerald", 0.08),
         ))
     if "avg_hmm_bear" in df_n.columns:
         fig_hmm.add_trace(go.Scatter(
             x=dates, y=df_n["avg_hmm_bear"].values,
             mode="lines", name="P(Bear)",
-            line=dict(color=COLOR_RED, width=1.5),
-            fill="tozeroy", fillcolor=rgba("rose", 0.08),
+            line=dict(color=chart_color("rose"), width=1.5),
+            fill="tozeroy", fillcolor=chart_rgba("rose", 0.08),
         ))
     if "avg_hmm_bull" in df_n.columns and "avg_hmm_bear" in df_n.columns:
         neutral_vals = 1.0 - df_n["avg_hmm_bull"].values - df_n["avg_hmm_bear"].values
         fig_hmm.add_trace(go.Scatter(
             x=dates, y=neutral_vals,
             mode="lines", name="P(Neutral)",
-            line=dict(color=COLOR_MUTED, width=1, dash="dot"),
+            line=dict(color=chart_rgba("slate", 0.4), width=1, dash="dot"),
         ))
-    fig_hmm.add_hline(y=0.5, line_dash="dot", line_color="rgba(255,255,255,0.08)", line_width=0.5)
+    fig_hmm.add_hline(y=0.5, line_dash="dot", line_color=grid_rgba(0.08), line_width=0.5)
 
     fig_hmm.update_layout(**chart_layout(height=300))
     style_axes(fig_hmm, y_title="Probability", y_range=[0, 1])
-    st.plotly_chart(fig_hmm, width='stretch', key="swayam_hmm_regime")
+    render_chart_panel(fig_hmm, "swayam_hmm_regime", units="probability")
 
 
 def _render_zone_distribution_chart(df_n, dates):
@@ -122,20 +118,20 @@ def _render_zone_distribution_chart(df_n, dates):
     fig_zones.add_trace(go.Scatter(
         x=dates, y=df_n["Oversold_Pct"].values,
         mode="lines", name="Oversold %",
-        fill="tozeroy", fillcolor=rgba("emerald", 0.12),
-        line=dict(color=COLOR_GREEN, width=1.5),
+        fill="tozeroy", fillcolor=chart_rgba("emerald", 0.12),
+        line=dict(color=chart_color("emerald"), width=1.5),
     ))
     fig_zones.add_trace(go.Scatter(
         x=dates, y=df_n["Overbought_Pct"].values,
         mode="lines", name="Overbought %",
-        fill="tozeroy", fillcolor=rgba("rose", 0.12),
-        line=dict(color=COLOR_RED, width=1.5),
+        fill="tozeroy", fillcolor=chart_rgba("rose", 0.12),
+        line=dict(color=chart_color("rose"), width=1.5),
     ))
     ymax = max(df_n["Oversold_Pct"].max(), df_n["Overbought_Pct"].max()) * 1.15
 
     fig_zones.update_layout(**chart_layout(height=UI_CHART_HEIGHT_LARGE))
     style_axes(fig_zones, y_title="% of Constituents", y_range=[0, ymax])
-    st.plotly_chart(fig_zones, width='stretch', key="swayam_os_ob")
+    render_chart_panel(fig_zones, "swayam_os_ob", units="% of views")
 
 
 def _render_raw_zone_counts_chart(df_n, dates):
@@ -143,16 +139,16 @@ def _render_raw_zone_counts_chart(df_n, dates):
     fig_counts = go.Figure()
     fig_counts.add_trace(go.Bar(
         x=dates, y=df_n["Oversold"].values, name="Oversold",
-        marker=dict(color=rgba("emerald", 0.85)),
+        marker=dict(color=chart_rgba("emerald", 0.85)),
     ))
     fig_counts.add_trace(go.Bar(
         x=dates, y=df_n["Overbought"].values, name="Overbought",
-        marker=dict(color=rgba("rose", 0.85)),
+        marker=dict(color=chart_rgba("rose", 0.85)),
     ))
 
     fig_counts.update_layout(**chart_layout(height=UI_CHART_HEIGHT_MEDIUM), barmode="group")
     style_axes(fig_counts, y_title="Count")
-    st.plotly_chart(fig_counts, width='stretch', key="swayam_counts")
+    render_chart_panel(fig_counts, "swayam_counts", units="count")
 
 
 def _render_signal_counts_chart(df_n, dates):
@@ -161,50 +157,50 @@ def _render_signal_counts_chart(df_n, dates):
     fig_signals.add_trace(go.Scatter(
         x=dates, y=df_n["Buy_Signals"].values,
         mode="lines+markers", name="Buy Signals",
-        line=dict(color=COLOR_GREEN, width=1.5),
-        marker=dict(size=3, color=COLOR_GREEN),
+        line=dict(color=chart_color("emerald"), width=1.5),
+        marker=dict(size=3, color=chart_color("emerald")),
     ))
     fig_signals.add_trace(go.Scatter(
         x=dates, y=df_n["Sell_Signals"].values,
         mode="lines+markers", name="Sell Signals",
-        line=dict(color=COLOR_RED, width=1.5),
-        marker=dict(size=3, color=COLOR_RED),
+        line=dict(color=chart_color("rose"), width=1.5),
+        marker=dict(size=3, color=chart_color("rose")),
     ))
 
     fig_signals.update_layout(**chart_layout(height=UI_CHART_HEIGHT_MEDIUM))
     style_axes(fig_signals, y_title="Signal Count")
-    st.plotly_chart(fig_signals, width='stretch', key="swayam_signal_counts")
+    render_chart_panel(fig_signals, "swayam_signal_counts", units="count")
 
 
 def _render_avg_unified_signal_chart(df_n, dates):
     """Section: Average Unified Signal — cross-sectional oscillator mean."""
     avg_vals = df_n["Avg_Signal"].values
-    colors = [COLOR_GREEN if v < -2 else COLOR_RED if v > 2 else rgba("slate", 0.75) for v in avg_vals]
+    colors = [chart_color("emerald") if v < -2 else chart_color("rose") if v > 2 else chart_rgba("slate", 0.75) for v in avg_vals]
 
     fig_n = go.Figure()
     fig_n.add_trace(go.Scatter(
         x=dates, y=np.clip(avg_vals, 0, None),
-        fill="tozeroy", fillcolor=rgba("rose", 0.05),
+        fill="tozeroy", fillcolor=chart_rgba("rose", 0.05),
         line=dict(width=0), showlegend=False, hoverinfo="skip",
     ))
     fig_n.add_trace(go.Scatter(
         x=dates, y=np.clip(avg_vals, None, 0),
-        fill="tozeroy", fillcolor=rgba("emerald", 0.05),
+        fill="tozeroy", fillcolor=chart_rgba("emerald", 0.05),
         line=dict(width=0), showlegend=False, hoverinfo="skip",
     ))
     fig_n.add_trace(go.Scatter(
         x=dates, y=avg_vals,
         mode="lines+markers", name="Avg Signal",
-        line=dict(color=COLOR_MUTED, width=1.5),
+        line=dict(color=chart_rgba("slate", 0.4), width=1.5),
         marker=dict(size=3, color=colors),
     ))
-    fig_n.add_hline(y=2, line_color=rgba("rose", 0.2), line_width=0.5, line_dash="dot")
-    fig_n.add_hline(y=-2, line_color=rgba("emerald", 0.2), line_width=0.5, line_dash="dot")
-    fig_n.add_hline(y=0, line_color="rgba(255,255,255,0.06)", line_width=0.5)
+    fig_n.add_hline(y=2, line_color=chart_rgba("rose", 0.2), line_width=0.5, line_dash="dot")
+    fig_n.add_hline(y=-2, line_color=chart_rgba("emerald", 0.2), line_width=0.5, line_dash="dot")
+    fig_n.add_hline(y=0, line_color=grid_rgba(0.06), line_width=0.5)
 
     fig_n.update_layout(**chart_layout(height=UI_CHART_HEIGHT_MEDIUM))
     style_axes(fig_n, y_title="Avg Signal", y_range=[-6, 6])
-    st.plotly_chart(fig_n, width='stretch', key="swayam_avg_signal")
+    render_chart_panel(fig_n, "swayam_avg_signal", units="oscillator")
 
 
 def _render_individual_views(swayam_view_dfs):
@@ -218,7 +214,9 @@ def _render_individual_views(swayam_view_dfs):
         from engines.swayam.ensemble import SWAYAM_MEMBER_ORDER
         keys = [k for k in SWAYAM_MEMBER_ORDER if k in swayam_view_dfs]
         keys += sorted(k for k in swayam_view_dfs if k not in SWAYAM_MEMBER_ORDER)
-        sym = st.selectbox("Select View", keys, key="swayam_sym_select")
+        # In a filter strip, like every other panel-scoped control.
+        with st.container(key="filterbar"):
+            sym = st.selectbox("View", keys, key="swayam_sym_select")
         if sym and sym in swayam_view_dfs:
             cdf = swayam_view_dfs[sym].iloc[-100:].copy()
             if isinstance(cdf.columns, pd.MultiIndex):
@@ -233,8 +231,9 @@ def _render_individual_views(swayam_view_dfs):
             _shown = cdf[cols_show] if cols_show else cdf
             # Oscillators are signed [-10,+10] — colour them emerald/rose by sign,
             # matching Pragyam's per-signal columns.
-            render_data_table(
-                _shown, index_label="Date", max_rows=60, max_height=520,
+            render_table_panel(
+                _shown, "swayam-view-drilldown", units="last 60 sessions",
+                index_label="Date", max_rows=60, max_height=520,
                 sign_color_cols={"MSF_Osc", "MMR_Osc", "Unified_Osc"},
             )
 
@@ -267,33 +266,28 @@ def render_swayam_tab(selected_tf: str | None = None) -> None:
     tooltips = TOOLTIPS
 
     if swayam_daily is None or swayam_daily.empty:
-        st.info("No Swayam breadth data available.")
+        render_empty_state(
+            "No Swayam breadth data available",
+            "The self-referential view bank hasn't produced a breadth read for this target yet.",
+            eyebrow="Swayam",
+            action_label="Run analysis in the sidebar, then return to this page.",
+        )
         return
 
-    if True:
-        # Correlation disclosure (SWAYAM_PLAN.md §6.4): the basket
-        # source line becomes the swayam src_msg naturally (set in app.py);
-        # append the honest correlation caveat — self-ensemble views share
-        # one price series, so this reads breadth across independent CAUSAL
-        # ANGLES on the target, not independent cross-sectional names.
-        _n_eff = st.session_state.get("swayam_n_eff")
-        _n_members = len(swayam_view_dfs)
-        _eff_txt = f" · ~{_n_eff:.1f} effective" if _n_eff is not None else ""
-        render_control_hint(
-            f"SWAYAM · SWAYAM — {_n_members} views{_eff_txt} — self-referential "
-            "ensemble (timescale × information-set × mechanism reads of the "
-            "target's own OHLCV). Views share one price series; breadth here "
-            "is multi-scale agreement, not cross-sectional independence."
-        )
-    else:
-        # Basket source hint — only when it's a degraded fallback (live scrape +
-        # cache both failed). A "snapshot (N)" basket for an uncapped large index
-        # (S&P 500/Nasdaq 100) is a small fraction of the true constituent set,
-        # so breadth below reflects that partial basket, not the full index
-        # (audit finding B4 — this was previously console-only).
-        _basket_src = st.session_state.get("swayam_basket_source", "")
-        if _basket_src.startswith("snapshot") or _basket_src.startswith("stale"):
-            render_control_hint(f"Basket source: {_basket_src} · live resolution unavailable, using fallback")
+    # Correlation disclosure (SWAYAM_PLAN.md §6.4): the basket source line
+    # becomes the swayam src_msg naturally (set in app.py); append the
+    # honest correlation caveat — self-ensemble views share one price
+    # series, so this reads breadth across independent CAUSAL ANGLES on the
+    # target, not independent cross-sectional names.
+    _n_eff = st.session_state.get("swayam_n_eff")
+    _n_members = len(swayam_view_dfs)
+    _eff_txt = f" · ~{_n_eff:.1f} effective" if _n_eff is not None else ""
+    render_control_hint(
+        f"SWAYAM · SWAYAM — {_n_members} views{_eff_txt} — self-referential "
+        "ensemble (timescale × information-set × mechanism reads of the "
+        "target's own OHLCV). Views share one price series; breadth here "
+        "is multi-scale agreement, not cross-sectional independence."
+    )
 
     # ── Normalize columns ───────────────────────────────────────────────
     df_n = swayam_daily[~swayam_daily.index.duplicated(keep="last")].copy()

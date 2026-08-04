@@ -24,32 +24,27 @@ import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-from ui.theme import chart_layout, style_axes
+from ui.theme import (chart_layout, style_axes,
+                      chart_color, chart_rgba, grid_rgba)
 from ui.components import (render_metric_card, render_section_header, section_gap,
-                           render_info_box, render_data_table)
+                           render_info_box, render_empty_state,
+                           render_chart_panel, render_table_panel, render_note)
 from convergence.normalization import (
     align_fvo_swayam,
     causal_normalize,
 )
 from core.config import (
-    rgba, # centralized chart palette (single source: config._PALETTE_RGB)
     get_instrument_config, InstrumentConfig,  # per-instrument marker/tier anchors
     # Marker/tier constants are NOT imported here — they are resolved per-instrument
     # off get_instrument_config(active_target) at render time (see below).
-    COLOR_GREEN,
-    COLOR_RED,
-    COLOR_AMBER,
-    COLOR_CYAN,
-    COLOR_MUTED,
     UI_CHART_HEIGHT_STACKED,
 )
 
 # ── Alias colors for tab-local use ────────────────────────────────────────
-EMERALD = COLOR_GREEN
-ROSE = COLOR_RED
-AMBER = COLOR_AMBER
-CYAN = COLOR_CYAN
-SLATE = COLOR_MUTED
+EMERALD = chart_color("emerald")
+ROSE = chart_color("rose")
+CYAN = chart_color("cyan")
+SLATE = chart_rgba("slate", 0.4)
 
 # ── Tooltip definitions ────────────────────────────────────────────────────
 TOOLTIPS = {
@@ -148,7 +143,13 @@ def render_convergence_tab(ts_filtered=None):
     UI_SWAYAM_BEARISH = UI_SWAYAM_AVG_THRESHOLD
 
     if convergence_df is None or convergence_df.empty:
-        st.info("No convergence data available. Run the analysis first.")
+        render_empty_state(
+            "No convergence data available",
+            "Convergence fuses FVO's valuation read with Swayam's breadth — run an "
+            "analysis first so both engines have something to agree or disagree over.",
+            eyebrow="Convergence",
+            action_label="Run analysis in the sidebar, then return to this page.",
+        )
         return
 
     # ── SINGLE SOURCE OF TRUTH ───────────────────────────────────────────────
@@ -297,8 +298,13 @@ def render_convergence_tab(ts_filtered=None):
     # the metric cards). FVO-only targets (no Swayam basket) have no overlap →
     # the cards above still rendered; the plot just can't be drawn.
     if not has_overlap:
-        st.warning("No overlapping dates between FVO and Swayam data sources "
-                   "(this target runs FVO-only — see the cards above).")
+        render_empty_state(
+            "No engine overlap",
+            "FVO and Swayam share no dates for this target, so the consensus overlay "
+            "cannot be drawn. The metric cards above are FVO-only reads and remain valid.",
+            eyebrow="Convergence",
+            action_label="Pick a target with a resolvable Swayam view bank.",
+        )
         return
 
     # Short-history guard: z-scoring needs a stable σ. When the FULL FVO∩Swayam
@@ -359,38 +365,38 @@ def render_convergence_tab(ts_filtered=None):
     avg_colors, avg_sizes = [], []
     for v in norm_avg:
         if v < -UI_CONSENSUS_STRONG:
-            avg_colors.append(COLOR_GREEN); avg_sizes.append(8)
+            avg_colors.append(chart_color("emerald")); avg_sizes.append(8)
         elif v <= -UI_CONSENSUS_MODERATE:
-            avg_colors.append(rgba("emerald", 1.0)); avg_sizes.append(6)
+            avg_colors.append(chart_rgba("emerald", 1.0)); avg_sizes.append(6)
         elif v > UI_CONSENSUS_STRONG:
-            avg_colors.append(COLOR_RED); avg_sizes.append(8)
+            avg_colors.append(chart_color("rose")); avg_sizes.append(8)
         elif v >= UI_CONSENSUS_MODERATE:
-            avg_colors.append(rgba("rose", 1.0)); avg_sizes.append(6)
+            avg_colors.append(chart_rgba("rose", 1.0)); avg_sizes.append(6)
         else:
-            avg_colors.append(rgba("slate", 0.95)); avg_sizes.append(5)
+            avg_colors.append(chart_rgba("slate", 0.95)); avg_sizes.append(5)
 
     # ── Row 1: Unified normalized ─────────────────────────────────────
     fig.add_trace(go.Scatter(
         x=aligned_dates, y=np.clip(norm_avg, 0, None),
-        fill="tozeroy", fillcolor=rgba("rose", 0.06),
+        fill="tozeroy", fillcolor=chart_rgba("rose", 0.06),
         line=dict(width=0), showlegend=False, hoverinfo="skip",
     ), row=1, col=1)
     fig.add_trace(go.Scatter(
         x=aligned_dates, y=np.clip(norm_avg, None, 0),
-        fill="tozeroy", fillcolor=rgba("emerald", 0.06),
+        fill="tozeroy", fillcolor=chart_rgba("emerald", 0.06),
         line=dict(width=0), showlegend=False, hoverinfo="skip",
     ), row=1, col=1)
     fig.add_trace(go.Scatter(
         x=aligned_dates, y=norm_a, mode="lines", name="FVO",
-        line=dict(color=rgba("slate", 0.25), width=1, dash="dot"),
+        line=dict(color=chart_rgba("slate", 0.25), width=1, dash="dot"),
     ), row=1, col=1)
     fig.add_trace(go.Scatter(
         x=aligned_dates, y=norm_n, mode="lines", name="Swayam",
-        line=dict(color=rgba("cyan", 0.2), width=1, dash="dot"),
+        line=dict(color=chart_rgba("cyan", 0.2), width=1, dash="dot"),
     ), row=1, col=1)
     fig.add_trace(go.Scatter(
         x=aligned_dates, y=norm_avg, mode="lines+markers", name="Consensus (50/50)",
-        line=dict(color=COLOR_MUTED, width=2),
+        line=dict(color=chart_rgba("slate", 0.4), width=2),
         marker=dict(size=avg_sizes, color=avg_colors),
     ), row=1, col=1)
     # Calibrated-model overlay — the DDM-filtered smoothed trend of the SAME
@@ -404,66 +410,66 @@ def render_convergence_tab(ts_filtered=None):
         _calib_aligned = _calib_series.reindex(pd.DatetimeIndex(aligned_dates)).to_numpy()
         fig.add_trace(go.Scatter(
             x=aligned_dates, y=_calib_aligned, mode="lines", name="Calibrated Model",
-            line=dict(color=COLOR_AMBER, width=1.5, dash="dash"),
+            line=dict(color=chart_color("accent"), width=1.5, dash="dash"),
             connectgaps=True,
         ), row=1, col=1)
-    fig.add_hline(y=UI_CONSENSUS_STRONG, line_dash="dot", line_color=rgba("rose", 0.15), line_width=0.5, row=1, col=1)
-    fig.add_hline(y=-UI_CONSENSUS_STRONG, line_dash="dot", line_color=rgba("emerald", 0.15), line_width=0.5, row=1, col=1)
-    fig.add_hline(y=0, line_color="rgba(255,255,255,0.06)", line_width=0.5, row=1, col=1)
+    fig.add_hline(y=UI_CONSENSUS_STRONG, line_dash="dot", line_color=chart_rgba("rose", 0.15), line_width=0.5, row=1, col=1)
+    fig.add_hline(y=-UI_CONSENSUS_STRONG, line_dash="dot", line_color=chart_rgba("emerald", 0.15), line_width=0.5, row=1, col=1)
+    fig.add_hline(y=0, line_color=grid_rgba(0.06), line_width=0.5, row=1, col=1)
 
     # ── Row 2: Base Conviction ────────────────────────────────────────
     conv_vals = [float(v) if v is not None else np.nan for v in aligned_conv_raw]
     conv_colors, conv_sizes = [], []
     for v in aligned_conv_raw:
         if v is None:
-            conv_colors.append(rgba("slate", 0.90)); conv_sizes.append(5)
+            conv_colors.append(chart_rgba("slate", 0.90)); conv_sizes.append(5)
         elif v > UI_CONVRAW_STRONG:
-            conv_colors.append(COLOR_RED); conv_sizes.append(7)
+            conv_colors.append(chart_color("rose")); conv_sizes.append(7)
         elif v >= UI_CONVRAW_MODERATE:
-            conv_colors.append(rgba("rose", 1.0)); conv_sizes.append(6)
+            conv_colors.append(chart_rgba("rose", 1.0)); conv_sizes.append(6)
         elif v < -UI_CONVRAW_STRONG:
-            conv_colors.append(COLOR_GREEN); conv_sizes.append(7)
+            conv_colors.append(chart_color("emerald")); conv_sizes.append(7)
         elif v <= -UI_CONVRAW_MODERATE:
-            conv_colors.append(rgba("emerald", 1.0)); conv_sizes.append(6)
+            conv_colors.append(chart_rgba("emerald", 1.0)); conv_sizes.append(6)
         else:
-            conv_colors.append(rgba("slate", 0.95)); conv_sizes.append(5)
+            conv_colors.append(chart_rgba("slate", 0.95)); conv_sizes.append(5)
 
     fig.add_trace(go.Scatter(
         x=aligned_dates, y=np.clip(conv_vals, 0, None),
-        fill="tozeroy", fillcolor=rgba("rose", 0.05), line=dict(width=0), showlegend=False, hoverinfo="skip",
+        fill="tozeroy", fillcolor=chart_rgba("rose", 0.05), line=dict(width=0), showlegend=False, hoverinfo="skip",
     ), row=2, col=1)
     fig.add_trace(go.Scatter(
         x=aligned_dates, y=np.clip(conv_vals, None, 0),
-        fill="tozeroy", fillcolor=rgba("emerald", 0.05), line=dict(width=0), showlegend=False, hoverinfo="skip",
+        fill="tozeroy", fillcolor=chart_rgba("emerald", 0.05), line=dict(width=0), showlegend=False, hoverinfo="skip",
     ), row=2, col=1)
     fig.add_trace(go.Scatter(
         x=aligned_dates, y=conv_vals, mode="lines+markers", name="Base Conviction",
-        line=dict(color=COLOR_MUTED, width=1.5),
+        line=dict(color=chart_rgba("slate", 0.4), width=1.5),
         marker=dict(size=conv_sizes, color=conv_colors),
     ), row=2, col=1)
-    fig.add_hline(y=0, line_color="rgba(255,255,255,0.06)", line_width=0.5, row=2, col=1)
-    fig.add_hline(y=UI_CONVRAW_STRONG, line_dash="dot", line_color=rgba("rose", 0.12), line_width=0.5, row=2, col=1)
-    fig.add_hline(y=-UI_CONVRAW_STRONG, line_dash="dot", line_color=rgba("emerald", 0.12), line_width=0.5, row=2, col=1)
+    fig.add_hline(y=0, line_color=grid_rgba(0.06), line_width=0.5, row=2, col=1)
+    fig.add_hline(y=UI_CONVRAW_STRONG, line_dash="dot", line_color=chart_rgba("rose", 0.12), line_width=0.5, row=2, col=1)
+    fig.add_hline(y=-UI_CONVRAW_STRONG, line_dash="dot", line_color=chart_rgba("emerald", 0.12), line_width=0.5, row=2, col=1)
 
     # ── Row 3: Swayam Avg Signal ──────────────────────────────────────
-    swayam_colors = [COLOR_GREEN if v < -UI_SWAYAM_AVG_THRESHOLD else COLOR_RED if v > UI_SWAYAM_AVG_THRESHOLD else rgba("slate", 0.95) for v in aligned_swayam_raw]
+    swayam_colors = [chart_color("emerald") if v < -UI_SWAYAM_AVG_THRESHOLD else chart_color("rose") if v > UI_SWAYAM_AVG_THRESHOLD else chart_rgba("slate", 0.95) for v in aligned_swayam_raw]
 
     fig.add_trace(go.Scatter(
         x=aligned_dates, y=np.clip(aligned_swayam_raw, 0, None),
-        fill="tozeroy", fillcolor=rgba("rose", 0.05), line=dict(width=0), showlegend=False, hoverinfo="skip",
+        fill="tozeroy", fillcolor=chart_rgba("rose", 0.05), line=dict(width=0), showlegend=False, hoverinfo="skip",
     ), row=3, col=1)
     fig.add_trace(go.Scatter(
         x=aligned_dates, y=np.clip(aligned_swayam_raw, None, 0),
-        fill="tozeroy", fillcolor=rgba("emerald", 0.05), line=dict(width=0), showlegend=False, hoverinfo="skip",
+        fill="tozeroy", fillcolor=chart_rgba("emerald", 0.05), line=dict(width=0), showlegend=False, hoverinfo="skip",
     ), row=3, col=1)
     fig.add_trace(go.Scatter(
         x=aligned_dates, y=aligned_swayam_raw, mode="lines+markers", name="Avg Signal",
-        line=dict(color=COLOR_MUTED, width=1.2),
+        line=dict(color=chart_rgba("slate", 0.4), width=1.2),
         marker=dict(size=5, color=swayam_colors),
     ), row=3, col=1)
-    fig.add_hline(y=UI_SWAYAM_AVG_THRESHOLD, line_dash="dot", line_color=rgba("rose", 0.15), line_width=0.5, row=3, col=1)
-    fig.add_hline(y=-UI_SWAYAM_AVG_THRESHOLD, line_dash="dot", line_color=rgba("emerald", 0.15), line_width=0.5, row=3, col=1)
-    fig.add_hline(y=0, line_color="rgba(255,255,255,0.06)", line_width=0.5, row=3, col=1)
+    fig.add_hline(y=UI_SWAYAM_AVG_THRESHOLD, line_dash="dot", line_color=chart_rgba("rose", 0.15), line_width=0.5, row=3, col=1)
+    fig.add_hline(y=-UI_SWAYAM_AVG_THRESHOLD, line_dash="dot", line_color=chart_rgba("emerald", 0.15), line_width=0.5, row=3, col=1)
+    fig.add_hline(y=0, line_color=grid_rgba(0.06), line_width=0.5, row=3, col=1)
 
     # ── Layout ────────────────────────────────────────────────────────
     fig.update_layout(**chart_layout(height=UI_CHART_HEIGHT_STACKED, show_legend=False))
@@ -471,8 +477,8 @@ def render_convergence_tab(ts_filtered=None):
     style_axes(fig, y_title="Conviction", y_range=conv_y, row=2, col=1)
     style_axes(fig, y_title="Avg Signal", y_range=swayam_y, row=3, col=1)
 
-    st.plotly_chart(fig, width='stretch', key="convergence_overlay")
-    st.caption(f"{len(aligned_dates)} overlapping trading days")
+    render_chart_panel(fig, "convergence_overlay", units="normalized · conviction · signal")
+    render_note(f"{len(aligned_dates)} overlapping trading days")
 
     # ═══════════════════════════════════════════════════════════════════════
     # RECENT DIVERGENCES — the section the hero card's RISK row points at.
@@ -495,7 +501,10 @@ def render_convergence_tab(ts_filtered=None):
         _recent = div_events.tail(10).iloc[::-1].copy()
         _cols = [c for c in ("divergence_type", "fvo_signal", "swayam_signal",
                              "severity", "description") if c in _recent.columns]
-        render_data_table(_recent[_cols] if _cols else _recent,
-                          index_label="Date", max_height=360)
-        st.caption(f"{len(div_events)} divergence events across the full history — "
-                   f"showing the {len(_recent)} most recent.")
+        render_table_panel(
+            _recent[_cols] if _cols else _recent, "conv-divergences",
+            units=f"{len(_recent)} most recent",
+            index_label="Date", max_height=360,
+            footer=f"{len(div_events)} divergence events across the full history — "
+                   f"showing the {len(_recent)} most recent.",
+        )

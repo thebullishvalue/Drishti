@@ -23,27 +23,21 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from ui.theme import chart_layout, style_axes
+from ui.theme import (chart_layout, style_axes,
+                      chart_color, chart_rgba, grid_rgba)
 from ui.components import (render_metric_card, render_section_header, section_gap,
-                           render_data_table)
+                           render_chip, render_empty_state, render_sub_header,
+                           render_chart_panel, render_table_panel, render_note)
 from core.config import (
-    rgba,  # centralized chart palette (single source: config._PALETTE_RGB)
-    COLOR_GREEN,
-    COLOR_RED,
-    COLOR_AMBER,
-    COLOR_CYAN,
-    COLOR_MUTED,
     UI_CHART_HEIGHT_MEDIUM,
 )
 from data.cache import all_caches
 from data.circuit_breaker import all_circuits, CircuitState
 
 # ── Alias colors for tab-local use ────────────────────────────────────────
-EMERALD = COLOR_GREEN
-ROSE = COLOR_RED
-AMBER = COLOR_AMBER
-CYAN = COLOR_CYAN
-SLATE = COLOR_MUTED
+EMERALD = chart_color("emerald")
+ROSE = chart_color("rose")
+SLATE = chart_rgba("slate", 0.4)
 
 # ── Tooltip definitions ────────────────────────────────────────────────────
 TOOLTIPS = {
@@ -120,16 +114,14 @@ def render_diagnostics_tab(engine, ts_filtered, x_axis, x_title, signal, model_s
         render_metric_card("KPSS P-VALUE", f"{signal['kpss_pvalue']:.3f}", "Confirms mean-reversion if p > 0.05", kpss_class,
                            tooltip=TOOLTIPS["kpss_pvalue"])
 
-    # Status indicators
-    ok_svg = f'<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="{COLOR_GREEN}" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>'
-    warn_svg = f'<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="{COLOR_AMBER}" stroke-width="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>'
-    stat_icon = ok_svg if "Stationary" in stationarity else warn_svg
-    theta_icon = ok_svg if "Stable" in theta_status else warn_svg
-
+    # Status chips \u2014 the shared badge system (ui.components.render_chip)
+    # rather than a one-off hand-rolled SVG check/warning icon.
+    stat_tone = "success" if "Stationary" in stationarity else "warning"
+    theta_tone = "success" if "Stable" in theta_status else "warning"
     st.markdown(
-        f'<div style="display:flex;gap:var(--sp-6);margin-top:var(--sp-3);">'
-        f'<span style="font-family:var(--data);font-size:0.78rem;color:var(--ink-secondary);display:inline-flex;align-items:center;gap:0.4rem;">Stationarity: {stat_icon} {stationarity}</span>'
-        f'<span style="font-family:var(--data);font-size:0.78rem;color:var(--ink-secondary);display:inline-flex;align-items:center;gap:0.4rem;">\u03b8 Stability: {theta_icon} {theta_status}</span>'
+        f'<div class="chip-row">'
+        f'<span class="cr-item">Stationarity{render_chip(stationarity, stat_tone, as_html=True)}</span>'
+        f'<span class="cr-item">\u03b8 Stability{render_chip(theta_status, theta_tone, as_html=True)}</span>'
         f'</div>',
         unsafe_allow_html=True,
     )
@@ -141,10 +133,8 @@ def render_diagnostics_tab(engine, ts_filtered, x_axis, x_title, signal, model_s
     # ═══════════════════════════════════════════════════════════════════════
     render_section_header(
         "Driver Importance on Fair Value",
-        "How much each asset-class block moves the fair-value estimate, measured by refitting "
-        "the valuation WITHOUT it and seeing how far the mispricing shifts. An ablation, not a "
-        "coefficient read-off — which is what makes it survive the collinearity of ~200 macro "
-        "series that all load on the same few factors.",
+        "How far the fair-value estimate moves when each asset-class block is removed and the "
+        "valuation refit — an ablation, not a coefficient read-off.",
         icon="bar-chart",
         accent="violet",
     )
@@ -160,16 +150,14 @@ def render_diagnostics_tab(engine, ts_filtered, x_axis, x_title, signal, model_s
             vals = [v for _k, v in _items][::-1]
 
             # Gradient color scale from light slate to bright slate based on relative contribution
-            colors = []
+            # Contribution intensity is carried by OPACITY against the panel,
+            # not by lightening the hue. The previous version interpolated
+            # between two hardcoded slates (148,163,184 → 180,195,215) — i.e.
+            # it got LIGHTER as contribution rose, which on the Paper theme
+            # means the most important driver is the one closest to invisible.
             max_val = max(vals) if vals else 1
-            for v in vals:
-                intensity = v / max_val
-                # Light slate (148,163,184) to brighter slate (180,195,215)
-                r = int(148 + (180 - 148) * intensity)
-                g = int(163 + (195 - 163) * intensity)
-                b = int(184 + (215 - 184) * intensity)
-                alpha = 0.75 + 0.25 * intensity
-                colors.append(f"rgba({r},{g},{b},{alpha:.2f})")
+            colors = [chart_rgba("slate", round(0.35 + 0.55 * (v / max_val), 2))
+                      for v in vals]
 
             fig_imp = go.Figure(go.Bar(
                 x=vals, y=labels, orientation="h",
@@ -177,13 +165,13 @@ def render_diagnostics_tab(engine, ts_filtered, x_axis, x_title, signal, model_s
             ))
             fig_imp.update_layout(**chart_layout(height=max(240, len(labels) * 26), show_legend=False))
             fig_imp.update_xaxes(
-                showgrid=True, gridcolor="rgba(255,255,255,0.035)", gridwidth=0.5,
+                showgrid=True, gridcolor=grid_rgba(0.035), gridwidth=0.5,
                 title_text="Contribution %", zeroline=True,
-                zerolinecolor="rgba(255,255,255,0.06)", zerolinewidth=0.5,
+                zerolinecolor=grid_rgba(0.06), zerolinewidth=0.5,
             )
             fig_imp.update_yaxes(showgrid=False)
-            st.plotly_chart(fig_imp, width='stretch', key="diagnostics_feature_impact")
-            st.caption(f"{len(labels)} of {_total_feats} asset-class blocks by current contribution.")
+            render_chart_panel(fig_imp, "diagnostics_feature_impact", units="contribution")
+            render_note(f"{len(labels)} of {_total_feats} asset-class blocks by current contribution.")
 
         if not feature_history.empty and len(feature_history) > 0:
             # Unlike the single end-of-run snapshot the previous engine could
@@ -192,14 +180,16 @@ def render_diagnostics_tab(engine, ts_filtered, x_axis, x_title, signal, model_s
             # series: the leave-one-block-out ablations run at every published
             # session, so importance can be watched rotating between blocks.
             # Subsampled to ~120 rows by the engine for render cost.
-            st.markdown(
-                '<div style="font-family:var(--display);font-size:0.72rem;font-weight:600;color:var(--ink-tertiary);'
-                'text-transform:uppercase;letter-spacing:0.08em;margin:var(--sp-4) 0 var(--sp-2) 0;">Importance Over Time</div>',
-                unsafe_allow_html=True,
-            )
-            render_data_table(feature_history.tail(10), max_rows=10, max_height=240)
+            render_sub_header("Importance Over Time")
+            render_table_panel(feature_history.tail(10), "diag-importance-history",
+                               max_rows=10, max_height=240)
     else:
-        st.info("Driver importance data not available.")
+        render_empty_state(
+            "Driver contributions unavailable",
+            "The engine has not published per-block contributions for this run — "
+            "they appear once the valuation pass completes with an admitted cross-section.",
+            eyebrow="Diagnostics",
+        )
 
     section_gap()
 
@@ -230,7 +220,9 @@ def render_diagnostics_tab(engine, ts_filtered, x_axis, x_title, signal, model_s
             "Sell t": f"{p['sell_t_stat']:.2f} {sell_sig}" if p["sell_count"] > 0 else "\u2014",
             "Sell N": p["sell_count"],
         })
-    render_data_table(pd.DataFrame(perf_rows), label_col="Period", max_height=220)
+    render_table_panel(pd.DataFrame(perf_rows), "diag-signal-performance",
+                       units="hit-rate · avg move · t-stat",
+                       label_col="Period", max_height=220)
 
     section_gap()
 
@@ -266,18 +258,18 @@ def render_diagnostics_tab(engine, ts_filtered, x_axis, x_title, signal, model_s
         fig_hmm.add_trace(go.Scatter(
             x=swayam_df.index, y=swayam_df["avg_hmm_bull"],
             name="P(Bull)", line=dict(color=EMERALD, width=1.5),
-            fill="tozeroy", fillcolor=rgba("emerald", 0.08),
+            fill="tozeroy", fillcolor=chart_rgba("emerald", 0.08),
         ))
         fig_hmm.add_trace(go.Scatter(
             x=swayam_df.index, y=swayam_df["avg_hmm_bear"],
             name="P(Bear)", line=dict(color=ROSE, width=1.5),
-            fill="tozeroy", fillcolor=rgba("rose", 0.08),
+            fill="tozeroy", fillcolor=chart_rgba("rose", 0.08),
         ))
-        fig_hmm.add_hline(y=0.5, line_dash="dot", line_color="rgba(255,255,255,0.08)", line_width=0.5)
+        fig_hmm.add_hline(y=0.5, line_dash="dot", line_color=grid_rgba(0.08), line_width=0.5)
 
         fig_hmm.update_layout(**chart_layout(height=300))
         style_axes(fig_hmm, y_title="State Probability", x_title=x_title, y_range=[0, 1])
-        st.plotly_chart(fig_hmm, width='stretch', key="diagnostics_hmm_plot")
+        render_chart_panel(fig_hmm, "diagnostics_hmm_plot", units="probability")
 
     # ═══════════════════════════════════════════════════════════════════════
     # 4. DATA LAYER HEALTH — cache hit rate + circuit breaker state per source
@@ -388,13 +380,11 @@ def _render_intelligence_center() -> None:
     wf = st.session_state.get("wf_results") or []
 
     if not weights:
-        st.markdown(
-            '<div style="font-family:var(--data); font-size:0.72rem; color:var(--ink-secondary);'
-            'background:rgba(148,163,184,0.05); border:1px solid var(--border);'
-            'border-radius:6px; padding:0.7rem 0.9rem; margin-bottom:1rem;">'
-            '<b>No weights yet.</b> Run an analysis to learn them.'
-            '</div>',
-            unsafe_allow_html=True,
+        render_empty_state(
+            "No weights yet",
+            "Dimension weights are learned forward from resolved outcomes — "
+            "run an analysis in the sidebar to populate them.",
+            eyebrow="Intelligence Center",
         )
         return
 
@@ -405,20 +395,16 @@ def _render_intelligence_center() -> None:
 
     fig = go.Figure()
     fig.add_trace(go.Bar(x=names, y=prior, name="Prior",
-                         marker=dict(color=rgba("slate", 0.45))))
+                         marker=dict(color=chart_rgba("slate", 0.45))))
     fig.add_trace(go.Bar(x=names, y=learned, name="Learned",
-                         marker=dict(color=CYAN)))
+                         marker=dict(color=chart_color("accent"))))
     fig.update_layout(**chart_layout(height=260), barmode="group")
     style_axes(fig, y_title="weight")
-    st.plotly_chart(fig, width='stretch', key="intel_weights_plot")
+    render_chart_panel(fig, "intel_weights_plot", units="weight")
 
     _moved = max(abs(l - p) for l, p in zip(learned, prior))
     _top = names[int(np.argmax(learned))]
-    st.caption(
-        f"Largest move from prior: {_moved:+.3f}. Dominant dimension: **{_top}**. "
-        "A learner that barely moves is telling you the four dimensions are close "
-        "to equally informative for this instrument — which is information, not a failure."
-    )
+    render_note(f"Largest move from prior {_moved:+.3f} · dominant dimension {_top}")
 
     # ── Out-of-sample durability ────────────────────────────────────────
     section_gap()
@@ -429,12 +415,22 @@ def _render_intelligence_center() -> None:
         accent="emerald",
     )
     if not wf:
-        st.info("Walk-forward IC needs ~250+ scored dates; not enough history yet.")
+        render_empty_state(
+            "Not enough scored history",
+            "Walk-forward IC needs roughly 250+ scored dates before a window can be "
+            "evaluated out of sample. This target has fewer.",
+            eyebrow="Durability",
+        )
         return
 
     ics = [r["ic"] for r in wf if np.isfinite(r.get("ic", float("nan")))]
     if not ics:
-        st.info("No finite walk-forward windows.")
+        render_empty_state(
+            "No finite walk-forward windows",
+            "Every window scored non-finite — usually a degenerate overlap between the "
+            "two engines rather than a model failure.",
+            eyebrow="Durability",
+        )
         return
     mean_ic = float(np.mean(ics))
     pos = sum(1 for v in ics if v > 0)
@@ -464,7 +460,7 @@ def _render_intelligence_center() -> None:
         y=[r["ic"] for r in wf],
         marker=dict(color=[EMERALD if r["ic"] > 0 else ROSE for r in wf]),
     ))
-    fig_wf.add_hline(y=0, line_color="rgba(255,255,255,0.10)", line_width=0.6)
+    fig_wf.add_hline(y=0, line_color=grid_rgba(0.10), line_width=0.6)
     fig_wf.update_layout(**chart_layout(height=UI_CHART_HEIGHT_MEDIUM, show_legend=False))
     style_axes(fig_wf, y_title="OOS IC")
-    st.plotly_chart(fig_wf, width='stretch', key="intel_wf_plot")
+    render_chart_panel(fig_wf, "intel_wf_plot", units="OOS IC")

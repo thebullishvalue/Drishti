@@ -38,16 +38,17 @@ from ui.components import (
     render_section_header,
     render_metric_card,
     render_interpretation_card,
+    render_empty_state,
+    render_chart_panel,
+    render_note,
     section_gap,
 )
-from ui.theme import chart_layout, style_axes
-from core.config import (
-    COLOR_GREEN, COLOR_RED, COLOR_GOLD, COLOR_CYAN, COLOR_MUTED,
-)
+from ui.theme import (chart_layout, style_axes,
+                      chart_color, chart_rgba, panel_bg)
 
 
 def _classify_state(fvo: float) -> tuple[str, str, str, str]:
-    """Map the valuation oscillator to (tier, badge, label, fill) classes.
+    """Map the valuation oscillator to (tier, chip tone, label, fill) classes.
 
     Describes WHERE the target sat versus its macro-implied level — cheap or
     rich — not what happened next; the forward tiles carry the realised outcome.
@@ -58,16 +59,21 @@ def _classify_state(fvo: float) -> tuple[str, str, str, str]:
     ignored: two cards labelled "Deep Oversold" could have been selected for
     reasons unrelated to being oversold. Thresholds are in units of the
     engine's own predictive SD, so +/-1 and +/-2 read as the usual sigma bands.
+
+    The chip tone is one of the app's shared ``.chip-*`` tones (``render_chip``
+    in ui/components.py); ``"success-outline"``/``"danger-outline"`` render as
+    the lighter, unfilled variant for the weaker "Cheap"/"Rich" reads vs the
+    filled "Deep Value"/"Very Rich" extremes.
     """
     if fvo <= -2.0:
-        return "tier-strong-buy", "badge-strong-buy", "Deep Value", "fill-strong-buy"
+        return "tier-strong-buy", "success", "Deep Value", "fill-strong-buy"
     if fvo <= -1.0:
-        return "tier-buy", "badge-buy", "Cheap", "fill-buy"
+        return "tier-buy", "success-outline", "Cheap", "fill-buy"
     if fvo >= 2.0:
-        return "tier-caution", "badge-caution", "Very Rich", "fill-caution"
+        return "tier-caution", "danger", "Very Rich", "fill-caution"
     if fvo >= 1.0:
-        return "tier-caution", "badge-caution", "Rich", "fill-caution"
-    return "tier-hold", "badge-hold", "Fair", "fill-hold"
+        return "tier-caution", "danger", "Rich", "fill-caution"
+    return "tier-hold", "neutral", "Fair", "fill-hold"
 
 
 def _render_fwd_tile(horizon: int, val: float | None) -> str:
@@ -94,7 +100,12 @@ def _render_period_card(period: dict, target: str, hold_horizons: tuple[int, ...
     stress = period.get("stress", 0.5)
     similarity_pct = period["similarity"] * 100
     price_val = period["price"]
-    tier_cls, badge_cls, badge_label, bar_cls = _classify_state(fvo)
+    tier_cls, chip_tone, badge_label, bar_cls = _classify_state(fvo)
+    tone_base, outline = (chip_tone[:-8], True) if chip_tone.endswith("-outline") else (chip_tone, False)
+    badge_html = (
+        f'<span class="chip chip-{tone_base}{" chip-outline" if outline else ""}">'
+        f'{html_mod.escape(badge_label)}</span>'
+    )
     fwd = period["fwd"]
     fwd_tiles = "".join(_render_fwd_tile(int(h), fwd.get(int(h))) for h in hold_horizons)
     # Grid adapts to the horizon count (6 for PRECEDENT_HORIZONS) so tiles fill
@@ -109,18 +120,18 @@ def _render_period_card(period: dict, target: str, hold_horizons: tuple[int, ...
     # rest renders as raw text. (Same rule as Arthagati's analog card.)
     st.markdown(
         f"""\
-<div class="position-card analog-card {tier_cls}">
+<div class="analog-card {tier_cls}">
   <div class="analog-card-head">
     <div class="analog-card-id">
       <div class="analog-eyebrow">Analog · Historical Match</div>
       <div class="analog-symbol">{html_mod.escape(period['date'])}</div>
     </div>
-    <span class="position-card-badge {badge_cls}">{badge_label}</span>
+    {badge_html}
   </div>
   <div class="analog-stat-row">
     <div class="analog-stat">
       <span class="analog-stat-label">Similarity</span>
-      <span class="analog-stat-value amber">{similarity_pct:.1f}%</span>
+      <span class="analog-stat-value accent">{similarity_pct:.1f}%</span>
     </div>
     <div class="analog-stat">
       <span class="analog-stat-label">Valuation (FVO)</span>
@@ -190,14 +201,24 @@ def render_precedent_tab(
     )
 
     if ts is None or len(ts) == 0 or "Price" not in getattr(ts, "columns", []):
-        st.warning("No engine time-series available — run an analysis first.")
+        render_empty_state(
+            "No engine time-series available",
+            "Precedent matching needs a fitted engine run to draw its state features from.",
+            eyebrow="Precedent",
+            action_label="Run analysis in the sidebar, then return to this page.",
+        )
         return
 
     periods = precomputed_periods if precomputed_periods is not None else find_similar_periods(
         ts, active_target, hold_horizons=display_hold, mom_window=mom_window,
     )
     if not periods:
-        st.warning("Not enough historical data to find similar periods.")
+        render_empty_state(
+            "Not enough historical data",
+            f"Too few distinct historical episodes matched {html_mod.escape(active_target)}'s "
+            "current state closely enough to form a base rate.",
+            eyebrow="Precedent",
+        )
         return
 
     # ── Forward-return base-rate summary (one card per horizon) ──────────────
@@ -264,7 +285,7 @@ def render_precedent_tab(
         )
         _hs_sorted = sorted(_scored.keys())
         _ic_vals = [_scored[h]["ic"] for h in _hs_sorted]
-        _bar_colors = [COLOR_GREEN if v > 0 else COLOR_RED for v in _ic_vals]
+        _bar_colors = [chart_color("emerald") if v > 0 else chart_color("rose") for v in _ic_vals]
         _cust = [[_scored[h]["hit"], _scored[h]["n"], _scored[h]["pval"]] for h in _hs_sorted]
         _fig_ts = go.Figure()
         _fig_ts.add_trace(go.Bar(
@@ -274,11 +295,11 @@ def render_precedent_tab(
             hovertemplate=("Horizon %{x}<br>IC %{y:+.2f}<br>Hit-rate %{customdata[0]:.0f}%"
                            "<br>n=%{customdata[1]} · p=%{customdata[2]:.3f}<extra></extra>"),
         ))
-        _fig_ts.add_hline(y=0, line_color="rgba(148,163,184,0.35)", line_width=1)
+        _fig_ts.add_hline(y=0, line_color=chart_rgba("slate", 0.35), line_width=1)
         _layout_ts = chart_layout(height=300, show_legend=False)
         _fig_ts.update_layout(**_layout_ts)
         style_axes(_fig_ts, y_title="Walk-forward IC (Spearman)", x_title="Holding horizon")
-        st.plotly_chart(_fig_ts, width='stretch', key="analog_skill_term_structure")
+        render_chart_panel(_fig_ts, "analog_skill_term_structure", units="Spearman IC")
 
         # Plain-language read: best horizon + whether the forecast horizon is
         # where the edge actually lives.
@@ -286,15 +307,13 @@ def render_precedent_tab(
         _best = _scored[_best_h]
         _lens_note = ""
         if fwd_horizon in _scored and _best_h != fwd_horizon:
-            _lens_note = (f" The forecast horizon ({fwd_horizon}d, IC "
-                          f"{_scored[fwd_horizon]['ic']:+.2f}) is NOT the strongest — "
-                          f"the analog edge concentrates at {_best_h}d.")
+            _lens_note = (f" · forecast horizon {fwd_horizon}d reads "
+                          f"{_scored[fwd_horizon]['ic']:+.2f}, not the strongest")
         elif fwd_horizon in _scored:
-            _lens_note = f" The forecast horizon ({fwd_horizon}d) is also the strongest horizon."
-        st.caption(
-            f"Strongest at +{_best_h}d: IC {_best['ic']:+.2f} (p={_best['pval']:.3f}), "
-            f"hit-rate {_best['hit']:.0f}% over {_best['n']} non-overlapping windows.{_lens_note} "
-            "Positive IC = the matcher's directional call held out of sample."
+            _lens_note = f" · forecast horizon {fwd_horizon}d is also the strongest"
+        render_note(
+            f"Strongest at +{_best_h}d · IC {_best['ic']:+.2f} (p={_best['pval']:.3f}) · "
+            f"hit-rate {_best['hit']:.0f}% over {_best['n']} windows{_lens_note}"
         )
         section_gap()
 
@@ -345,30 +364,30 @@ def render_precedent_tab(
         _mk_colors = []
         for p, r in zip(_pd_pred, _pd_real):
             if not np.isfinite(r):
-                _mk_colors.append(COLOR_GOLD)
+                _mk_colors.append(chart_color("amber"))
             elif (p > 0) == (r > 0):
-                _mk_colors.append(COLOR_GREEN)
+                _mk_colors.append(chart_color("emerald"))
             else:
-                _mk_colors.append(COLOR_RED)
+                _mk_colors.append(chart_color("rose"))
 
         _fig_ap = go.Figure()
         _fig_ap.add_trace(go.Scatter(
             x=_pd_dates, y=_pd_real, mode="lines", name="Realized",
-            line=dict(color=COLOR_MUTED, width=1.3),
+            line=dict(color=chart_rgba("slate", 0.4), width=1.3),
             connectgaps=False,
         ))
         _fig_ap.add_trace(go.Scatter(
             x=_pd_dates, y=_pd_pred, mode="lines+markers", name="Analog prediction",
-            line=dict(color=COLOR_CYAN, width=1.6),
+            line=dict(color=chart_color("accent"), width=1.6),
             marker=dict(size=6, color=_mk_colors,
-                        line=dict(color="rgba(10,14,23,0.8)", width=1)),
+                        line=dict(color=panel_bg(), width=1)),
         ))
-        _fig_ap.add_hline(y=0, line_color="rgba(148,163,184,0.25)", line_width=0.8,
+        _fig_ap.add_hline(y=0, line_color=chart_rgba("slate", 0.25), line_width=0.8,
                           line_dash="dot")
         _layout_ap = chart_layout(height=340, show_legend=True)
         _fig_ap.update_layout(**_layout_ap)
         style_axes(_fig_ap, y_title=f"+{fwd_horizon}d return (%)")
-        st.plotly_chart(_fig_ap, width='stretch', key="analog_pred_history")
+        render_chart_panel(_fig_ap, "analog_pred_history", units="% return")
 
         _done = np.isfinite(_pd_real)
         _cap = (f"{len(_pred_df)} as-of dates · marker green = predicted direction was "
@@ -379,7 +398,7 @@ def render_precedent_tab(
             _hit = float(np.mean(np.sign(_pd_pred[_done]) == np.sign(_pd_real[_done]))) * 100
             _cap += (f" Completed windows: IC {_ic:+.2f} (p={_pv:.3f}), directional hit "
                      f"{_hit:.0f}% over {int(_done.sum())} non-overlapping windows.")
-        st.caption(_cap)
+        render_note(_cap)
         section_gap()
 
     # ── Analog period cards (2-column grid) ─────────────────────────────────
@@ -392,11 +411,13 @@ def render_precedent_tab(
 
     # Cards show the closest few; the base rate above is computed over ALL
     # returned episodes (see analytics.analogs.find_similar_periods).
-    analog_cols = st.columns(2, gap="medium")
+    # "small" like every other grid in the app — this was the one call site
+    # using a wider gutter, so the analog cards sat further apart than the
+    # metric cards directly above them.
+    analog_cols = st.columns(2, gap="small")
     for i, period in enumerate(periods[:MAX_ANALOG_CARDS]):
         with analog_cols[i % 2]:
             _render_period_card(period, active_target, display_hold)
-            st.markdown('<div style="height: var(--sp-3);"></div>', unsafe_allow_html=True)
 
     # ── Backtest: state extension vs forward return (descriptive) ───────────
     section_gap()
@@ -423,7 +444,7 @@ def render_precedent_tab(
     n = len(price)
     horizon = int(fwd_horizon)
     if n <= horizon + 20 or "AvgZ" not in df.columns:
-        st.caption("Insufficient data points for backtest.")
+        render_note("Insufficient data points for backtest.")
         return
 
     avgz_full = np.asarray(df["AvgZ"], dtype=np.float64)[: n - horizon]
@@ -438,7 +459,7 @@ def render_precedent_tab(
     x = avgz[valid]
     y = fwd_ret[valid]
     if len(x) <= 20:
-        st.caption("Insufficient data points for backtest.")
+        render_note("Insufficient data points for backtest.")
         return
 
     from scipy.stats import spearmanr as _spearmanr
@@ -459,13 +480,13 @@ def render_precedent_tab(
     fig = go.Figure()
     fig.add_trace(go.Scattergl(
         x=tr_x, y=tr_y, mode="markers",
-        marker=dict(size=4, color=np.where(tr_x > 0, COLOR_GREEN, COLOR_RED), opacity=0.4),
+        marker=dict(size=4, color=np.where(tr_x > 0, chart_color("emerald"), chart_color("rose")), opacity=0.4),
         hovertemplate="Z: %{x:.2f}<br>Fwd: %{y:.1f}%<extra></extra>",
         name=f"Train (70%, n={len(tr_x)})",
     ))
     fig.add_trace(go.Scattergl(
         x=te_x, y=te_y, mode="markers",
-        marker=dict(size=6, color=np.where(te_x > 0, COLOR_GREEN, COLOR_RED),
+        marker=dict(size=6, color=np.where(te_x > 0, chart_color("emerald"), chart_color("rose")),
                     opacity=0.85, symbol="diamond"),
         hovertemplate="Z: %{x:.2f}<br>Fwd: %{y:.1f}%<extra></extra>",
         name=f"Test (30%, n={len(te_x)})",
@@ -475,7 +496,7 @@ def render_precedent_tab(
         z1 = np.polyfit(tr_x, tr_y, 1)
         fig.add_trace(go.Scatter(
             x=xr, y=z1[0] * xr + z1[1], mode="lines",
-            line=dict(color=COLOR_GOLD, width=2, dash="dash"),
+            line=dict(color=chart_color("amber"), width=2, dash="dash"),
             name=f"Linear (train ρ={tr_p:.2f}, test ρ={oos_p:.2f})",
         ))
     # Quadratic curve needs more points than the linear fit to avoid a 2nd-degree
@@ -486,20 +507,22 @@ def render_precedent_tab(
         z2 = np.polyfit(tr_x, tr_y, 2)
         fig.add_trace(go.Scatter(
             x=xr, y=z2[0] * xr ** 2 + z2[1] * xr + z2[2], mode="lines",
-            line=dict(color=COLOR_CYAN, width=2, dash="dot"),
+            line=dict(color=chart_color("cyan"), width=2, dash="dot"),
             name=f"Quadratic (train ρ_s={tr_s:.2f}, test ρ_s={oos_s:.2f})",
         ))
 
-    fig.add_hline(y=0, line_color="rgba(148,163,184,0.35)", line_width=1, line_dash="dot")
-    fig.add_vline(x=0, line_color="rgba(148,163,184,0.35)", line_width=1, line_dash="dot")
+    fig.add_hline(y=0, line_color=chart_rgba("slate", 0.35), line_width=1, line_dash="dot")
+    fig.add_vline(x=0, line_color=chart_rgba("slate", 0.35), line_width=1, line_dash="dot")
 
     layout = chart_layout(height=420, show_legend=True)
     layout["hovermode"] = "closest"
     fig.update_layout(**layout)
     style_axes(fig, y_title=f"{active_target} Return T+{horizon}d (%)", x_title="Extension Z at T")
 
-    st.plotly_chart(fig, width='stretch',
-                    config={"displayModeBar": False, "displaylogo": False})
+    # This was the one chart in the app that passed its own Plotly config —
+    # a private, hand-rolled second opinion on chrome. It now takes the same
+    # PLOTLY_CONFIG as the other seventeen, via the same panel.
+    render_chart_panel(fig, "analog_extension_scatter", units="% return")
 
     # Gate the verdict on the test-split Spearman p-value, not a bare |rho|
     # magnitude threshold. After non-overlapping striding the test split is
