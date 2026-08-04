@@ -2,13 +2,19 @@
 Tattva — Reusable UI components: metric cards, signal badges, headers, section headers.
 तत्त्व (Tattva) — "Principle / Essence"
 
-UI — Obsidian Quant Terminal design language.
+UI — "Graphite" institutional terminal design language (see ui/theme.py).
+
+Every function here emits markup for classes defined in ui/theme.css and
+nothing else: no inline colours, no inline type. If a component needs a new
+look, the rule belongs in the stylesheet, so the light theme keeps working
+as a token swap rather than needing a parallel set of Python branches.
 """
 
 from __future__ import annotations
 
 import datetime as _dt
 import html as html_mod
+from contextlib import contextmanager as _contextmanager
 
 import pandas as pd
 import numpy as np
@@ -56,18 +62,37 @@ ICONS = {
 }
 
 
-def get_icon(name: str, size: int = 18, stroke_width: float = 1.5) -> str:
-    """Return an SVG icon string with custom size and stroke width."""
+#: The app's single icon drawing style. Every icon is normalised to these by
+#: ``get_icon`` regardless of what its own SVG literal declares — the set was
+#: pasted in over time and carries three different stroke weights and a mix of
+#: butt/round terminals, which is exactly how an icon set stops reading as a
+#: set. One weight, round terminals, no fills.
+ICON_STROKE = 1.6
+_ICON_LINECAP = "round"
+
+
+def get_icon(name: str, size: int = 18, stroke_width: float | None = None) -> str:
+    """Return an SVG icon normalised to the app's one icon style.
+
+    ``stroke_width`` is accepted for call sites that predate ``ICON_STROKE``
+    but is deliberately clamped: the two callers that passed 1.8 and 2 were
+    drawing the same icons as everything else, one and two notches heavier,
+    inside components that sat side by side.
+    """
     import re
     base_svg = ICONS.get(name, ICONS["chart"])
 
-    # Clean existing attributes to avoid duplicates or stale values
-    base_svg = re.sub(r'\s+width="[^"]*"', '', base_svg)
-    base_svg = re.sub(r'\s+height="[^"]*"', '', base_svg)
-    base_svg = re.sub(r'\s+stroke-width="[^"]*"', '', base_svg)
+    # Strip whatever the literal declared, so the result cannot inherit a
+    # per-icon weight or terminal style.
+    for attr in ("width", "height", "stroke-width", "stroke-linecap", "stroke-linejoin"):
+        base_svg = re.sub(rf'\s+{attr}="[^"]*"', "", base_svg)
 
-    # Inject standardized attributes
-    return base_svg.replace('<svg', f'<svg width="{size}" height="{size}" stroke-width="{stroke_width}"')
+    sw = ICON_STROKE if stroke_width is None else min(float(stroke_width), 1.75)
+    return base_svg.replace(
+        "<svg",
+        f'<svg width="{size}" height="{size}" stroke-width="{sw}" '
+        f'stroke-linecap="{_ICON_LINECAP}" stroke-linejoin="{_ICON_LINECAP}"',
+    )
 
 
 def render_section_header(
@@ -84,20 +109,36 @@ def render_section_header(
         icon: Key from ICONS dict.
         accent: CSS color class — "", "cyan", "emerald", "violet", "rose".
     """
-    svg = get_icon(icon, size=16, stroke_width=1.8)
+    svg = get_icon(icon, size=16)
     icon_class = f"icon {accent}" if accent else "icon"
     hdr_class = f"section-hdr {accent}" if accent else "section-hdr"
+    # `.desc` is a DIRECT child of the header, not nested inside `.text`. The
+    # header is a two-row grid — icon and title on row 1, description on row 2
+    # under the title — and a nested description is not a grid item, so it
+    # could not be placed and fell back to flowing under the title with its
+    # own margin. That is the gap that made the subtitle read as a detached
+    # paragraph.
     desc_html = f'<div class="desc">{html_mod.escape(description)}</div>' if description else ""
     st.markdown(
         f'<div class="{hdr_class}">'
         f'<div class="{icon_class}">{svg}</div>'
-        f'<div class="text">'
-        f'<h3>{html_mod.escape(title)}</h3>'
+        f'<div class="text"><h3>{html_mod.escape(title)}</h3></div>'
         f'{desc_html}'
-        f'</div>'
         f'</div>',
         unsafe_allow_html=True,
     )
+
+
+def render_sub_header(title: str) -> None:
+    """A labelled division INSIDE a section — one tier below a section header.
+
+    Mono micro-label, no icon, no rule. Used where a section has two named
+    parts (Diagnostics' "Importance Over Time" above its history table), which
+    the tab files had been hand-rolling as inline-styled divs at three
+    different sizes.
+    """
+    st.markdown(f'<div class="sub-head">{html_mod.escape(title)}</div>',
+                unsafe_allow_html=True)
 
 
 def section_gap() -> None:
@@ -118,6 +159,224 @@ def render_control_hint(text: str) -> None:
         f'<div class="control-hint">{html_mod.escape(text)}</div>',
         unsafe_allow_html=True,
     )
+
+
+def render_note(text: str) -> None:
+    """The one caption tier — a note under a chart, table or control.
+
+    Replaces bare ``st.caption`` everywhere. Streamlit's caption renders in
+    its own sans face at its own size with its own margin, so eight of them
+    scattered across four tab files read as eight different kinds of aside.
+    This is the same object as ``render_control_hint`` (identical styling on
+    purpose) named for its other use, so a reader of the tab code does not
+    have to know that "control hint" also means "chart footnote".
+    """
+    st.markdown(
+        f'<div class="control-hint">{text}</div>',
+        unsafe_allow_html=True,
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  PANEL SYSTEM — one anatomy for every framed thing in the app
+# ═══════════════════════════════════════════════════════════════════════
+#
+# A panel is: header (title / context, meta and chip right) · body · footer.
+# Charts, tables and embedded iframes all use it, so a screen mixing them
+# reads as one grid instead of as several products sharing a page.
+#
+# It is a real ``st.container`` rather than an HTML string because the body
+# holds WIDGETS — a Plotly figure, a components.v1 iframe — which no amount
+# of markdown can wrap. The container carries `key="panel-<id>"`, and
+# theme.css styles `[class*="st-key-panel-"]`.
+
+def render_panel_header(
+    title: str = "",
+    *,
+    context: str = "",
+    meta: str = "",
+    chip: "tuple[str, str] | None" = None,
+) -> None:
+    """Render a panel header.
+
+    ``title`` — what the panel shows. Omit it when the section header
+    directly above already names the panel; a panel header that restates the
+    section header is a second title, not a header.
+    ``context`` — the panel's own metadata (instrument, window, units).
+    ``meta``/``chip`` — right-aligned status: as-of, source, freshness.
+    """
+    if not (title or context or meta or chip):
+        return
+    left = ""
+    if title:
+        left += f'<span class="ph-title">{html_mod.escape(title)}</span>'
+    if context:
+        left += f'<span class="ph-context">{html_mod.escape(context)}</span>'
+    right = ""
+    if meta:
+        right += f'<span>{html_mod.escape(meta)}</span>'
+    if chip:
+        right += render_chip(chip[0], chip[1], as_html=True) or ""
+    st.markdown(
+        f'<div class="panel-hdr"><div class="ph-left">{left}</div>'
+        f'<div class="ph-right">{right}</div></div>',
+        unsafe_allow_html=True,
+    )
+
+
+@_contextmanager
+def panel(
+    key: str,
+    title: str = "",
+    *,
+    context: str = "",
+    meta: str = "",
+    chip: "tuple[str, str] | None" = None,
+    footer: str = "",
+):
+    """Context manager wrapping any content in the shared panel chrome.
+
+    ``with panel("fvo-fairvalue", context="GOLD · 6M"): st.plotly_chart(...)``
+
+    Use it directly for anything that is neither a chart nor a table (an
+    embedded widget, a bespoke layout) so that thing still belongs to the
+    system rather than sitting on the page unframed.
+    """
+    with st.container(key=f"panel-{key}"):
+        render_panel_header(title, context=context, meta=meta, chip=chip)
+        yield
+        if footer:
+            st.markdown(f'<div class="panel-foot">{footer}</div>', unsafe_allow_html=True)
+
+
+def default_chart_context(units: str = "") -> str:
+    """The context line every chart panel gets for free: instrument · window.
+
+    Read from session state rather than threaded through eighteen call sites,
+    which is both less plumbing and strictly more correct — a context built
+    from the same keys the command bar reads cannot disagree with it.
+    """
+    parts = [
+        str(st.session_state.get("active_target", "") or "").upper(),
+        str(st.session_state.get("tf_selected", "") or ""),
+    ]
+    if units:
+        parts.append(units)
+    return " · ".join(p for p in parts if p)
+
+
+def render_chart_panel(
+    fig,
+    key: str,
+    title: str = "",
+    *,
+    units: str = "",
+    context: str | None = None,
+    meta: str = "",
+    chip: "tuple[str, str] | None" = None,
+    footer: str = "",
+) -> None:
+    """Render a Plotly figure inside the shared panel chrome.
+
+    The ONE way a chart reaches the screen in this app. Every call passes the
+    same ``PLOTLY_CONFIG``, which is what removes the stock Plotly toolbar and
+    its logo — previously eighteen of the app's charts shipped Plotly's own
+    chrome, complete with a link out to plotly.com.
+
+    ``title`` is normally EMPTY. Every chart in Tattva already sits under a
+    ``render_section_header`` that names it and explains how to read it; a
+    panel title would be that title again, four pixels lower. What the section
+    header cannot say is which instrument and window the plot is actually
+    drawn on, so that is what the panel header carries — supplied
+    automatically from session state, with ``units`` appended.
+    """
+    from ui.theme import PLOTLY_CONFIG   # local: avoids a circular import
+    ctx = default_chart_context(units) if context is None else context
+    with panel(key, title, context=ctx, meta=meta, chip=chip, footer=footer):
+        st.plotly_chart(fig, width="stretch", key=f"chart-{key}", config=PLOTLY_CONFIG)
+
+
+def render_loading_skeleton(
+    key: str,
+    *,
+    rows: int = 1,
+    height: int = 220,
+    title: str = "",
+    context: str = "",
+) -> None:
+    """A panel-shaped placeholder at the size of the thing that is coming.
+
+    Sized to the final content so the layout does not jump when the real
+    panel replaces it. ``rows=1, height=N`` is the chart case (one block);
+    ``rows=N`` is the table case (a header rule plus N row bars).
+    """
+    with panel(key, title, context=context):
+        if rows <= 1:
+            body = f'<div class="skeleton" style="height:{height}px"></div>'
+        else:
+            body = ('<div class="skeleton sk-head"></div>'
+                    + "".join('<div class="skeleton sk-row"></div>' for _ in range(rows)))
+        st.markdown(f'<div class="skeleton-body">{body}</div>', unsafe_allow_html=True)
+
+
+def render_table_panel(
+    df,
+    key: str,
+    title: str = "",
+    *,
+    units: str = "",
+    context: str | None = None,
+    meta: str = "",
+    chip: "tuple[str, str] | None" = None,
+    footer: str = "",
+    **table_kwargs,
+) -> None:
+    """Render a DataFrame inside the shared panel chrome.
+
+    Same header anatomy — and the same ``units``/``context`` contract — as
+    ``render_chart_panel``, deliberately, so a table and a chart sitting side
+    by side are visibly the same kind of object.
+
+    ``units`` MUST be declared here rather than left to ``**table_kwargs``:
+    without it, every ``units=`` at a call site fell through to
+    ``render_data_table``, which has no such parameter, and the page died with
+    ``render_data_table() got an unexpected keyword argument 'units'``.
+    Remaining kwargs still pass through to the table renderer.
+    """
+    ctx = default_chart_context(units) if context is None else context
+    with panel(key, title, context=ctx, meta=meta, chip=chip, footer=footer):
+        render_data_table(df, **table_kwargs)
+
+
+def render_chart_error(key: str, title: str, reason: str) -> None:
+    """A failed chart keeps its panel and explains itself inside it.
+
+    A chart that cannot draw must not vanish — a missing panel reads as "there
+    was nothing to show", which is a different claim from "this could not be
+    computed" and the wrong one to make silently.
+    """
+    with panel(key, title, chip=("UNAVAILABLE", "warning")):
+        st.markdown(
+            f'<div class="panel-state">{html_mod.escape(reason)}</div>',
+            unsafe_allow_html=True,
+        )
+
+
+def render_chip(label: str, tone: str = "neutral", *, as_html: bool = False) -> str | None:
+    """Render (or return) a status chip — one badge system for the whole app.
+
+    ``tone``: ``accent`` / ``success`` / ``danger`` / ``warning`` / ``info`` /
+    ``neutral``. Used for analog-tier badges, session/freshness state, and
+    any other "state in a word" reading (previously several one-off HTML
+    blocks with their own colour logic). Pass ``as_html=True`` to get the raw
+    ``<span>`` back for composition inside a larger ``st.markdown`` call
+    (e.g. ``render_top_bar``) instead of rendering it standalone.
+    """
+    html = f'<span class="chip chip-{html_mod.escape(tone)}">{html_mod.escape(label)}</span>'
+    if as_html:
+        return html
+    st.markdown(html, unsafe_allow_html=True)
+    return None
 
 
 def render_metric_card(
@@ -150,7 +409,7 @@ def render_metric_card(
         )
 
     sub_metric_html = f'<div class="sub-metric">{html_mod.escape(subtext)}</div>' if subtext else ""
-    icon_html = f'<span class="card-icon">{get_icon(icon, size=12, stroke_width=2)}</span> ' if icon else ""
+    icon_html = f'<span class="card-icon">{get_icon(icon, size=12)}</span> ' if icon else ""
     st.markdown(
         f'<div class="metric-card {html_mod.escape(color_class)}">'
         f'<span class="label">{icon_html}{html_mod.escape(label)}</span>'
@@ -162,17 +421,191 @@ def render_metric_card(
     )
 
 
+def render_kpi_strip(items: list[dict], *, max_cols: int = 5, key: str = "kpi-strip") -> None:
+    """Lay out ``render_metric_card`` items in rows of at most ``max_cols``.
+
+    Each item is the keyword set ``render_metric_card`` takes: ``label``,
+    ``value``, and optionally ``subtext``/``color_class``/``tooltip``/
+    ``icon``. Used for the Overview page's KPI row — caps row width so cards
+    never squeeze past legibility (wraps to a second row instead of the
+    6-wide layouts elsewhere in the app that get tight on narrow viewports).
+    """
+    if not items:
+        return
+    with st.container(key=key):
+        for i in range(0, len(items), max_cols):
+            row = items[i:i + max_cols]
+            cols = st.columns(len(row), gap="small")
+            for c, item in zip(cols, row):
+                with c:
+                    render_metric_card(
+                        label=item.get("label", ""),
+                        value=item.get("value", ""),
+                        subtext=item.get("subtext", ""),
+                        color_class=item.get("color_class", "neutral"),
+                        tooltip=item.get("tooltip", ""),
+                        icon=item.get("icon", ""),
+                    )
 
 
 def render_header(title: str, tagline: str) -> None:
-    """Render the terminal masthead."""
+    """Render the cold-start masthead.
+
+    Stacked, not inline: the mark reads at display size on its own line and
+    the tagline sits under it as a rule-delimited subtitle. Inline (the
+    previous arrangement) the two competed for the same optical line and the
+    mark ended up the same size as a section heading — which is what a
+    masthead must not be, since it is the only thing on a cold-start screen
+    that says what the application is.
+    """
+    head, tail = (title[:3], title[3:]) if len(title) > 3 else (title, "")
     st.markdown(
         f'<div class="premium-header">'
-        f'<span class="title">{html_mod.escape(title)}</span>'
-        f'<span class="tagline">{html_mod.escape(tagline)}</span>'
+        f'<div class="title">{html_mod.escape(head)}'
+        f'<span class="accent-ink">{html_mod.escape(tail)}</span></div>'
+        f'<div class="tagline">{html_mod.escape(tagline)}</div>'
         f"</div>",
         unsafe_allow_html=True,
     )
+
+
+def render_nav_brand(title: str = "TATTVA", tagline: str = "तत्त्व · Unified Convergence") -> None:
+    """Render the control rail's brand block.
+
+    The mark is split so the second half carries the accent — a product mark
+    that is one flat colour reads as a heading, not as a mark. Left-aligned
+    (not centred) because everything below it in the rail is left-aligned,
+    and a centred mark over a left-aligned column is the single most common
+    tell of a template.
+    """
+    head, tail = (title[:3], title[3:]) if len(title) > 3 else (title, "")
+    st.markdown(
+        f'<div class="nav-brand">'
+        f'<div class="mark">{html_mod.escape(head)}'
+        f'<span class="accent-ink">{html_mod.escape(tail)}</span></div>'
+        f'<div class="tagline">{html_mod.escape(tagline)}</div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def render_top_bar(
+    *,
+    target: str = "",
+    price: float | None = None,
+    change_pct: float | None = None,
+    status_label: str = "",
+    status_tone: str = "neutral",
+    meta: str = "",
+    meta_items: "list[tuple[str, str]] | None" = None,
+    open_strip: bool = False,
+) -> None:
+    """Render the command bar — the first element on every page.
+
+    Reading order left to right is *identity → value → trust*: which
+    instrument, what it is worth, and whether the data behind that is
+    current. Nothing renders above this bar; data-quality notices that used
+    to sit on top of the page now hang below it in the notice rail, so the
+    instrument is always the first thing on screen.
+
+    ``target``/``price``/``change_pct`` describe the active instrument (omit
+    price/change when unresolved, e.g. before the target column has loaded).
+    ``status_label``/``status_tone`` render as one chip summarising freshness
+    at a glance — the full explanation lives in the notice rail below.
+    ``meta_items`` are key/value pairs shown right-aligned (as-of date,
+    horizon, spine size); ``meta`` is the legacy single-caption form and is
+    folded into them. ``open_strip=True`` leaves the bottom corners square
+    for a ``toolbar_strip`` to dock flush underneath.
+    """
+    instrument_html = ""
+    if target:
+        instrument_html = (
+            f'<div class="cb-instrument">'
+            f'<span class="eyebrow">Instrument</span>'
+            f'<span class="sym">{html_mod.escape(target)}</span>'
+            f'</div>'
+        )
+    quote_html = ""
+    if price is not None:
+        # `change_pct` is in PERCENT POINTS (-0.42 == -0.42%), the same unit it
+        # is printed in. It used to arrive as a fraction and be formatted with
+        # "%.2f%%", so every sub-1% session — i.e. most of them — printed as
+        # "0.00%". Flat band is a half basis point.
+        chg = change_pct if change_pct is not None else 0.0
+        chg_cls = "up" if chg > 0.005 else "down" if chg < -0.005 else "flat"
+        arrow = "▲" if chg_cls == "up" else "▼" if chg_cls == "down" else "▬"
+        # Arrow carries the sign, so the number is unsigned — "▼ 0.42%", not
+        # "▼ -0.42%". Direction is stated twice (glyph + colour) and never by
+        # colour alone, for red/green deficiency.
+        chg_html = (
+            f'<span class="chg {chg_cls}">{arrow} {abs(chg):.2f}%</span>'
+            if change_pct is not None else ""
+        )
+        quote_html = (
+            f'<div class="cb-quote"><span class="px">{price:,.2f}</span>{chg_html}</div>'
+        )
+
+    items = list(meta_items or [])
+    if meta:
+        items.append(("As of", meta.replace("As of ", "")))
+    meta_html = "".join(
+        f'<div class="cb-meta"><span class="k">{html_mod.escape(str(k))}</span>'
+        f'<span class="v">{html_mod.escape(str(v))}</span></div>'
+        for k, v in items if v
+    )
+    chip_html = render_chip(status_label, status_tone, as_html=True) if status_label else ""
+    open_cls = " open" if open_strip else ""
+    st.markdown(
+        f'<div class="command-bar{open_cls}">'
+        f'<div class="cb-left">'
+        f'<div class="cb-brand"><span class="mark">TAT<span class="accent-ink">TVA</span></span>'
+        f'<span class="sub">तत्त्व</span></div>'
+        f'{instrument_html}{quote_html}'
+        f'</div>'
+        f'<div class="cb-right">{meta_html}{chip_html}</div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def render_notice_rail(notices: "list[dict] | None") -> None:
+    """Render queued data-quality notices as a compact rail under the chrome.
+
+    Each notice is ``{"kind": "warning"|"info", "title": str, "body": str}``.
+    These used to render as full-width boxes at the very top of the page —
+    three of them (stale source, partial session, carried-forward
+    predictors) pushed the instrument itself below the fold, so on exactly
+    the days the data most needed scrutiny the interface led with an apology
+    instead of a price. One row each, severity on the left rule, title and
+    explanation on one line: same information, a third of the vertical cost,
+    and now BELOW the thing it qualifies rather than above it.
+    """
+    if not notices:
+        return
+    rows = "".join(
+        f'<div class="notice {html_mod.escape(n.get("kind", "info"))}">'
+        f'<div class="n-title">{html_mod.escape(n.get("title", ""))}</div>'
+        f'<div class="n-body">{n.get("body", "")}</div>'
+        f'</div>'
+        for n in notices
+    )
+    st.markdown(f'<div class="notice-rail">{rows}</div>', unsafe_allow_html=True)
+
+
+def render_rail_readout(rows: "list[tuple[str, str, str]]") -> None:
+    """Render the rail's session readout — ``(label, value, tone)`` rows.
+
+    ``tone`` is "" / "accent" / "long" / "short" / "caution". Values are
+    right-aligned and tabular so a changed number is seen rather than read.
+    """
+    if not rows:
+        return
+    body = "".join(
+        f'<div class="row"><span class="k">{html_mod.escape(str(k))}</span>'
+        f'<span class="v {html_mod.escape(tone)}">{html_mod.escape(str(v))}</span></div>'
+        for k, v, tone in rows
+    )
+    st.markdown(f'<div class="rail-readout">{body}</div>', unsafe_allow_html=True)
 
 
 #: Instruments on the tape, in reading order: the broad risk complex, then
@@ -301,6 +734,37 @@ def render_ticker(frame, instruments: tuple[str, ...] = TICKER_INSTRUMENTS,
     )
 
 
+def render_empty_state(
+    title: str,
+    body: str,
+    *,
+    eyebrow: str = "",
+    action_label: str = "",
+) -> None:
+    """Render a professional, icon-free empty/degraded state.
+
+    One system for every "nothing to show yet" moment in the app — cold
+    start (no data loaded), "no weights yet", "no usable precedent", short-
+    history guards — rather than each tab hand-rolling its own notice.
+    ``body`` may carry simple inline HTML (``<strong>``, line breaks), same
+    convention as ``render_interpretation_card``. ``action_label`` is a short
+    hint at what to do next (e.g. "Pick a target in the sidebar, then Run
+    Analysis"), not a real button — the actual control lives wherever it
+    already does (sidebar, etc.); this just points at it.
+    """
+    eyebrow_html = f'<div class="es-eyebrow">{html_mod.escape(eyebrow)}</div>' if eyebrow else ""
+    action_html = f'<div class="es-action">{html_mod.escape(action_label)}</div>' if action_label else ""
+    st.markdown(
+        f'<div class="empty-state">'
+        f'{eyebrow_html}'
+        f'<div class="es-title">{html_mod.escape(title)}</div>'
+        f'<div class="es-body">{body}</div>'
+        f'{action_html}'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+
 def render_info_box(title: str, content: str, color: str = "cyan") -> None:
     """Render an info box. ``color`` is applied as a modifier class (cyan / amber /
     emerald / rose / violet) so callers can theme it; was previously ignored."""
@@ -343,22 +807,50 @@ def render_interpretation_card(
 # ── Data-table styling tokens ──────────────────────────────────────────
 # render_data_table renders into an isolated components.v1.html iframe, which
 # does NOT inherit the app's CSS variables — so the theme values it needs are
-# mirrored here as literals. Any change to the corresponding --token in
-# theme.css has to be made in both places; there is no way around that while
-# the table lives in an iframe, and a stale colour here is the visible symptom.
-_TABLE_TOKENS = {
-    "ink_primary":   "#F8FAFC",   # --ink
-    "ink_tertiary":  "#94A3B8",   # --ink-tertiary
-    "border":        "rgba(255, 255, 255, 0.05)",   # --line
-    "border_subtle": "rgba(255, 255, 255, 0.02)",  # --line-faint
-    "amber":         "#F59E0B",   # --caution
-    "emerald":       "#10B981",   # --long   (positive numeric cells)
-    "rose":          "#EF4444",   # --short  (negative numeric cells)
-    "amber_border":  "rgba(245, 158, 11, 0.35)",
-    "amber_hover":   "rgba(245, 158, 11, 0.1)",
-    "row_odd":       "rgba(255, 255, 255, 0.012)",
+# mirrored here as literals, in BOTH a dark and light set. Any change to the
+# corresponding --token in theme.css/ui.theme.LIGHT_TOKENS has to be made
+# here too; there is no way around that while the table lives in an iframe,
+# and a stale colour here is the visible symptom. Header rule/hover use the
+# primary ACCENT (not amber — amber is caution/warning only in this system).
+_TABLE_TOKENS_DARK = {
+    "ink_primary":   "#E6EAF1",   # --ink
+    "ink_tertiary":  "#8B95A6",   # --ink-tertiary
+    "border":        "rgba(255, 255, 255, 0.07)",   # --line
+    "border_subtle": "rgba(255, 255, 255, 0.035)",  # --line-faint
+    "accent":        "#4C7DF0",   # --accent
+    "emerald":       "#2CA36B",   # --long   (positive numeric cells)
+    "rose":          "#DD5A5A",   # --short  (negative numeric cells)
+    "accent_border": "rgba(76, 125, 240, 0.34)",
+    "accent_hover":  "rgba(76, 125, 240, 0.10)",
+    "row_odd":       "rgba(255, 255, 255, 0.015)",
     "row_even":      "transparent",
+    "surface_a":     "#0F1217",   # --surface-1
+    "surface_b":     "#0F1217",
+    "header_a":      "#151920",   # --surface-2
+    "header_b":      "#151920",
 }
+_TABLE_TOKENS_LIGHT = {
+    "ink_primary":   "#141920",
+    "ink_tertiary":  "#5E6979",
+    "border":        "rgba(15, 23, 42, 0.10)",
+    "border_subtle": "rgba(15, 23, 42, 0.05)",
+    "accent":        "#2B5FD9",
+    "emerald":       "#0F7A54",
+    "rose":          "#C0392F",
+    "accent_border": "rgba(43, 95, 217, 0.32)",
+    "accent_hover":  "rgba(43, 95, 217, 0.07)",
+    "row_odd":       "rgba(15, 23, 42, 0.022)",
+    "row_even":      "transparent",
+    "surface_a":     "#FFFFFF",
+    "surface_b":     "#FFFFFF",
+    "header_a":      "#EEF1F5",
+    "header_b":      "#EEF1F5",
+}
+
+
+def _table_tokens() -> dict:
+    """Active-theme token set for the iframe-isolated data table."""
+    return _TABLE_TOKENS_LIGHT if st.session_state.get("theme") == "light" else _TABLE_TOKENS_DARK
 
 #: Webfont the iframe must import for itself, for the same isolation reason.
 _TABLE_FONTS = ("https://fonts.googleapis.com/css2?"
@@ -666,13 +1158,15 @@ def render_hero_card(verdict: dict) -> None:
     usually did not.
     """
     trust = verdict["trust"]
+    # Theme-aware: every colour here is a CSS var, not a literal hex, so the
+    # trust chip repaints correctly under the light theme too.
     chip_style = {
-        "uncalibrated": ("var(--ink-tertiary)", "rgba(148,163,184,0.12)"),
-        "no_edge":      ("#FB7185", "rgba(251,113,133,0.12)"),
-        "marginal":     ("#D4A853", "rgba(212,168,83,0.12)"),
-        "modest":       ("#34D399", "rgba(52,211,153,0.12)"),
-        "solid":        ("#34D399", "rgba(52,211,153,0.18)"),
-    }.get(trust["tier"], ("var(--ink-tertiary)", "rgba(148,163,184,0.12)"))
+        "uncalibrated": ("var(--ink-tertiary)", "var(--surface-2)"),
+        "no_edge":      ("var(--short)", "var(--short-fill)"),
+        "marginal":     ("var(--caution)", "var(--caution-fill)"),
+        "modest":       ("var(--long)", "var(--long-fill)"),
+        "solid":        ("var(--long)", "color-mix(in srgb, var(--long) 18%, transparent)"),
+    }.get(trust["tier"], ("var(--ink-tertiary)", "var(--surface-2)"))
     ic_text = (f"OOS IC {trust['oos_ic']:+.3f}" if trust.get("oos_ic") is not None
                else "no OOS read")
     if trust.get("wf_pos") is not None and trust.get("wf_n"):
@@ -680,7 +1174,7 @@ def render_hero_card(verdict: dict) -> None:
 
     action = verdict["action"]
     conviction = float(verdict.get("conviction", 0.0))
-    tier_color = {"high": "#34D399", "moderate": "#D4A853",
+    tier_color = {"high": "var(--long)", "moderate": "var(--caution)",
                   "low": "var(--ink-secondary)", "standaside": "var(--ink-tertiary)"
                   }.get(action["level"], "var(--ink-tertiary)")
 
@@ -690,7 +1184,7 @@ def render_hero_card(verdict: dict) -> None:
         f'<div class="hero-gate{" binding" if g["name"] == binding else ""}">'
         f'<span class="hero-gate-name">{html_mod.escape(g["name"])}</span>'
         f'<span class="hero-gate-bar"><i style="width:{max(2, round(g["value"] * 100))}%;'
-        f'background:{"#FB7185" if g["value"] < 0.35 else "#D4A853" if g["value"] < 0.7 else "#34D399"};">'
+        f'background:{"var(--short)" if g["value"] < 0.35 else "var(--caution)" if g["value"] < 0.7 else "var(--long)"};">'
         f'</i></span>'
         f'<span class="hero-gate-label">{html_mod.escape(g["label"])}</span>'
         f'<span class="hero-gate-detail">{html_mod.escape(g["detail"])}</span>'
@@ -723,8 +1217,7 @@ def render_hero_card(verdict: dict) -> None:
   <div class="hero-limit">{html_mod.escape(verdict["limit"])}</div>
   <div class="hero-gates">{gate_rows}</div>
   {risk_html}
-  <div class="hero-foot">Conviction is the product of the five gates above &mdash; \
-the weakest one caps it, so a single broken condition is not outvoted by the rest.</div>
+  <div class="hero-foot">Conviction is the product of the gates above &mdash; the weakest caps it.</div>
 </div>
 """,
         unsafe_allow_html=True,
@@ -812,16 +1305,24 @@ def render_data_table(
     label_col: str | None = None,
     col_labels: dict[str, str] | None = None,
     max_height: int = 520,
-    row_height: int = 42,
+    row_height: int = 27,
 ) -> None:
-    """Render a DataFrame as an Obsidian-Quant signal table (Pragyam design).
+    """Render a DataFrame as the app's one institutional table.
 
-    A theme-faithful replacement for ``st.dataframe`` across Tattva: a rounded
-    glass card, uppercase amber-ruled header (sticky on scroll), zebra rows with
-    an amber hover, right-aligned tabular numerics, and a bolder first "label"
-    column. Wide tables scroll horizontally; long tables scroll vertically under
-    a fixed ``max_height`` — so it is safe on both the 10-row divergence table
-    and the full dataset viewer.
+    The only table primitive in Tattva — there is no bare ``st.dataframe``
+    anywhere, because Streamlit's grid brings its own typeface, row height,
+    header treatment and hover, none of which can be reached from the app's
+    stylesheet. Sticky muted header, hairline row rules, right-aligned tabular
+    numerics, a bolder "label" column, and horizontal/vertical scroll under a
+    fixed ``max_height`` — safe on both the 10-row divergence table and the
+    full dataset viewer.
+
+    Rows are 27px (was 42): the old height came from 0.6rem cell padding at a
+    0.75rem font, which is a comfortable READING density, not a scanning one.
+    A table a trader scans should fit twice as many rows in the same panel.
+
+    Wrap it in ``render_table_panel`` rather than calling it directly, so the
+    table gets the same header anatomy as every chart.
 
     Parameters
     ----------
@@ -839,7 +1340,8 @@ def render_data_table(
         not listed is auto-prettified (``MSF_Osc`` → ``MSF Osc``).
     """
     if df is None or getattr(df, "empty", True):
-        st.caption("No rows to display.")
+        st.markdown('<div class="panel-state">No rows to display.</div>',
+                    unsafe_allow_html=True)
         return
 
     view = df.tail(max_rows).copy() if max_rows else df.copy()
@@ -862,7 +1364,7 @@ def render_data_table(
     if label_col is None:
         label_col = "__index__" if show_index else (cols[0] if cols else None)
 
-    t = _TABLE_TOKENS
+    t = _table_tokens()
 
     def _header_cells() -> str:
         cells = []
@@ -897,46 +1399,59 @@ def render_data_table(
         body_rows.append(f"<tr>{''.join(tds)}</tr>")
 
     n_rows = len(view)
-    content_h = 44 + n_rows * row_height + 28
-    iframe_h = min(content_h, max_height + 28)
+    _HEADER_H = 30                      # sticky header row, matches the CSS above
+    content_h = _HEADER_H + n_rows * row_height + 4
+    iframe_h = min(content_h, max_height)
 
-    table_html = f"""<!DOCTYPE html><html><head><style>
+    # The iframe cannot see the app's stylesheet, so the design tokens it needs
+    # are restated here as literals (see _TABLE_TOKENS_*). Values below mirror
+    # theme.css exactly: --fs-2xs header, --fs-xs body, s2/s3 cell padding,
+    # hairline rules. Nothing here is a one-off number.
+    table_html = f"""<!DOCTYPE html><html><head><meta charset="utf-8"><style>
     @import url('{_TABLE_FONTS}');
     * {{ margin:0; padding:0; box-sizing:border-box; }}
-    body {{ font-family:'IBM Plex Mono',monospace; background:transparent;
-            color:{t['ink_primary']}; padding:2px; }}
-    .tt-wrap {{ border-radius:10px; overflow:hidden; border:1px solid {t['border']};
-                background:linear-gradient(145deg,rgba(17,24,39,0.45) 0%,rgba(17,24,39,0.40) 100%); }}
-    /* Scrollbar matched to theme.css's global scroller (5px · ink-tertiary thumb ·
-       transparent track · 3px radius) so the table scrolls like the plots do. */
+    /* JetBrains Mono — the app's data face, and the one _TABLE_FONTS actually
+       imports. This said 'IBM Plex Mono' while importing JetBrains, so the
+       declared family was never loaded and every table in the app fell through
+       to the system default (Menlo/Courier). Tables were the one surface
+       rendering in a typeface the rest of the UI does not use. */
+    body {{ font-family:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+            background:transparent; color:{t['ink_primary']};
+            font-variant-numeric:tabular-nums; font-feature-settings:"tnum" 1,"zero" 1; }}
     .tt-scroll {{ max-height:{max_height}px; overflow:auto;
                   scrollbar-width:thin; scrollbar-color:{t['ink_tertiary']} transparent; }}
-    .tt-scroll::-webkit-scrollbar {{ width:5px; height:5px; }}
+    .tt-scroll::-webkit-scrollbar {{ width:9px; height:9px; }}
     .tt-scroll::-webkit-scrollbar-track {{ background:transparent; }}
-    .tt-scroll::-webkit-scrollbar-thumb {{ background:{t['ink_tertiary']}; border-radius:3px; }}
+    .tt-scroll::-webkit-scrollbar-thumb {{ background:{t['border']}; border-radius:100px; }}
+    .tt-scroll::-webkit-scrollbar-thumb:hover {{ background:{t['ink_tertiary']}; }}
     .tt-scroll::-webkit-scrollbar-corner {{ background:transparent; }}
     table {{ width:100%; border-collapse:collapse; }}
+    /* Header: muted, uppercase, hairline rule. It was a 2px accent-coloured
+       rule with an accent-coloured first cell — the heaviest horizontal line
+       in the app, sitting under its quietest content. A header is a label for
+       a column, not a claim about it. */
     thead th {{ position:sticky; top:0; z-index:2;
-        background:linear-gradient(180deg,rgba(10,14,23,0.98) 0%,rgba(10,14,23,0.92) 100%);
-        color:{t['ink_tertiary']}; font-size:0.62rem; font-weight:600;
-        text-transform:uppercase; letter-spacing:0.1em; padding:0.7rem 0.75rem;
-        border-bottom:2px solid {t['amber_border']}; text-align:left; white-space:nowrap; }}
+        background:{t['header_a']};
+        color:{t['ink_tertiary']}; font-size:0.625rem; font-weight:600;
+        text-transform:uppercase; letter-spacing:0.12em; padding:0.5rem 0.75rem;
+        border-bottom:1px solid {t['border']}; text-align:left; white-space:nowrap; }}
     thead th.num {{ text-align:right; }}
-    tbody tr {{ border-bottom:1px solid {t['border_subtle']}; transition:background 0.15s ease; }}
-    tbody tr:nth-child(odd) {{ background:{t['row_odd']}; }}
-    tbody tr:nth-child(even) {{ background:{t['row_even']}; }}
-    tbody tr:hover {{ background:{t['amber_hover']}; }}
-    tbody td {{ padding:0.6rem 0.75rem; color:{t['ink_primary']}; font-size:0.75rem;
-                vertical-align:middle; white-space:nowrap; }}
-    tbody td.num {{ text-align:right; font-variant-numeric:tabular-nums; }}
-    tbody td.lbl {{ font-family:'Space Grotesk',sans-serif; font-weight:600;
-                    font-size:0.76rem; letter-spacing:0.02em; color:{t['ink_primary']}; }}
-    thead th.lbl {{ color:{t['amber']}; }}
+    /* Row separation is a hairline OR a tint, never both — the two together
+       are what made this read as a spreadsheet export. */
+    tbody tr {{ border-bottom:1px solid {t['border_subtle']};
+                transition:background 120ms cubic-bezier(0.2,0,0,1); }}
+    tbody tr:last-child {{ border-bottom:none; }}
+    tbody tr:hover {{ background:{t['accent_hover']}; }}
+    tbody td {{ padding:0.4rem 0.75rem; color:{t['ink_primary']}; font-size:0.6875rem;
+                line-height:1.5; vertical-align:middle; white-space:nowrap; }}
+    tbody td.num {{ text-align:right; }}
+    tbody td.lbl {{ font-weight:600; color:{t['ink_primary']}; }}
+    tbody td.txt {{ color:{t['ink_tertiary']}; }}
     </style></head><body>
-    <div class="tt-wrap"><div class="tt-scroll"><table>
+    <div class="tt-scroll"><table>
     <thead><tr>{_header_cells()}</tr></thead>
     <tbody>{''.join(body_rows)}</tbody>
-    </table></div></div></body></html>"""
+    </table></div></body></html>"""
 
     _components_html(table_html, height=iframe_h, scrolling=False)
 

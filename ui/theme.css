@@ -15,27 +15,35 @@
       rather than read. Prose is a different family entirely — you should be
       able to tell data from commentary with the page out of focus.
 
-   3. COLOUR IS SEMANTIC. Green is long, red is short, amber is caution, cyan
-      is the system speaking about itself. Nothing is coloured to look nice;
-      if a colour appears, it carries a claim. The result is a mostly
-      achromatic interface where the eye goes straight to what matters.
+   3. COLOUR IS SEMANTIC. Green is long, red is short, amber is caution, blue
+      is the system's own voice (navigation, primary actions, emphasis) —
+      nothing is coloured to look nice. If a colour appears, it carries a
+      claim. Amber in particular means ONE thing only — caution — never
+      brand or decoration. The result is a mostly achromatic interface where
+      the eye goes straight to what matters.
 
    4. ONE SCALE, NO EXCEPTIONS. Type, spacing and radii come from fixed ramps.
       Ad-hoc values are how interfaces rot.
 
-   5. MOTION ONLY WHERE IT MEANS SOMETHING. The ticker scrolls because a tape
+   5. FLAT OVER GLASS. Surfaces are told apart by a border and a one-step
+      elevation in background tone — not blur, not stacked shadows. A panel
+      that needs blur to read as "above" the page is not elevated, it's
+      decorated.
+
+   6. MOTION ONLY WHERE IT MEANS SOMETHING. The ticker scrolls because a tape
       scrolls. Nothing else moves on its own, and everything stops under
       prefers-reduced-motion.
 
-   6. LEGIBILITY IS NOT NEGOTIABLE. Body text clears WCAG AA (4.5:1) on its own
-      surface, large text clears 3:1, and focus is always visible. A number you
-      cannot read at a glance is a number you will misread under pressure.
+   7. LEGIBILITY IS NOT NEGOTIABLE. Body text clears WCAG AA (4.5:1) on its own
+      surface, large text clears 3:1, and focus is always visible in both
+      themes. A number you cannot read at a glance is a number you will
+      misread under pressure.
 
-   Layer order below: reset → tokens → base → primitives → components →
-   Streamlit overrides → responsive → motion/print.
+   Layer order below: reset → tokens → base → shell chrome → primitives →
+   components → Streamlit overrides → responsive → motion/print.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap');
 
 /* ─────────────────────────────────────────────────────────────────────────
    0 · RESET
@@ -43,44 +51,74 @@
 *, *::before, *::after { box-sizing: border-box; }
 
 /* ─────────────────────────────────────────────────────────────────────────
-   1 · TOKENS
+   1 · TOKENS (dark — canonical). The light theme overrides this same set of
+   custom properties via a second, smaller :root block injected by
+   ui.theme.inject_css() when theme="light" — see LIGHT_TOKENS in ui/theme.py.
+   Every rule below reads a var(--token); none hardcodes a colour outside
+   this block, which is what makes the light theme a token swap rather than
+   a rewrite.
    ───────────────────────────────────────────────────────────────────────── */
 :root {
-    /* Surfaces — a four-step ramp. Anything that needs a fifth is nesting too
-       deep and should be flattened instead. */
-    --bg:            #04070D;   /* Midnight Deep Navy */
-    --surface-1:     #0A111F;   /* Glass panel base */
-    --surface-2:     #121D30;   /* Raised elements */
-    --surface-3:     #1E2C44;   /* Hover / Active */
+    /* Surfaces — a four-step GRAPHITE ramp, deliberately near-neutral.
+       The predecessor ramp was a saturated navy (#04070D → #1E2C44): every
+       panel carried a blue cast, so the accent had to shout to be seen as
+       interactive and the semantic greens/reds read as decoration against a
+       coloured field. A near-achromatic ground is what lets a single blue
+       mean "interactive" and a single green mean "long". The residual cool
+       tint (~4 points of blue over red) keeps it from looking like warm
+       newsprint under a calibrated display; it is not a hue.
+       Anything needing a fifth step is nesting too deep — flatten instead. */
+    --bg:            #0A0C10;   /* Base app background */
+    --surface-1:     #0F1217;   /* Panel base */
+    --surface-2:     #151920;   /* Raised elements */
+    --surface-3:     #1C212A;   /* Hover / Active */
 
-    /* Ink */
-    --ink:           #F8FAFC;
-    --ink-secondary: #CBD5E1;
-    --ink-tertiary:  #94A3B8;
-    --ink-quaternary:#64748B;
+    /* Ink — four steps, every one of which clears WCAG AA (4.5:1) on
+       surface-1, INCLUDING the quaternary tier. Micro-labels are 9px; a
+       "muted" grey that fails contrast at that size is not muted, it is
+       unreadable, and this interface is read under time pressure. Pure white
+       is deliberately absent — #E6EAF1 at 15.6:1 is past the point where more
+       contrast helps and short of the point where it glares. */
+    --ink:           #E6EAF1;   /* 15.6:1 */
+    --ink-secondary: #AEB8C7;   /*  9.4:1 */
+    --ink-tertiary:  #8B95A6;   /*  6.2:1 */
+    --ink-quaternary:#737D8E;   /*  4.5:1 */
 
-    /* Semantic — each carries a claim, never decoration. */
-    --long:          #10B981;   /* Emerald */
-    --short:         #EF4444;   /* Crimson */
-    --caution:       #F59E0B;   /* Amber */
-    --system:        #06B6D4;   /* Electric Cyan */
-    --neutral:       #64748B;   /* Slate */
+    /* Semantic — each carries a claim, never decoration. Muted, not vivid:
+       the previous set was the stock Tailwind-500 ramp (#10B981/#EF4444/
+       #F59E0B), which is tuned to pop on marketing pages and reads as a
+       crypto dashboard on a dense grid. These are desaturated toward the
+       institutional register while still clearing AA on every surface.
+       Accent is the ONE interactive/brand colour (nav, primary actions,
+       emphasis, links, focus). Amber is CAUTION ONLY — never brand. */
+    --accent:        #4C7DF0;   /* Cobalt  — primary / interactive   4.9:1 */
+    --long:          #2CA36B;   /* Green   — positive / bullish      5.9:1 */
+    --short:         #DD5A5A;   /* Red     — negative / bearish      5.1:1 */
+    --caution:       #D79A3C;   /* Amber   — caution / warning ONLY  7.7:1 */
+    --system:        #4E9FC4;   /* Steel   — informational tone      6.3:1 */
+    --neutral:       #7E8797;   /* Slate   — neutral / muted         5.2:1 */
 
     /* Tinted fills. Deliberately faint: a tint marks a region, a border
        delimits it, and the text on top must stay the brightest thing there. */
-    --long-fill:     rgba(16, 185, 129, 0.1);
-    --short-fill:    rgba(239, 68, 68, 0.1);
-    --caution-fill:  rgba(245, 158, 11, 0.1);
-    --system-fill:   rgba(6, 182, 212, 0.1);
-    --long-edge:     rgba(16, 185, 129, 0.35);
-    --short-edge:    rgba(239, 68, 68, 0.35);
-    --caution-edge:  rgba(245, 158, 11, 0.35);
-    --system-edge:   rgba(6, 182, 212, 0.35);
+    --accent-fill:   rgba(76, 125, 240, 0.10);
+    --long-fill:     rgba(44, 163, 107, 0.10);
+    --short-fill:    rgba(221, 90, 90, 0.10);
+    --caution-fill:  rgba(215, 154, 60, 0.10);
+    --system-fill:   rgba(78, 159, 196, 0.10);
+    --accent-edge:   rgba(76, 125, 240, 0.34);
+    --long-edge:     rgba(44, 163, 107, 0.32);
+    --short-edge:    rgba(221, 90, 90, 0.32);
+    --caution-edge:  rgba(215, 154, 60, 0.32);
+    --system-edge:   rgba(78, 159, 196, 0.30);
 
     /* Structure */
-    --line:          rgba(255, 255, 255, 0.05);
-    --line-strong:   rgba(255, 255, 255, 0.12);
-    --line-faint:    rgba(255, 255, 255, 0.02);
+    --line:          rgba(255, 255, 255, 0.07);
+    --line-strong:   rgba(255, 255, 255, 0.13);
+    --line-faint:    rgba(255, 255, 255, 0.035);
+
+    /* Elevation — used sparingly; borders carry most of the elevation work. */
+    --shadow-sm:     0 1px 2px rgba(0, 0, 0, 0.24);
+    --shadow-pop:    0 10px 24px rgba(0, 0, 0, 0.45);  /* overlays only: tooltips */
 
     /* Type */
     --mono: 'JetBrains Mono', 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -100,17 +138,43 @@
     --s1: 0.25rem;  --s2: 0.5rem;   --s3: 0.75rem;  --s4: 1rem;
     --s5: 1.25rem;  --s6: 1.5rem;   --s8: 2rem;     --s10: 2.5rem;
 
-    --r-sm: 3px;  --r-md: 5px;  --r-lg: 8px;  --r-pill: 100px;
+    /* Radii — restrained. Panels 8px, controls 6px, hairline chips 4px.
+       Nothing is a pill except a progress track and a dot. */
+    --r-sm: 4px;  --r-md: 6px;  --r-lg: 8px;  --r-xl: 10px;  --r-pill: 100px;
 
-    --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
-    --fast: 120ms;  --slow: 260ms;
+    /* Motion. Three durations and three easings, and nothing may invent a
+       fourth. Everything in the app is a state change — hover, focus, select,
+       load — so everything uses --motion-fast or --motion-base; --motion-slow
+       is reserved for something that changes SIZE (a progress fill), because
+       that is the only case where the eye needs help following the change.
+       There is no entrance animation anywhere: content that fades in on every
+       rerun is content you have to wait for twice. */
+    --motion-fast:     120ms;   /* hover, colour, border */
+    --motion-base:     160ms;   /* selection, panel state */
+    --motion-slow:     220ms;   /* size/extent changes only */
+    --motion-skeleton: 1.2s;    /* loading shimmer cycle */
+
+    --ease-standard: cubic-bezier(0.2, 0.0, 0.0, 1.0);
+    --ease-enter:    cubic-bezier(0.0, 0.0, 0.2, 1.0);   /* ease-out */
+    --ease-exit:     cubic-bezier(0.4, 0.0, 1.0, 1.0);   /* ease-in  */
+
+    /* Legacy motion aliases — earlier rules read --fast/--slow/--ease. */
+    --ease: var(--ease-standard);
+    --fast: var(--motion-fast);  --slow: var(--motion-slow);
 
     /* Legacy aliases — the Python emits these names; mapping them here keeps
        one source of truth for the value while the markup catches up. */
     --ink-primary: var(--ink);
     --emerald: var(--long);   --rose: var(--short);
     --amber: var(--caution);  --cyan: var(--system);
-    --slate: var(--neutral);  --violet: #A78BFA;
+    --slate: var(--neutral);
+    /* Violet is a real semantic here (secondary / attribution), so it gets
+       tokenised fills and edges like every other one — it was the only hue
+       whose tints were inlined as raw rgba(), which is why it was also the
+       only hue that did not follow the Paper theme. */
+    --violet:        #9B8FD4;
+    --violet-fill:   rgba(155, 143, 212, 0.10);
+    --violet-edge:   rgba(155, 143, 212, 0.32);
     --border: var(--line);    --border-subtle: var(--line-faint);
     --data: var(--mono);      --display: var(--sans);
     --sp-1: var(--s1); --sp-2: var(--s2); --sp-3: var(--s3); --sp-4: var(--s4);
@@ -132,7 +196,9 @@
 /* Every numeral in the app is tabular. Without this, a column of prices
    shimmers as digits change width and the eye cannot hold a baseline. */
 .stApp [class*="value"], .stApp td, .stApp th,
-.stApp .mono, .tt-item, .hero-signal, .hero-conviction {
+.stApp .mono, .tt-item, .hero-signal, .hero-conviction,
+.command-bar .cb-quote, .command-bar .cb-meta .v, .rail-readout .v,
+.metric-card h2, .metric-card .value {
     font-variant-numeric: tabular-nums;
     font-feature-settings: "tnum" 1, "zero" 1;
 }
@@ -140,7 +206,7 @@
 /* Focus is never removed, only restyled — keyboard users must be able to see
    where they are, and an invisible focus ring is an accessibility failure. */
 .stApp :focus-visible {
-    outline: 2px solid var(--system);
+    outline: 2px solid var(--accent);
     outline-offset: 2px;
     border-radius: var(--r-sm);
 }
@@ -168,7 +234,7 @@
 .ticker {
     position: relative;
     overflow: hidden;
-    background: linear-gradient(180deg, var(--surface-2), var(--surface-1));
+    background: var(--surface-1);
     border-block: 1px solid var(--line);
     margin: 0 0 var(--s5);
     height: 30px;
@@ -220,23 +286,187 @@
 .tt-sep { color: var(--line-strong); }
 
 /* ─────────────────────────────────────────────────────────────────────────
-   4 · APP HEADER
+   4 · APP HEADER / COMMAND BAR
+   The dense row every page opens with: brand mark, active instrument, and
+   system status (session / freshness). Sticky within the scroll container
+   so state stays visible while a long page (FVO, Diagnostics) is read.
    ───────────────────────────────────────────────────────────────────────── */
 .premium-header {
-    display: flex; align-items: baseline; gap: var(--s3);
-    padding: var(--s2) 0 var(--s5);
+    padding: var(--s4) 0 var(--s5);
     border-bottom: 1px solid var(--line);
     margin-bottom: var(--s6);
-    flex-wrap: wrap;
 }
 .premium-header .title {
-    font-family: var(--sans); font-size: var(--fs-lg); font-weight: 700;
-    letter-spacing: -0.01em; color: var(--ink);
+    font-family: var(--sans); font-size: var(--fs-2xl); font-weight: 700;
+    letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink);
+    line-height: 1;
 }
+.premium-header .title .accent-ink { color: var(--accent); }
 .premium-header .tagline {
+    margin-top: var(--s3);
     font-family: var(--mono); font-size: var(--fs-2xs);
-    color: var(--ink-tertiary); text-transform: uppercase; letter-spacing: 0.14em;
+    color: var(--ink-tertiary); text-transform: uppercase; letter-spacing: 0.18em;
 }
+
+/* The command bar is the instrument's identity line, and it is the FIRST
+   thing on every page — nothing (not a freshness notice, not a control row)
+   renders above it. Three registers, left to right: who you are looking at,
+   what it is worth, and whether the data behind that is trustworthy. The
+   quote block is the largest type in the bar because a price you have to
+   hunt for is a price you will misread. */
+.command-bar {
+    position: sticky; top: -1px; z-index: 6;
+    display: flex; align-items: center; justify-content: space-between;
+    gap: var(--s4); row-gap: var(--s2); flex-wrap: wrap;
+    padding: var(--s3) var(--s4); margin: 0 0 var(--s4);
+    background: var(--surface-1);
+    border: 1px solid var(--line);
+    border-radius: var(--r-lg);
+}
+/* `.open` = a toolbar strip is docked underneath; square off the join so the
+   two read as one chrome block rather than two stacked panels. */
+.command-bar.open { border-radius: var(--r-lg) var(--r-lg) 0 0; margin-bottom: 0; }
+.command-bar .cb-left {
+    display: flex; align-items: center; gap: var(--s4);
+    min-width: 0; flex-wrap: wrap;
+}
+.command-bar .cb-brand {
+    display: flex; flex-direction: column; gap: 1px;
+    padding-right: var(--s4); border-right: 1px solid var(--line);
+}
+.command-bar .cb-brand .mark {
+    font-family: var(--sans); font-weight: 700; font-size: var(--fs-sm);
+    color: var(--ink); letter-spacing: 0.06em; text-transform: uppercase;
+    line-height: 1;
+}
+.command-bar .cb-brand .mark .accent-ink { color: var(--accent); }
+.command-bar .cb-brand .sub {
+    font-family: var(--mono); font-size: var(--fs-3xs);
+    color: var(--ink-quaternary); text-transform: uppercase; letter-spacing: 0.14em;
+    line-height: 1;
+}
+/* Instrument identity: micro-label above, symbol below — so the eye can find
+   the symbol on the same baseline on every page regardless of name length. */
+.command-bar .cb-instrument {
+    display: flex; flex-direction: column; gap: 2px; min-width: 0;
+}
+.command-bar .cb-instrument .eyebrow {
+    font-family: var(--mono); font-size: var(--fs-3xs); font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.16em; color: var(--ink-quaternary);
+    line-height: 1;
+}
+.command-bar .cb-instrument .sym {
+    font-family: var(--mono);
+    font-size: var(--fs-md); font-weight: 700; color: var(--ink);
+    letter-spacing: -0.01em; line-height: 1.15;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 34ch;
+}
+/* The quote — price and change read as one unit, right-aligned to each
+   other so the change never drifts as the price gains a digit. */
+.command-bar .cb-quote {
+    display: flex; align-items: baseline; gap: var(--s3);
+    padding-left: var(--s4); border-left: 1px solid var(--line);
+    font-family: var(--mono);
+}
+.command-bar .cb-quote .px {
+    font-size: var(--fs-lg); font-weight: 600; color: var(--ink);
+    letter-spacing: -0.02em;
+}
+.command-bar .cb-quote .chg { font-size: var(--fs-sm); font-weight: 700; }
+.command-bar .cb-quote .chg.up   { color: var(--long); }
+.command-bar .cb-quote .chg.down { color: var(--short); }
+.command-bar .cb-quote .chg.flat { color: var(--ink-tertiary); }
+.command-bar .cb-right {
+    display: flex; align-items: center; gap: var(--s5); flex-wrap: wrap;
+}
+/* Each meta pair is its own labelled column with a hairline between, so
+   "WINDOW 6M HORIZON 21D" cannot read as one run of text. At the 12px gap
+   this used before, the label of the next pair sat closer to the value of
+   the previous one than to its own. */
+.command-bar .cb-meta {
+    display: flex; flex-direction: column; gap: 2px; text-align: right;
+    font-family: var(--mono); white-space: nowrap;
+}
+.command-bar .cb-meta + .cb-meta {
+    padding-left: var(--s5); border-left: 1px solid var(--line);
+}
+.command-bar .cb-meta .k {
+    font-size: var(--fs-3xs); text-transform: uppercase; letter-spacing: 0.14em;
+    color: var(--ink-quaternary); line-height: 1;
+}
+.command-bar .cb-meta .v {
+    font-size: var(--fs-xs); color: var(--ink-secondary); font-weight: 500; line-height: 1.3;
+}
+
+/* ── Toolbar strip ────────────────────────────────────────────────────────
+   Docks flush under the command bar as one continuous chrome block, and
+   holds the page's LOCAL controls (timeframe, view switches). Global
+   controls — instrument, data actions — stay in the rail. Keeping the two
+   apart is the whole point: a control's position tells you its scope. */
+.toolbar-strip, .st-key-toolbar {
+    padding: var(--s2) var(--s4) !important;
+    background: var(--surface-1);
+    border: 1px solid var(--line); border-top: none;
+    border-radius: 0 0 var(--r-lg) var(--r-lg);
+    margin-bottom: var(--s5) !important;
+}
+/* A standalone filter strip — same surface as the docked toolbar, but all
+   four corners rounded because nothing sits above it. Used where filters
+   scope a single panel (the Data page's date range + search). */
+.st-key-filterbar {
+    padding: var(--s3) var(--s4) !important;
+    background: var(--surface-1);
+    border: 1px solid var(--line);
+    border-radius: var(--r-lg);
+    margin-bottom: var(--s3) !important;
+}
+.st-key-filterbar [data-testid="stWidgetLabel"] p {
+    font-family: var(--mono) !important; font-size: var(--fs-3xs) !important;
+    font-weight: 600 !important; text-transform: uppercase; letter-spacing: 0.14em;
+    color: var(--ink-quaternary) !important; margin-bottom: 2px !important;
+}
+
+.tb-label {
+    font-family: var(--mono); font-size: var(--fs-3xs); font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.16em; color: var(--ink-quaternary);
+    white-space: nowrap;
+}
+/* The strip's widgets are Streamlit's, so their default block gaps have to be
+   collapsed for the row to read as one control bar rather than a stack. */
+.st-key-toolbar [data-testid="stVerticalBlock"],
+.st-key-toolbar [data-testid="stHorizontalBlock"] { gap: var(--s3) !important; }
+.st-key-toolbar [data-testid="stElementContainer"] { margin: 0 !important; }
+
+/* ── Notice rail ──────────────────────────────────────────────────────────
+   Data-quality notices (stale source, partial session, carried-forward
+   predictors) used to render at the very top of the page, ABOVE the command
+   bar — so on a lagging source the first thing on screen was an apology
+   rather than the instrument. They now sit directly beneath the chrome, as a
+   compact row per notice: severity rule, title, then the explanation inline.
+   Same information, one third of the vertical cost. */
+.notice-rail { display: flex; flex-direction: column; gap: var(--s2); margin-bottom: var(--s5); }
+.notice {
+    display: grid; grid-template-columns: auto 1fr; gap: var(--s3);
+    align-items: baseline;
+    padding: var(--s2) var(--s4);
+    background: var(--surface-1);
+    border: 1px solid var(--line); border-left: 2px solid var(--neutral);
+    border-radius: var(--r-md);
+}
+.notice .n-title {
+    font-family: var(--mono); font-size: var(--fs-2xs); font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.12em; white-space: nowrap;
+    color: var(--ink-secondary);
+}
+.notice .n-body {
+    font-family: var(--sans); font-size: var(--fs-sm); line-height: 1.55;
+    color: var(--ink-tertiary);
+}
+.notice.warning { border-left-color: var(--caution); background: var(--caution-fill); }
+.notice.warning .n-title { color: var(--caution); }
+.notice.info    { border-left-color: var(--system); }
+.notice.info .n-title { color: var(--system); }
+
 .app-footer {
     margin-top: var(--s10); padding-top: var(--s4);
     border-top: 1px solid var(--line);
@@ -251,39 +481,54 @@
    the answer's terms — in that visual order so scanning down the page reads
    as an outline.
    ───────────────────────────────────────────────────────────────────────── */
+/* Icon and title share ONE optical line, and the description hangs beneath
+   both — indented to the title, not to the icon, so a column of sections
+   reads down a single left edge.
+
+   Previously the grid put the icon in column 1 and ALL the text in column 2
+   with `align-items: start`, which top-aligned a 22px icon box against a
+   19px cap height (the icon sat ~3px high), and the description inherited
+   the title's left edge only by accident of the grid. The two-row grid below
+   states both relationships instead of relying on them. */
 .section-hdr {
     display: grid;
-    grid-template-columns: auto 1fr;
-    gap: var(--s3);
-    align-items: start;
+    grid-template-columns: 22px 1fr;
+    column-gap: var(--s3); row-gap: var(--s2);
+    align-items: center;
     margin: var(--s6) 0 var(--s4);
     padding-top: var(--s4);
     border-top: 1px solid var(--line);
 }
 .section-hdr .icon {
+    grid-row: 1; grid-column: 1;
     display: grid; place-items: center;
     width: 22px; height: 22px; border-radius: var(--r-sm);
     background: var(--surface-2); color: var(--ink-tertiary);
     border: 1px solid var(--line);
 }
-.section-hdr .icon svg { width: 13px; height: 13px; }
-.section-hdr .text { grid-column: 2; min-width: 0; }
+.section-hdr .icon svg { width: 13px; height: 13px; display: block; }
+.section-hdr .text { grid-row: 1; grid-column: 2; min-width: 0; }
 .section-hdr h3 {
     margin: 0;
     font-family: var(--sans); font-size: var(--fs-lg); font-weight: 650;
-    letter-spacing: -0.01em; color: var(--ink); line-height: 1.3;
+    letter-spacing: -0.01em; color: var(--ink); line-height: 1.25;
 }
+/* Row 2, column 2: aligned to the title's left edge, tight under it. It sat
+   ~30px below the title before, far enough to read as an unrelated
+   paragraph rather than as the heading's own subtitle. */
 .section-hdr .desc {
-    margin-top: var(--s2);
-    font-family: var(--mono); font-size: var(--fs-xs);
-    line-height: 1.65; color: var(--ink-tertiary); max-width: 78ch;
+    grid-row: 2; grid-column: 2;
+    margin: 0;
+    font-family: var(--sans); font-size: var(--fs-sm);
+    line-height: 1.55; color: var(--ink-tertiary); max-width: 92ch;
 }
 /* Accents tint only the icon. A coloured heading competes with the data. */
+.section-hdr.accent  .icon { color: var(--accent);  border-color: var(--accent-edge);  background: var(--accent-fill); }
 .section-hdr.cyan    .icon { color: var(--system);  border-color: var(--system-edge);  background: var(--system-fill); }
 .section-hdr.emerald .icon { color: var(--long);    border-color: var(--long-edge);    background: var(--long-fill); }
 .section-hdr.rose    .icon { color: var(--short);   border-color: var(--short-edge);   background: var(--short-fill); }
 .section-hdr.amber   .icon { color: var(--caution); border-color: var(--caution-edge); background: var(--caution-fill); }
-.section-hdr.violet  .icon { color: var(--violet);  border-color: rgba(167,139,250,0.32); background: rgba(167,139,250,0.09); }
+.section-hdr.violet  .icon { color: var(--violet);  border-color: var(--violet-edge); background: var(--violet-fill); }
 
 .section-divider { height: 1px; background: var(--line); margin: var(--s5) 0; }
 .section-gap { height: var(--s6); }
@@ -291,54 +536,60 @@
 /* ─────────────────────────────────────────────────────────────────────────
    6 · METRIC CARDS
    The workhorse. Label above, value dominant, note below — one glance gets
-   the number, a second gets its meaning. State is carried on the left rule
-   so a column of cards can be scanned for red without reading any of them.
+   the number, a second gets its meaning. State is carried on a top rule so
+   a ROW of cards can be scanned for red without reading any of them.
+   Flat surface + border — no blur, no stacked shadow.
    ───────────────────────────────────────────────────────────────────────── */
 .metric-card {
     position: relative;
-    background: linear-gradient(135deg, rgba(255, 255, 255, 0.03) 0%, rgba(255, 255, 255, 0.005) 100%);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border: 1px solid var(--line-strong);
-    border-left: 2px solid var(--ink-quaternary);
+    display: flex; flex-direction: column;
+    background: var(--surface-1);
+    border: 1px solid var(--line);
     border-radius: var(--r-lg);
-    padding: var(--s4);
+    padding: var(--s3) var(--s4) var(--s4);
     height: 100%;
-    box-shadow: 0 4px 24px -1px rgba(0, 0, 0, 0.2);
-    transition: all var(--slow) var(--ease);
+    transition: border-color var(--fast) var(--ease), background var(--fast) var(--ease);
 }
-.metric-card:hover { 
-    background: linear-gradient(135deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0.01) 100%);
-    border-color: var(--ink-quaternary); 
-    box-shadow: 0 8px 32px -2px rgba(0, 0, 0, 0.3);
-    transform: translateY(-2px);
+/* State is a 2px rule along the TOP edge, not the left. On a 6-across KPI
+   strip the cards are wider than they are tall, so a left rule is a 2px mark
+   the eye has to hunt for at the start of each card; a top rule gives the
+   row a continuous band of colour that can be read in one pass without
+   reading a single number. */
+.metric-card::before {
+    content: ""; position: absolute; inset: 0 0 auto 0; height: 2px;
+    border-radius: var(--r-lg) var(--r-lg) 0 0;
+    background: var(--ink-quaternary);
 }
+.metric-card:hover { border-color: var(--line-strong); }
 .card-icon { display: inline-flex; vertical-align: -1px; opacity: 0.75; }
 .card-icon svg { width: 11px; height: 11px; }
 .metric-card .label {
     font-family: var(--mono); font-size: var(--fs-3xs); font-weight: 600;
-    text-transform: uppercase; letter-spacing: 0.12em;
-    color: var(--ink-tertiary); display: block; margin-bottom: var(--s2);
+    text-transform: uppercase; letter-spacing: 0.14em;
+    color: var(--ink-quaternary); display: block; margin-bottom: var(--s3);
 }
 .metric-card h2, .metric-card .value {
     font-family: var(--mono); font-size: var(--fs-xl); font-weight: 600;
-    letter-spacing: -0.02em; color: var(--ink); margin: 0; line-height: 1.15;
+    letter-spacing: -0.025em; color: var(--ink); margin: 0; line-height: 1.1;
 }
 .metric-card .sub-metric, .metric-card .subtext {
     display: block; margin-top: var(--s2);
-    font-family: var(--mono); font-size: var(--fs-xs); line-height: 1.55;
+    font-family: var(--mono); font-size: var(--fs-2xs); line-height: 1.5;
     color: var(--ink-tertiary);
 }
-.metric-card.success { border-left-color: var(--long); }
-.metric-card.danger  { border-left-color: var(--short); }
-.metric-card.warning { border-left-color: var(--caution); }
-.metric-card.info    { border-left-color: var(--system); }
-.metric-card.neutral { border-left-color: var(--ink-quaternary); }
+.metric-card.accent::before  { background: var(--accent); }
+.metric-card.success::before { background: var(--long); }
+.metric-card.danger::before  { background: var(--short); }
+.metric-card.warning::before { background: var(--caution); }
+.metric-card.info::before    { background: var(--system); }
+.metric-card.neutral::before { background: var(--line-strong); }
+.metric-card.accent  h2, .metric-card.accent  .value { color: var(--accent); }
 .metric-card.success h2, .metric-card.success .value { color: var(--long); }
 .metric-card.danger  h2, .metric-card.danger  .value { color: var(--short); }
 .metric-card.warning h2, .metric-card.warning .value { color: var(--caution); }
 
-/* Tooltip — keyboard reachable, not hover-only. */
+/* Tooltip — keyboard reachable, not hover-only. The one place a shadow is
+   earned: this genuinely floats above the page. */
 .metric-tooltip { position: relative; display: inline-flex; }
 .metric-tooltip-text {
     position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 60;
@@ -349,13 +600,17 @@
     color: var(--ink-secondary);
     opacity: 0; visibility: hidden; transform: translateY(3px);
     transition: opacity var(--fast) var(--ease), transform var(--fast) var(--ease);
-    box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+    box-shadow: var(--shadow-pop);
     white-space: normal;
 }
 .metric-tooltip:hover .metric-tooltip-text,
 .metric-tooltip:focus-within .metric-tooltip-text {
     opacity: 1; visibility: visible; transform: translateY(0);
 }
+
+/* KPI strip — a row of metric cards used on the Overview page; caps density
+   so cards never squeeze below a legible width (wraps to a new row instead). */
+.st-key-kpi-strip [data-testid="column"] { min-width: 152px; }
 
 /* ─────────────────────────────────────────────────────────────────────────
    7 · HERO CARD — the conviction chain
@@ -365,14 +620,11 @@
    ───────────────────────────────────────────────────────────────────────── */
 .hero-card {
     position: relative; overflow: hidden;
-    background: linear-gradient(160deg, rgba(30, 44, 68, 0.4) 0%, rgba(10, 17, 31, 0.6) 100%);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
+    background: var(--surface-1);
     border: 1px solid var(--line-strong);
-    border-radius: 12px;
+    border-radius: var(--r-lg);
     padding: var(--s5) var(--s6);
     margin-bottom: var(--s6);
-    box-shadow: 0 12px 40px -4px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255,255,255,0.1);
 }
 .hero-card::before {
     content: ""; position: absolute; inset: 0 auto 0 0; width: 3px;
@@ -428,7 +680,7 @@
     border-left: 2px solid var(--caution);
     background: var(--caution-fill);
     border-radius: 0 var(--r-md) var(--r-md) 0;
-    font-family: var(--mono); font-size: var(--fs-sm);
+    font-family: var(--sans); font-size: var(--fs-sm);
     line-height: 1.6; color: var(--ink-secondary);
 }
 .hero-gates {
@@ -471,14 +723,12 @@
    8 · INTERPRETATION & SYSTEM CARDS
    ───────────────────────────────────────────────────────────────────────── */
 .interp-card, .warning-box, .info-box {
-    background: linear-gradient(135deg, rgba(255, 255, 255, 0.03) 0%, rgba(255, 255, 255, 0.01) 100%);
-    backdrop-filter: blur(8px);
+    background: var(--surface-1);
     border: 1px solid var(--line-strong);
     border-left: 2px solid var(--ink-quaternary);
     border-radius: var(--r-lg);
     padding: var(--s4);
     margin: var(--s3) 0;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
 }
 .interp-title {
     font-family: var(--mono); font-size: var(--fs-2xs); font-weight: 700;
@@ -486,48 +736,85 @@
     color: var(--ink-secondary); margin-bottom: var(--s2);
 }
 .interp-body {
-    font-family: var(--mono); font-size: var(--fs-sm);
-    line-height: 1.7; color: var(--ink-secondary);
+    font-family: var(--sans); font-size: var(--fs-sm);
+    line-height: 1.65; color: var(--ink-secondary);
 }
 .interp-card.success { border-left-color: var(--long);    background: var(--long-fill); }
 .interp-card.danger  { border-left-color: var(--short);   background: var(--short-fill); }
 .interp-card.warning { border-left-color: var(--caution); background: var(--caution-fill); }
+.interp-card.info    { border-left-color: var(--system);  background: var(--system-fill); }
+.interp-card.accent  { border-left-color: var(--accent);  background: var(--accent-fill); }
 .interp-card.neutral { border-left-color: var(--neutral); }
 .interp-card.success .interp-title { color: var(--long); }
 .interp-card.danger  .interp-title { color: var(--short); }
 .interp-card.warning .interp-title { color: var(--caution); }
-.warning-box { border-left-color: var(--caution); background: var(--caution-fill); }
+.interp-card.info    .interp-title { color: var(--system); }
+.interp-card.accent  .interp-title { color: var(--accent); }
 
-.system-card {
-    background: linear-gradient(135deg, rgba(255, 255, 255, 0.02) 0%, rgba(255, 255, 255, 0.005) 100%);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
-    border: 1px solid var(--line-strong);
-    border-radius: var(--r-lg); 
-    padding: var(--s4); 
-    height: 100%;
-    box-shadow: 0 4px 16px -2px rgba(0, 0, 0, 0.2);
-    transition: transform var(--slow) var(--ease), box-shadow var(--slow) var(--ease);
+/* warning-box / info-box: title+content (warning-box) or h4+p (info-box). */
+.warning-box, .info-box { display: flex; gap: var(--s3); align-items: flex-start; }
+.warning-box { border-left-color: var(--caution); background: var(--caution-fill); }
+.warning-box .icon {
+    flex: none; width: 18px; height: 18px; border-radius: 50%; margin-top: 1px;
+    background: var(--caution-fill); border: 1px solid var(--caution-edge);
+    color: var(--caution); font-family: var(--mono); font-weight: 800; font-size: 11px;
+    display: flex; align-items: center; justify-content: center;
 }
-.system-card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 8px 24px -4px rgba(0, 0, 0, 0.3);
-}
-.system-card h3 {
-    display: flex; align-items: center; gap: var(--s2);
-    margin: 0 0 var(--s2);
-    font-family: var(--sans); font-size: var(--fs-sm); font-weight: 650;
+.warning-box .icon::before { content: "!"; }
+.warning-box .title, .info-box h4 {
+    margin: 0 0 var(--s1); font-family: var(--sans); font-size: var(--fs-sm); font-weight: 650;
     color: var(--ink);
 }
-.system-card h3 svg { width: 14px; height: 14px; }
-.system-card p {
-    margin: 0; font-family: var(--mono); font-size: var(--fs-xs);
-    line-height: 1.65; color: var(--ink-tertiary);
+.warning-box .content, .info-box p {
+    margin: 0; font-family: var(--sans); font-size: var(--fs-sm);
+    line-height: 1.6; color: var(--ink-secondary);
 }
-.system-card.fvo       { border-top: 2px solid var(--caution); }
-.system-card.swayam    { border-top: 2px solid var(--system); }
+.info-box { border-left-color: var(--system); background: var(--system-fill); }
+.info-box.cyan    { border-left-color: var(--system);  background: var(--system-fill); }
+.info-box.amber   { border-left-color: var(--caution); background: var(--caution-fill); }
+.info-box.emerald { border-left-color: var(--long);    background: var(--long-fill); }
+.info-box.rose    { border-left-color: var(--short);   background: var(--short-fill); }
+.info-box.violet  { border-left-color: var(--violet);  background: var(--violet-fill); }
+.info-box.accent  { border-left-color: var(--accent);  background: var(--accent-fill); }
+
+.system-card {
+    display: flex; flex-direction: column;
+    background: var(--surface-1);
+    border: 1px solid var(--line);
+    border-radius: var(--r-lg);
+    padding: var(--s4);
+    height: 100%;
+    transition: border-color var(--fast) var(--ease);
+}
+.system-card:hover { border-color: var(--line-strong); }
+.system-card .sc-eyebrow {
+    font-family: var(--mono); font-size: var(--fs-3xs); font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.18em; color: var(--ink-quaternary);
+    margin-bottom: var(--s2);
+}
+.system-card .sc-kicker {
+    font-family: var(--mono); font-size: var(--fs-2xs); font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.12em; color: var(--ink-tertiary);
+    margin-top: var(--s1);
+}
+.system-card h3 {
+    margin: 0;
+    font-family: var(--sans); font-size: var(--fs-lg); font-weight: 700;
+    letter-spacing: 0.02em; color: var(--ink); line-height: 1.2;
+}
+.system-card p {
+    margin: var(--s3) 0 0; font-family: var(--sans); font-size: var(--fs-sm);
+    line-height: 1.65; color: var(--ink-tertiary);
+    flex: 1;   /* spec block bottom-aligns across all three panels */
+}
+.system-card.fvo         { border-top: 2px solid var(--accent); }
+.system-card.swayam      { border-top: 2px solid var(--system); }
 .system-card.convergence { border-top: 2px solid var(--long); }
-.system-spec { margin-top: var(--s3); display: flex; flex-direction: column; gap: var(--s1); }
+.system-spec {
+    margin-top: var(--s4); padding-top: var(--s3);
+    border-top: 1px solid var(--line);
+    display: flex; flex-direction: column; gap: var(--s1);
+}
 .spec-row {
     display: flex; justify-content: space-between; gap: var(--s3);
     font-family: var(--mono); font-size: var(--fs-2xs);
@@ -536,16 +823,38 @@
 .spec-value { color: var(--ink-secondary); font-weight: 600; }
 
 /* ─────────────────────────────────────────────────────────────────────────
-   9 · ANALOG CARDS (Precedent)
+   9 · CHIPS / STATUS BADGES
+   One badge system, used for analog tiers, session/freshness state, and any
+   other "state in a word" reading. Tone carries the claim; the leading dot
+   repeats it for anyone who can't rely on colour alone.
    ───────────────────────────────────────────────────────────────────────── */
+.chip {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 2px 9px; border-radius: var(--r-pill);
+    font-family: var(--mono); font-size: var(--fs-3xs); font-weight: 700;
+    letter-spacing: 0.08em; text-transform: uppercase;
+    border: 1px solid currentColor; white-space: nowrap; line-height: 1.7;
+}
+.chip::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: currentColor; flex: none; }
+.chip-accent  { color: var(--accent);       background: var(--accent-fill); }
+.chip-success { color: var(--long);         background: var(--long-fill); }
+.chip-danger  { color: var(--short);        background: var(--short-fill); }
+.chip-warning { color: var(--caution);      background: var(--caution-fill); }
+.chip-info    { color: var(--system);       background: var(--system-fill); }
+.chip-neutral { color: var(--ink-tertiary); background: var(--surface-2); border-color: var(--line-strong); }
+.chip-outline { background: transparent; }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   10 · ANALOG CARDS (Precedent)
+   ───────────────────────────────────────────────────────────────────────── */
+/* Analog card — a panel with a state rule, same surface and radius as every
+   other framed thing. Its own bottom margin now provides the stacking gap
+   (an inline spacer div in the tab used to do it). */
 .analog-card {
-    background: linear-gradient(135deg, rgba(255, 255, 255, 0.02) 0%, rgba(255, 255, 255, 0.005) 100%);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
-    border: 1px solid var(--line-strong);
+    background: var(--surface-1);
+    border: 1px solid var(--line);
     border-left: 2px solid var(--ink-quaternary);
     border-radius: var(--r-lg); padding: var(--s4); margin-bottom: var(--s3);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }
 .analog-card.tier-strong-buy { border-left-color: var(--long); }
 .analog-card.tier-buy        { border-left-color: var(--long-edge); }
@@ -563,16 +872,6 @@
     font-family: var(--mono); font-size: var(--fs-md); font-weight: 700;
     color: var(--ink); margin-top: 2px;
 }
-.position-card-badge {
-    padding: 2px 8px; border-radius: var(--r-pill);
-    font-family: var(--mono); font-size: var(--fs-3xs); font-weight: 700;
-    text-transform: uppercase; letter-spacing: 0.09em;
-    border: 1px solid currentColor; white-space: nowrap;
-}
-.badge-strong-buy { color: var(--long);    background: var(--long-fill); }
-.badge-buy        { color: var(--long);    background: transparent; }
-.badge-caution    { color: var(--short);   background: var(--short-fill); }
-.badge-hold       { color: var(--neutral); background: transparent; }
 .analog-stat-row {
     display: flex; flex-wrap: wrap; gap: var(--s4);
     padding-bottom: var(--s3); border-bottom: 1px solid var(--line-faint);
@@ -587,7 +886,7 @@
 }
 .analog-stat-value.pos { color: var(--long); }
 .analog-stat-value.neg { color: var(--short); }
-.analog-stat-value.amber { color: var(--caution); }
+.analog-stat-value.accent { color: var(--accent); }
 .analog-fwd-block { margin-top: var(--s3); }
 .analog-fwd-block-label {
     font-family: var(--mono); font-size: var(--fs-3xs);
@@ -615,7 +914,7 @@
     font-family: var(--mono); font-size: var(--fs-3xs); color: var(--ink-quaternary);
 }
 .analog-foot-label { text-transform: uppercase; letter-spacing: 0.1em; }
-.analog-foot-pct { color: var(--caution); font-weight: 700; }
+.analog-foot-pct { color: var(--accent); font-weight: 700; }
 .conviction-bar {
     flex: 1; height: 2px; border-radius: var(--r-pill);
     background: var(--line-strong); overflow: hidden;
@@ -625,131 +924,629 @@
 .conviction-bar-fill.fill-buy        { background: var(--long-edge); }
 .conviction-bar-fill.fill-caution    { background: var(--short); }
 .conviction-bar-fill.fill-hold       { background: var(--neutral); }
-
-/* .position-card is emitted alongside .analog-card; the analog rules carry
-   the styling, so it exists only as a hook for future variants. */
 .analog-card-id { min-width: 0; }
 
 /* ─────────────────────────────────────────────────────────────────────────
-   10 · SIDEBAR & CONTROLS
+   11 · EMPTY STATES & SKELETON LOADING
+   Professional, icon-free, one explanation + one suggested action. Used for
+   "no data yet", "no usable precedent", "no weights yet" everywhere in the
+   app so degraded states read as one system rather than six ad hoc notices.
+   ───────────────────────────────────────────────────────────────────────── */
+.empty-state {
+    background: var(--surface-1);
+    border: 1px solid var(--line);
+    border-radius: var(--r-lg);
+    padding: var(--s6) var(--s5);
+    margin: var(--s3) 0;
+}
+.empty-state .es-eyebrow {
+    font-family: var(--mono); font-size: var(--fs-3xs); font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.14em; color: var(--ink-quaternary);
+}
+.empty-state .es-title {
+    font-family: var(--sans); font-size: var(--fs-lg); font-weight: 650;
+    color: var(--ink); margin-top: var(--s1);
+}
+.empty-state .es-body {
+    font-family: var(--sans); font-size: var(--fs-sm); line-height: 1.65;
+    color: var(--ink-tertiary); max-width: 72ch; margin-top: var(--s2);
+}
+.empty-state .es-action {
+    display: inline-block; margin-top: var(--s4);
+    font-family: var(--mono); font-size: var(--fs-xs); font-weight: 700;
+    color: var(--accent); letter-spacing: 0.04em;
+}
+
+/* Loading is a SHAPE, not a spinner. The skeleton occupies the footprint of
+   the thing that is coming, inside the panel that will hold it, so the page
+   does not reflow when the content lands and the reader can already see how
+   much of it there will be. The shimmer is one low-contrast pass — enough to
+   read as "working", not enough to watch. */
+.skeleton {
+    position: relative; overflow: hidden;
+    background: var(--surface-2); border-radius: var(--r-sm);
+}
+.skeleton::after {
+    content: ""; position: absolute; inset: 0;
+    background: linear-gradient(90deg, transparent, var(--surface-3), transparent);
+    transform: translateX(-100%);
+    animation: skeleton-shimmer var(--motion-skeleton) var(--ease-standard) infinite;
+}
+@keyframes skeleton-shimmer { to { transform: translateX(100%); } }
+
+.skeleton-body { padding: var(--s4); display: flex; flex-direction: column; gap: var(--s2); }
+.skeleton-body .sk-head { height: 10px; width: 40%; margin-bottom: var(--s2); }
+.skeleton-body .sk-row  { height: 14px; }
+/* Rows shorten down the stack — a uniform block reads as a filled rectangle,
+   a ragged one reads as a table that has not arrived. */
+.skeleton-body .sk-row:nth-child(3n)   { width: 88%; }
+.skeleton-body .sk-row:nth-child(3n+1) { width: 96%; }
+
+/* Panel-level state copy: an unavailable chart, an empty table. Sits in the
+   body of its own panel so a degraded state occupies the same footprint and
+   the same frame as the content it stands in for. */
+.panel-state {
+    padding: var(--s6) var(--s4);
+    font-family: var(--sans); font-size: var(--fs-sm); line-height: 1.65;
+    color: var(--ink-tertiary); text-align: center;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   12 · APP SHELL — SIDEBAR NAV RAIL & CONTROLS
+   The sidebar carries two jobs: the real Streamlit page-nav rail
+   (st.navigation — Streamlit pins this to the top of the sidebar by
+   design, above anything else placed there) and, below it, global session
+   controls (brand mark, asset/target, run/refresh, model passport). The
+   rail itself is restyled from a plain link list into a compact
+   institutional rail with a left accent bar for the active page.
    ───────────────────────────────────────────────────────────────────────── */
 [data-testid="stSidebar"] {
     background: var(--surface-1);
     border-right: 1px solid var(--line);
 }
-[data-testid="stSidebar"] .block-container { padding-top: var(--s5); }
+[data-testid="stSidebar"] .block-container { padding-top: var(--s4); }
+/* The rail is a control surface, not a document: its widgets sit closer
+   together than main-area ones so the whole session state fits above the
+   fold without scrolling. */
+[data-testid="stSidebar"] [data-testid="stVerticalBlock"] { gap: var(--s2); }
+
+.nav-brand {
+    padding: 0 0 var(--s3);
+    border-bottom: 1px solid var(--line);
+    margin-bottom: var(--s1);
+}
+.nav-brand .mark {
+    font-family: var(--sans); font-size: var(--fs-md); font-weight: 700;
+    letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink);
+}
+.nav-brand .mark .accent-ink { color: var(--accent); }
+.nav-brand .tagline {
+    font-family: var(--mono); color: var(--ink-quaternary); font-size: var(--fs-3xs);
+    margin-top: 3px; letter-spacing: 0.12em; text-transform: uppercase;
+}
+
+/* Group label. Every control in the rail belongs to exactly one labelled
+   group — INSTRUMENT, SESSION, MODEL, APPEARANCE — so the rail reads as an
+   outline of what can be changed rather than a pile of widgets. */
 .sidebar-title {
+    display: flex; align-items: center; gap: var(--s2);
     font-family: var(--mono); font-size: var(--fs-3xs); font-weight: 700;
-    text-transform: uppercase; letter-spacing: 0.16em;
+    text-transform: uppercase; letter-spacing: 0.18em;
     color: var(--ink-quaternary); margin: var(--s4) 0 var(--s2);
 }
-.control-hint, .sidebar-hint {
-    font-family: var(--mono); font-size: var(--fs-2xs); line-height: 1.6;
-    color: var(--ink-tertiary); margin: var(--s1) 0 var(--s3);
+.sidebar-title::after {
+    content: ""; flex: 1; height: 1px; background: var(--line);
 }
-.sidebar-hint-label { color: var(--ink-quaternary); text-transform: uppercase; letter-spacing: 0.1em; }
-.sidebar-hint-arrow { color: var(--caution); }
+.control-hint {
+    font-family: var(--mono); font-size: var(--fs-2xs); line-height: 1.6;
+    color: var(--ink-tertiary); margin: var(--s1) 0 var(--s2);
+}
+
+/* Rail buttons sit two-to-a-row, so a label must never wrap: "Refresh" at
+   the app's uppercase + 0.1em tracking was breaking to "REFRES / H", which
+   also made the two buttons different heights. Tighter tracking and padding
+   buy the room; nowrap guarantees it. */
+[data-testid="stSidebar"] [data-testid^="stBaseButton"] {
+    white-space: nowrap;
+    letter-spacing: 0.06em;
+    padding-inline: var(--s2);
+}
+
+/* Widget labels in the rail are real <label> elements (not markdown divs
+   pretending to be labels), so they get the micro-label treatment here and
+   the accessible name for free. Without this they render as 14px sans body
+   copy and out-shout the group headers above them. */
+[data-testid="stSidebar"] [data-testid="stWidgetLabel"] p {
+    font-family: var(--mono) !important; font-size: var(--fs-3xs) !important;
+    font-weight: 600 !important; text-transform: uppercase; letter-spacing: 0.14em;
+    color: var(--ink-quaternary) !important; margin-bottom: 2px !important;
+}
+
+/* Session readout — the rail's own status block: as-of date, spine size,
+   cache state. Key/value rows, values right-aligned and tabular so a
+   changed number is seen rather than read. */
+.rail-readout {
+    display: flex; flex-direction: column; gap: 0;
+    border: 1px solid var(--line); border-radius: var(--r-md);
+    background: var(--bg);
+    padding: var(--s1) var(--s3);
+}
+.rail-readout .row {
+    display: flex; justify-content: space-between; align-items: baseline; gap: var(--s3);
+    padding: var(--s2) 0;
+    border-bottom: 1px solid var(--line-faint);
+    font-family: var(--mono); font-size: var(--fs-2xs);
+}
+.rail-readout .row:last-child { border-bottom: none; }
+.rail-readout .k {
+    color: var(--ink-quaternary); text-transform: uppercase; letter-spacing: 0.1em;
+}
+.rail-readout .v {
+    color: var(--ink-secondary); font-weight: 600;
+    font-variant-numeric: tabular-nums; text-align: right;
+}
+.rail-readout .v.accent { color: var(--accent); }
+.rail-readout .v.long   { color: var(--long); }
+.rail-readout .v.short  { color: var(--short); }
+.rail-readout .v.caution{ color: var(--caution); }
+
+/* Streamlit's native multipage nav (st.navigation/st.Page), restyled. */
+[data-testid="stSidebarNav"] {
+    padding-top: var(--s3);
+    border-top: 1px solid var(--line);
+}
+[data-testid="stSidebarNavItems"] { gap: 1px; }
+[data-testid="stNavSectionHeader"] {
+    font-family: var(--mono) !important; font-size: var(--fs-3xs) !important; font-weight: 700 !important;
+    text-transform: uppercase; letter-spacing: 0.14em !important;
+    color: var(--ink-quaternary) !important;
+    padding: var(--s4) var(--s3) var(--s1) !important;
+}
+[data-testid="stSidebarNavLinkContainer"] { margin: 1px var(--s2); }
+[data-testid="stSidebarNavLink"] {
+    display: flex; align-items: center; gap: var(--s3);
+    padding: var(--s2) var(--s3) !important;
+    border-radius: var(--r-md);
+    border-left: 2px solid transparent;
+    font-family: var(--sans) !important; font-size: var(--fs-sm) !important; font-weight: 500 !important;
+    color: var(--ink-tertiary) !important;
+    text-decoration: none !important;
+    transition: background var(--fast) var(--ease), color var(--fast) var(--ease), border-color var(--fast) var(--ease);
+}
+[data-testid="stSidebarNavLink"]:hover {
+    background: var(--surface-2);
+    color: var(--ink) !important;
+}
+[data-testid="stSidebarNavLink"][aria-current="page"] {
+    background: var(--accent-fill);
+    border-left-color: var(--accent);
+    color: var(--ink) !important;
+    font-weight: 650 !important;
+}
+[data-testid="stSidebarNavLink"] svg { width: 15px; height: 15px; opacity: 0.85; }
+[data-testid="stSidebarNavLink"][aria-current="page"] svg { opacity: 1; color: var(--accent); }
+
+/* ── Icon reconciliation ─────────────────────────────────────────────────
+   The app draws its own icons as inline stroke SVGs at 1.6px (see
+   components.ICON_STROKE), but st.Page accepts ONLY a Material Symbols name
+   or an emoji — so the navigation is a different icon set by construction,
+   and emoji are not an option in this UI. Two sets cannot be reduced to one
+   here; they CAN be made to read as one weight.
+
+   Material Symbols is a variable font, so the axes below do the work an SVG
+   stroke-width does: FILL 0 keeps the glyph outlined rather than solid, and
+   wght 300 (from a default of 400) lands it on the same optical weight as a
+   1.6px stroke at this size. Without it the nav renders visibly heavier and
+   fuller than every other icon in the app — the giveaway that the navigation
+   came from somewhere else. */
+[data-testid="stSidebarNavLink"] [data-testid="stIconMaterial"],
+[data-testid="stSidebar"] [data-testid="stIconMaterial"] {
+    font-variation-settings: 'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 20 !important;
+    font-size: 18px !important;
+    color: var(--ink-tertiary);
+    transition: color var(--motion-fast) var(--ease-standard);
+}
+[data-testid="stSidebarNavLink"][aria-current="page"] [data-testid="stIconMaterial"] {
+    color: var(--accent);
+}
+/* Material glyphs anywhere else in the app (widget affordances: the select
+   caret, the expander chevron) get the same treatment, so no control ships a
+   heavier icon than the content beside it. */
+[data-testid="stMain"] [data-testid="stIconMaterial"] {
+    font-variation-settings: 'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 20 !important;
+    color: var(--ink-tertiary);
+}
+
+/* ── Segmented controls (st.segmented_control / st.pills) ────────────────
+   One control type for every mutually-exclusive mode switch in the app:
+   the timeframe in the toolbar strip, the appearance mode in the rail.
+   Streamlit ships these as a BaseWeb button-group whose ACTIVE member is
+   marked by a `…Active` test-id suffix — the `$=` match below therefore
+   covers both `segmented_controlActive` and `pillsActive` without naming
+   either. Recessed track, raised active segment: the standard institutional
+   read, and one that survives colour-blindness because the active state is
+   carried by surface AND weight, not by hue alone. */
+[data-testid="stButtonGroup"] {
+    gap: 2px !important;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: var(--r-md);
+    padding: 2px;
+    width: fit-content;
+}
+[data-testid="stButtonGroup"] button {
+    background: transparent !important;
+    border: none !important;
+    border-radius: var(--r-sm) !important;
+    padding: var(--s1) var(--s3) !important;
+    min-height: 24px !important;
+    font-family: var(--mono) !important; font-size: var(--fs-2xs) !important;
+    font-weight: 600 !important; letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--ink-tertiary) !important;
+    box-shadow: none !important;
+    transition: background var(--fast) var(--ease), color var(--fast) var(--ease);
+}
+[data-testid="stButtonGroup"] button:hover {
+    background: var(--surface-2) !important; color: var(--ink) !important;
+}
+[data-testid="stButtonGroup"] button[data-testid$="Active"] {
+    background: var(--surface-3) !important;
+    color: var(--ink) !important;
+    font-weight: 700 !important;
+    box-shadow: inset 0 0 0 1px var(--line-strong) !important;
+}
 
 /* Progress — the pipeline's own state, so it reads as instrumentation
    rather than as a loading spinner. */
+/* The pipeline's own instrumentation, and the only element a user watches
+   for a full minute. It reads as a readout — stage, detail, extent — not as
+   a spinner. Nothing here glows: the fill was previously given an inline
+   `box-shadow: 0 0 10px <colour>` by the Python, which is the one effect this
+   design system explicitly forbids, on its most-watched element. */
 .progress-card {
     background: var(--surface-1); border: 1px solid var(--line);
-    border-radius: var(--r-md); padding: var(--s3) var(--s4); margin-bottom: var(--s4);
+    border-radius: var(--r-lg); padding: var(--s3) var(--s4); margin-bottom: var(--s4);
 }
 .progress-label {
+    display: flex; align-items: center; gap: var(--s2);
     font-family: var(--mono); font-size: var(--fs-2xs); font-weight: 600;
     text-transform: uppercase; letter-spacing: 0.1em; color: var(--ink-secondary);
 }
 .progress-pct {
+    margin-left: auto;
     font-family: var(--mono); font-size: var(--fs-2xs); font-weight: 700;
-    color: var(--caution); float: right;
+    color: var(--accent); font-variant-numeric: tabular-nums;
 }
+.progress-card.complete .progress-pct { color: var(--long); }
 .progress-track {
     height: 2px; background: var(--line-strong); border-radius: var(--r-pill);
-    margin: var(--s2) 0; overflow: hidden;
+    margin: var(--s2) 0 var(--s1); overflow: hidden;
 }
+/* Width is the datum, so it is the one thing animated — and the only place
+   --motion-slow is spent, because extent is the one change the eye needs
+   help following. */
 .progress-track > i {
-    display: block; height: 100%; background: var(--caution);
-    transition: width var(--slow) var(--ease);
+    display: block; height: 100%; background: var(--accent);
+    transition: width var(--motion-slow) var(--ease-standard);
 }
+.progress-card.complete .progress-track > i { background: var(--long); }
 .progress-sub {
     font-family: var(--mono); font-size: var(--fs-3xs); color: var(--ink-quaternary);
+    margin-top: var(--s1);
+}
+/* A state dot, not a pulse — it does not animate. The ring is a 2px tinted
+   halo (a border in disguise), not a glow. */
+.pulse-dot {
+    display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+    background: var(--accent); flex: none;
+    box-shadow: 0 0 0 2px var(--accent-fill);
+}
+.progress-card.complete .pulse-dot {
+    background: var(--long); box-shadow: 0 0 0 2px var(--long-fill);
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
-   11 · HUD MASTER GRID (Streamlit Overrides)
+   13 · HUD MASTER GRID (Streamlit Overrides)
    ───────────────────────────────────────────────────────────────────────── */
-/* Reverted to keep default sidebar and header visible */
 
-/* Modernized Tabs for HUD */
+/* ── Page frame ──────────────────────────────────────────────────────────
+   Streamlit reserves ~6rem above the first element for its floating header.
+   On a dashboard that is the most valuable strip of the screen — roughly one
+   KPI row — spent on nothing. The header is made transparent and the reserve
+   cut to the height it actually needs, which is what lets the command bar
+   sit where a terminal's status line belongs: at the top. */
+[data-testid="stHeader"] {
+    background: transparent !important;
+    height: 2.75rem !important;
+}
+[data-testid="stMain"] .block-container {
+    padding: 3.25rem var(--s6) var(--s10) !important;
+    max-width: 100% !important;
+}
+[data-testid="stToolbar"] { right: var(--s3); }
+/* The command bar sticks BELOW Streamlit's own floating header rather than
+   under it, so a long page (FVO, Diagnostics) keeps the instrument and its
+   freshness state visible while it is read. */
+.command-bar { top: 2.75rem; }
+
 .stTabs [data-baseweb="tab-list"] {
     gap: var(--s2); background: transparent;
     border-bottom: 1px solid var(--line-strong); padding: 0; margin-top: var(--s4);
 }
 .stTabs [data-baseweb="tab"] {
     background: transparent !important; border: none !important;
-    border-radius: var(--r-sm) var(--r-sm) 0 0 !important; 
+    border-radius: var(--r-sm) var(--r-sm) 0 0 !important;
     padding: var(--s3) var(--s4) !important;
     font-family: var(--sans) !important; font-size: var(--fs-xs) !important;
     font-weight: 600 !important; text-transform: uppercase;
     letter-spacing: 0.1em; color: var(--ink-tertiary) !important;
-    transition: all var(--fast) var(--ease);
+    /* Named properties, not `all`. `transition: all` animates whatever else
+       happens to change — including layout properties — so a tab that gains a
+       pixel of padding on selection would visibly slide. */
+    transition: color var(--motion-fast) var(--ease-standard),
+                background var(--motion-fast) var(--ease-standard);
 }
-.stTabs [data-baseweb="tab"]:hover { 
-    color: var(--ink) !important; 
-    background: rgba(255,255,255,0.02) !important; 
+.stTabs [data-baseweb="tab"]:hover {
+    color: var(--ink) !important;
+    background: var(--surface-2) !important;
 }
-.stTabs [aria-selected="true"] { 
-    color: var(--system) !important; 
-}
-.stTabs [data-baseweb="tab-highlight"] { background: var(--system) !important; height: 2px; }
+.stTabs [aria-selected="true"] { color: var(--accent) !important; }
+.stTabs [data-baseweb="tab-highlight"] { background: var(--accent) !important; height: 2px; }
 .stTabs [data-baseweb="tab-border"] { display: none; }
 
+/* Buttons. One compact height across the app; the primary is a SOLID accent
+   because a primary action that looks like a tinted secondary is not a
+   primary action. Secondaries stay achromatic — in a terminal the only
+   coloured control should be the one you are meant to press. */
+/* Streamlit renders the <button> inside a wrapper, so `.stButton > button`
+   — the selector these rules used — never matched a single element in the
+   app. Every button in Tattva was wearing Streamlit's own face, which on the
+   dark theme happens to look close enough that it went unnoticed, and on
+   Paper rendered as a near-black pill with near-black text. `stBaseButton-*`
+   is the button itself. Both selectors are listed: the descendant form is
+   the one that works, the child form is kept harmless in case a future
+   Streamlit flattens the wrapper. */
+[data-testid^="stBaseButton"],
 .stButton > button, .stDownloadButton > button {
     background: var(--surface-2); color: var(--ink-secondary);
     border: 1px solid var(--line-strong); border-radius: var(--r-md);
-    font-family: var(--mono); font-size: var(--fs-xs); font-weight: 600;
-    letter-spacing: 0.06em; padding: var(--s2) var(--s4);
-    transition: all var(--fast) var(--ease);
+    font-family: var(--mono); font-size: var(--fs-2xs); font-weight: 600;
+    letter-spacing: 0.1em; text-transform: uppercase;
+    padding: var(--s2) var(--s4); min-height: 30px;
+    box-shadow: none;
+    transition: background var(--fast) var(--ease), border-color var(--fast) var(--ease),
+                color var(--fast) var(--ease);
 }
+[data-testid^="stBaseButton"]:hover,
 .stButton > button:hover, .stDownloadButton > button:hover {
-    background: var(--surface-3); color: var(--ink); border-color: var(--ink-quaternary);
+    background: var(--surface-3); color: var(--ink); border-color: var(--line-strong);
 }
+[data-testid="stBaseButton-primary"],
 .stButton > button[kind="primary"] {
-    background: var(--caution-fill); color: var(--caution); border-color: var(--caution-edge);
+    background: var(--accent); color: #FFFFFF; border-color: var(--accent);
 }
+[data-testid="stBaseButton-primary"]:hover,
 .stButton > button[kind="primary"]:hover {
-    background: var(--caution); color: var(--bg); border-color: var(--caution);
+    background: #3D6BDC; border-color: #3D6BDC; color: #FFFFFF;
+}
+[data-testid^="stBaseButton"]:disabled,
+.stButton > button:disabled, .stButton > button:disabled:hover {
+    background: var(--surface-1); color: var(--ink-quaternary);
+    border-color: var(--line); cursor: not-allowed;
 }
 
+/* Inputs. Recessed against the panel they sit on (input fields are wells,
+   not raised chips), one height, accent border on focus only — hover
+   colouring every field the user's cursor crosses is noise. */
 .stSelectbox [data-baseweb="select"] > div,
 .stTextInput input, .stNumberInput input {
-    background: rgba(255, 255, 255, 0.03) !important;
+    background: var(--bg) !important;
     border: 1px solid var(--line-strong) !important;
     border-radius: var(--r-md) !important;
     font-family: var(--mono) !important; font-size: var(--fs-xs) !important;
     color: var(--ink) !important;
-    backdrop-filter: blur(8px) !important;
     transition: border-color var(--fast) var(--ease) !important;
 }
 .stSelectbox [data-baseweb="select"] > div:hover,
 .stTextInput input:hover, .stNumberInput input:hover {
-    border-color: var(--system) !important;
+    border-color: var(--ink-quaternary) !important;
 }
-.stSlider [data-baseweb="slider"] div[role="slider"] { background: var(--caution) !important; }
+.stSelectbox [data-baseweb="select"] > div:focus-within,
+.stTextInput input:focus, .stNumberInput input:focus {
+    border-color: var(--accent) !important;
+}
+/* Select control height and value type, matched to the inputs beside it. */
+.stSelectbox [data-baseweb="select"] > div {
+    min-height: 34px !important;
+}
+.stSelectbox [data-baseweb="select"] div[value],
+.stSelectbox [data-baseweb="select"] span {
+    font-family: var(--mono) !important; font-size: var(--fs-xs) !important;
+    color: var(--ink) !important;
+}
+/* The caret is an icon, so it obeys the icon rules: muted, thin, and it does
+   not change colour on hover — only on focus, where it marks the open menu. */
+.stSelectbox [data-baseweb="select"] svg {
+    color: var(--ink-quaternary) !important;
+    width: 16px !important; height: 16px !important;
+    transition: color var(--motion-fast) var(--ease-standard);
+}
+.stSelectbox [data-baseweb="select"]:focus-within svg { color: var(--accent) !important; }
+/* Streamlit paints a filled "clear" affordance on some selects; it reads as a
+   second, louder control inside the first. */
+.stSelectbox [data-baseweb="select"] [role="button"][aria-label*="Clear"] { opacity: 0.5; }
+
+/* ── The dropdown surface ────────────────────────────────────────────────
+   An overlay — the one place in this system where a shadow is earned. The
+   menu is a small table of choices, so it is set like one: mono, dense rows,
+   a hairline between groups, hover on surface rather than on an accent
+   wash. BaseWeb renders it in a PORTAL at the document root, outside
+   [data-testid="stApp"], which is why these selectors are unscoped — a rule
+   nested under .stApp cannot reach the open menu at all, and that is why the
+   menu previously kept BaseWeb's own white-on-dark default styling while
+   every control that opened it was themed. */
+[data-baseweb="popover"] [data-baseweb="menu"],
+[data-baseweb="popover"] ul[role="listbox"] {
+    background: var(--surface-2) !important;
+    border: 1px solid var(--line-strong) !important;
+    border-radius: var(--r-md) !important;
+    box-shadow: var(--shadow-pop) !important;
+    padding: var(--s1) !important;
+}
+[data-baseweb="popover"] li[role="option"],
+[data-baseweb="popover"] [role="option"] {
+    font-family: var(--mono) !important; font-size: var(--fs-xs) !important;
+    color: var(--ink-secondary) !important;
+    padding: var(--s2) var(--s3) !important;
+    min-height: 0 !important;
+    border-radius: var(--r-sm) !important;
+    transition: background var(--motion-fast) var(--ease-standard),
+                color var(--motion-fast) var(--ease-standard);
+}
+[data-baseweb="popover"] [role="option"]:hover {
+    background: var(--surface-3) !important; color: var(--ink) !important;
+}
+/* The current value is marked by WEIGHT and a rule, not by a filled bar —
+   a solid accent row in an open menu is the loudest thing on screen. */
+[data-baseweb="popover"] [role="option"][aria-selected="true"] {
+    background: var(--accent-fill) !important;
+    color: var(--ink) !important;
+    font-weight: 700 !important;
+    box-shadow: inset 2px 0 0 var(--accent) !important;
+}
+/* Scrollbar inside a long menu (the target list runs to 30+ entries). */
+[data-baseweb="popover"] ul::-webkit-scrollbar { width: 9px; }
+[data-baseweb="popover"] ul::-webkit-scrollbar-thumb {
+    background: var(--line-strong); border-radius: var(--r-pill);
+}
+
+/* Tooltips — the `help=` affordance and any BaseWeb tooltip. Dark, compact,
+   mono, and bounded; BaseWeb's default is a wide white slab. */
+[data-baseweb="tooltip"] {
+    background: var(--surface-3) !important;
+    color: var(--ink) !important;
+    border: 1px solid var(--line-strong) !important;
+    border-radius: var(--r-md) !important;
+    box-shadow: var(--shadow-pop) !important;
+    font-family: var(--mono) !important; font-size: var(--fs-2xs) !important;
+    line-height: 1.6 !important; padding: var(--s2) var(--s3) !important;
+    max-width: 34ch !important;
+}
+.stSlider [data-baseweb="slider"] div[role="slider"] { background: var(--accent) !important; }
 
 .stMarkdown p { font-size: var(--fs-md); line-height: 1.65; color: var(--ink-secondary); }
+
+/* Every component in this app is emitted through st.markdown, which runs the
+   HTML through a CommonMark parser — and that parser can wrap a bare text
+   node in a <p>. The stray <p> then inherits the rule directly above: 13px,
+   secondary ink, and a browser-default 1em top/bottom margin.
+   That is why a section header's subtitle sat ~15px further from its title
+   than the header's own 8px row-gap specified, and it was silently doing the
+   same inside several other components. Text inside a component we author
+   takes the component's typography, never the page's. */
+.section-hdr .desc p, .panel-hdr p, .panel-foot p, .notice .n-body p,
+.metric-card p, .empty-state p, .control-hint p, .sub-head p,
+.rail-readout p, .chip-row p, .lookback-row p, .analog-card p,
+.hero-headline p, .hero-limit p, .hero-gate p, .interp-body p,
+.panel-state p, .es-body p {
+    margin: 0 !important;
+    font: inherit !important;
+    color: inherit !important;
+    line-height: inherit !important;
+    letter-spacing: inherit !important;
+}
 [data-testid="stCaptionContainer"] p {
     font-family: var(--mono) !important; font-size: var(--fs-xs) !important;
     color: var(--ink-tertiary) !important; line-height: 1.6;
 }
+/* ── PANEL SYSTEM ────────────────────────────────────────────────────────
+   One anatomy for every framed thing in the app — chart, table, embedded
+   iframe. Header (eyebrow / title / context, actions right), body, optional
+   footer. A chart panel and a table panel differ ONLY in what sits in the
+   body, which is the whole point: a screen of charts and tables has to read
+   as one grid, not as two products sharing a page.
+
+   Built from Streamlit containers keyed `panel-*`, so the wrapper is a real
+   `st.container` that widgets can be rendered into — no HTML string can hold
+   a Plotly chart or a components.v1 iframe. */
+[class*="st-key-panel-"] {
+    background: var(--surface-1);
+    border: 1px solid var(--line);
+    border-radius: var(--r-lg);
+    padding: 0 !important;
+    gap: 0 !important;          /* header, body and footer are one block */
+    overflow: hidden;
+    margin-bottom: var(--s4);
+    transition: border-color var(--motion-base) var(--ease-standard);
+}
+[class*="st-key-panel-"]:hover { border-color: var(--line-strong); }
+
+.panel-hdr {
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: var(--s4); flex-wrap: wrap;
+    padding: var(--s3) var(--s4);
+    border-bottom: 1px solid var(--line);
+}
+.panel-hdr .ph-left { display: flex; align-items: baseline; gap: var(--s3); min-width: 0; }
+.panel-hdr .ph-title {
+    font-family: var(--sans); font-size: var(--fs-md); font-weight: 600;
+    color: var(--ink); letter-spacing: -0.005em; line-height: 1.3;
+}
+/* Context is the chart's OWN metadata — instrument, window, units, source.
+   Never a restatement of the title: a panel header that repeats the section
+   header above it is a second title, not context. */
+.panel-hdr .ph-context {
+    font-family: var(--mono); font-size: var(--fs-2xs);
+    color: var(--ink-quaternary); text-transform: uppercase; letter-spacing: 0.12em;
+    white-space: nowrap;
+}
+.panel-hdr .ph-right {
+    display: flex; align-items: center; gap: var(--s3);
+    font-family: var(--mono); font-size: var(--fs-2xs); color: var(--ink-quaternary);
+    margin-left: auto;
+}
+.panel-foot {
+    padding: var(--s2) var(--s4) var(--s3);
+    border-top: 1px solid var(--line-faint);
+    font-family: var(--mono); font-size: var(--fs-3xs);
+    color: var(--ink-quaternary); line-height: 1.6;
+}
+
+/* The chart itself carries no chrome — the panel around it does. Without
+   this reset the plot draws a second border inside the first. */
+[class*="st-key-panel-"] .stPlotlyChart {
+    background: transparent; border: none; border-radius: 0;
+    padding: var(--s2) var(--s2) 0;
+}
+/* Plotly's toolbar, brought into the system: hidden until the pointer is in
+   the panel, muted, and never coloured. */
+[class*="st-key-panel-"] .modebar-container { top: var(--s2) !important; right: var(--s2) !important; }
+.js-plotly-plot .modebar {
+    background: transparent !important;
+    opacity: 0; transition: opacity var(--motion-base) var(--ease-standard);
+}
+[class*="st-key-panel-"]:hover .js-plotly-plot .modebar,
+.js-plotly-plot:hover .modebar { opacity: 1; }
+.js-plotly-plot .modebar-btn path { fill: var(--ink-quaternary) !important; }
+.js-plotly-plot .modebar-btn:hover path { fill: var(--ink) !important; }
+.js-plotly-plot .modebar-btn.active path { fill: var(--accent) !important; }
+.js-plotly-plot .modebar-group { background: transparent !important; }
+
+/* The table iframe sits flush inside its panel — the frame, radius and
+   header all belong to the panel, so the embed must contribute no chrome of
+   its own. This is what stops an embedded component reading as "pasted in". */
+[class*="st-key-panel-"] [data-testid="stIFrame"],
+[class*="st-key-panel-"] iframe {
+    display: block; border: none !important; width: 100% !important;
+}
+[class*="st-key-panel-"] [data-testid="stElementContainer"] { margin: 0 !important; }
+
+/* A bare chart outside a panel (should not exist, but must not look broken
+   if one appears) still reads as a framed object. */
 .stPlotlyChart {
-    background: linear-gradient(135deg, rgba(255, 255, 255, 0.02) 0%, rgba(255, 255, 255, 0.005) 100%);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
-    border: 1px solid var(--line-strong);
-    border-radius: var(--r-lg); padding: var(--s2);
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+    background: var(--surface-1);
+    border: 1px solid var(--line);
+    border-radius: var(--r-lg); padding: var(--s3) var(--s2) var(--s2);
 }
 [data-testid="stExpander"] details {
     background: var(--surface-1); border: 1px solid var(--line);
@@ -758,33 +1555,124 @@
 [data-testid="stExpander"] summary {
     font-family: var(--mono); font-size: var(--fs-xs); color: var(--ink-secondary);
 }
-[data-testid="stAlert"] {
-    background: var(--surface-2); border: 1px solid var(--line-strong);
-    border-radius: var(--r-md);
-    font-family: var(--mono); font-size: var(--fs-xs);
+/* ── Streamlit's own alerts, brought into the notice system ──────────────
+   `st.error` is the app's terminal failure path (a fetch that returned
+   nothing, a spine too short to fit) and it fires from nine places in the
+   pipeline, so it has to belong to the system rather than be replaced at
+   each one. These rules give it the same anatomy as `.notice`: severity on
+   a left rule, sans body at the app's size, semantic colour from the app's
+   tokens rather than Streamlit's stock red. */
+[data-testid="stAlert"] { background: transparent; border: none; }
+[data-testid="stAlertContainer"] {
+    background: var(--surface-1) !important;
+    border: 1px solid var(--line) !important;
+    border-left: 2px solid var(--neutral) !important;
+    border-radius: var(--r-md) !important;
+    padding: var(--s3) var(--s4) !important;
+    color: var(--ink-secondary) !important;
+    font-family: var(--sans) !important; font-size: var(--fs-sm) !important;
+    line-height: 1.6 !important;
+    box-shadow: none !important;
 }
+[data-testid="stAlertContainer"][kind="error"] {
+    border-left-color: var(--short) !important; background: var(--short-fill) !important;
+}
+[data-testid="stAlertContainer"][kind="warning"] {
+    border-left-color: var(--caution) !important; background: var(--caution-fill) !important;
+}
+[data-testid="stAlertContainer"][kind="info"] {
+    border-left-color: var(--system) !important;
+}
+[data-testid="stAlertContainer"][kind="success"] {
+    border-left-color: var(--long) !important; background: var(--long-fill) !important;
+}
+/* The icon is muted and inherits the severity colour, rather than arriving
+   as a filled glyph two weights heavier than every other icon on screen. */
+[data-testid="stAlertDynamicIcon"] {
+    font-variation-settings: 'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 20 !important;
+    opacity: 0.8;
+}
+[data-testid="stAlertContainer"][kind="error"] [data-testid="stAlertDynamicIcon"] { color: var(--short) !important; }
+[data-testid="stAlertContainer"][kind="warning"] [data-testid="stAlertDynamicIcon"] { color: var(--caution) !important; }
+[data-testid="stAlertContainer"][kind="info"] [data-testid="stAlertDynamicIcon"] { color: var(--system) !important; }
+[data-testid="stAlertContainer"][kind="success"] [data-testid="stAlertDynamicIcon"] { color: var(--long) !important; }
+
+/* Spinners: Streamlit's is a rotating ring. It is used in exactly one place
+   (resolving a free-form stock symbol, sub-second) and cannot be removed
+   without changing behaviour, so it is made quiet — muted, small, and in the
+   app's own type for its label — rather than left as a spinning accent. */
+[data-testid="stSpinner"] {
+    font-family: var(--mono) !important; font-size: var(--fs-2xs) !important;
+    text-transform: uppercase; letter-spacing: 0.1em;
+    color: var(--ink-quaternary) !important;
+}
+[data-testid="stSpinner"] i, [data-testid="stSpinner"] svg { color: var(--ink-quaternary) !important; }
 .tab-bg { display: none; }
 
 /* Data tables rendered inside the app (not the iframe component). */
 [data-testid="stDataFrame"] {
     border: 1px solid var(--line); border-radius: var(--r-md);
 }
+/* ── Shared small compositions ───────────────────────────────────────────
+   Classes for the three layouts the tab files had been hand-rolling with
+   inline `style="..."` strings. An inline style is a private stylesheet: it
+   cannot be re-themed, it does not participate in the light theme, and it
+   drifts the moment the same layout is needed twice. */
+
+/* A labelled row of status chips (Diagnostics' stationarity / θ stability). */
+.chip-row {
+    display: flex; gap: var(--s6); margin-top: var(--s3); flex-wrap: wrap;
+}
+.chip-row .cr-item {
+    display: inline-flex; align-items: center; gap: var(--s2);
+    font-family: var(--mono); font-size: var(--fs-xs); color: var(--ink-tertiary);
+}
+
+/* A sub-heading INSIDE a section — one step below `.section-hdr`, used where
+   a section has two labelled parts (e.g. Diagnostics' "Importance Over Time"
+   above its history table). */
+.sub-head {
+    font-family: var(--mono); font-size: var(--fs-2xs); font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.14em;
+    color: var(--ink-quaternary);
+    margin: var(--s4) 0 var(--s2);
+}
+
+/* Key/value rows in a panel (FVO's per-lookback zone readout). Same grammar
+   as the rail's readout: label left, value right, tabular, hairline between. */
+.lookback-panel {
+    background: var(--surface-1); border: 1px solid var(--line);
+    border-radius: var(--r-lg); padding: 0 var(--s4); overflow: hidden;
+}
 .lookback-row {
     display: flex; justify-content: space-between; gap: var(--s3);
     padding: var(--s2) 0; border-bottom: 1px solid var(--line-faint);
     font-family: var(--mono); font-size: var(--fs-xs);
 }
+.lookback-row:last-child { border-bottom: none; }
 .lookback-row .lbl { color: var(--ink-tertiary); }
+.lookback-row .val { font-weight: 600; color: var(--ink); }
+.lookback-row .val.long  { color: var(--long); }
+.lookback-row .val.short { color: var(--short); }
+.lookback-row .val.flat  { color: var(--ink-tertiary); }
 
 /* ─────────────────────────────────────────────────────────────────────────
-   12 · RESPONSIVE
+   14 · RESPONSIVE
    Density is the point, so the layout holds as long as it can and then
    degrades by stacking — never by shrinking type below the legibility floor.
    ───────────────────────────────────────────────────────────────────────── */
 @media (max-width: 1100px) {
-    .block-container { padding: var(--s3) var(--s4) var(--s6) !important; }
+    [data-testid="stMain"] .block-container {
+        padding: 3.25rem var(--s4) var(--s6) !important;
+    }
     .hero-gate { grid-template-columns: 76px 44px 1fr; }
     .hero-gate-detail { grid-column: 1 / -1; padding-left: 76px; }
+    /* Sticky chrome costs more than it returns once the viewport is short:
+       it eats the rows it was meant to protect. */
+    .command-bar { position: static; }
+    /* The mark is the first thing to go — the tab title already says TATTVA,
+       and the instrument does not. */
+    .command-bar .cb-brand { display: none; }
 }
 @media (max-width: 720px) {
     .hero-top { flex-direction: column; gap: var(--s3); }
@@ -796,27 +1684,60 @@
     .analog-stat-row { gap: var(--s3); }
     .stTabs [data-baseweb="tab-list"] { gap: var(--s3); overflow-x: auto; }
     .ticker { height: 26px; }
+    /* Quote drops its divider and wraps under the symbol rather than
+       shrinking; a price is the last thing that should get smaller. */
+    .command-bar .cb-quote { padding-left: 0; border-left: none; }
+    .command-bar .cb-right { width: 100%; justify-content: space-between; }
+    .command-bar .cb-meta { text-align: left; }
+    .notice { grid-template-columns: 1fr; gap: var(--s1); }
+    /* The window control keeps full width and scrolls rather than
+       compressing its segments past a tappable size. */
+    .st-key-toolbar [data-testid="stHorizontalBlock"] { flex-wrap: nowrap; overflow-x: auto; }
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
-   13 · MOTION & PRINT
+   15 · MOTION & PRINT
    ───────────────────────────────────────────────────────────────────────── */
+/* Reduced motion removes ANIMATION, never information. Every state this app
+   communicates with movement also communicates it with colour, weight or
+   surface, so nothing below costs the reader a signal. */
 @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after {
         animation-duration: 0.01ms !important;
         animation-iteration-count: 1 !important;
         transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
     }
     /* The tape stops and becomes a scrollable strip rather than a blur. */
     .tt-track { animation: none !important; }
     .ticker { overflow-x: auto; }
+    /* The skeleton keeps its SHAPE — it is the layout placeholder, and the
+       shimmer was only ever the "still working" part of the message. */
+    .skeleton::after { animation: none !important; }
+    /* Plotly's toolbar can no longer fade in, so it is simply always present
+       rather than appearing without warning on hover. */
+    .js-plotly-plot .modebar { opacity: 1 !important; }
 }
 
+/* Print is a real output of this app — a research note goes to PDF. Chrome
+   and controls are dropped; the readings and the caveats on them are kept,
+   because a printed valuation without its freshness notice is a claim
+   detached from its evidence. */
 @media print {
     .stApp { background: #fff; color: #000; }
-    .ticker, [data-testid="stSidebar"], .stTabs [data-baseweb="tab-list"] { display: none; }
-    .hero-card, .metric-card, .analog-card, .system-card {
+    .ticker, [data-testid="stSidebar"], [data-testid="stHeader"],
+    .stTabs [data-baseweb="tab-list"], .toolbar-strip, .st-key-toolbar,
+    [data-testid="stButtonGroup"] { display: none !important; }
+    /* The command bar STAYS: on paper it is the only thing identifying which
+       instrument, at what price, as of when. It just stops floating. */
+    .command-bar {
+        position: static !important; border: 1px solid #ccc; background: #fff;
+        break-inside: avoid; break-after: avoid;
+    }
+    [data-testid="stMain"] .block-container { padding: 0 !important; }
+    .hero-card, .metric-card, .analog-card, .system-card, .notice {
         border: 1px solid #ccc; background: #fff; break-inside: avoid;
     }
-    .hero-signal, .metric-card .value, .metric-card h2 { color: #000; }
+    .hero-signal, .metric-card .value, .metric-card h2,
+    .command-bar .cb-instrument .sym, .command-bar .cb-quote .px { color: #000; }
 }
