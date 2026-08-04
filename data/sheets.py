@@ -16,7 +16,7 @@ universe. This module fetches such a series with the same resilience contract as
 
 The returned object is a single ``pd.Series`` (datetime index, float values)
 named after the target, ready to be reindexed onto the macro calendar and
-injected as a column in the Aarambh model matrix.
+injected as a column in the FVO model matrix.
 """
 
 from __future__ import annotations

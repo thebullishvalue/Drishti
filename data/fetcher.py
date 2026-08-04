@@ -293,7 +293,7 @@ def _fetch_macro_live_uncached(start_str: str, end_str: str) -> pd.DataFrame:
     tickers = tuple(sorted(
         set(GLOBAL_MACRO_MAP.values())
         | set(MACRO_SYMBOLS_YF.values())
-        | set(INDEX_TARGETS_MAP.values())  # index price levels (Aarambh targets)
+        | set(INDEX_TARGETS_MAP.values())  # index price levels (FVO targets)
     ))
     if not tickers:
         return pd.DataFrame()
@@ -387,14 +387,14 @@ def fetch_macro_live(
     return combined
 
 
-# ─── Commodity model dataset (Aarambh matrix from yfinance) ──────────────────
+# ─── Commodity model dataset (FVO matrix from yfinance) ──────────────────
 
 
 def fetch_commodity_dataset(
     start_date: pd.Timestamp | str,
     end_date: pd.Timestamp | str,
 ) -> tuple[pd.DataFrame | None, str | None]:
-    """Build the Aarambh model matrix from the full yfinance macro universe.
+    """Build the FVO model matrix from the full yfinance macro universe.
 
     Wraps :func:`fetch_macro_live`, restricts the Close frame to the combined
     ``GLOBAL_MACRO_MAP`` (bond/rates/equity/risk/real-asset ETFs) +
@@ -440,7 +440,7 @@ def fetch_commodity_dataset(
     # index dates; the upstream ffill then back-fills the other ~180 columns, yielding
     # a fully ff-filled, entirely-stale weekend row that *looks* complete (100%
     # coverage) but carries Friday's values. That bogus latest row produced illogical
-    # signals and a card-vs-plot mismatch (the card read it; Nirnay-aligned plots
+    # signals and a card-vs-plot mismatch (the card read it; Swayam-aligned plots
     # dropped it). Equities/commodities don't trade weekends, so these rows are pure
     # artifacts — remove them so the latest row is always a real trading day.
     df = df[df.index.dayofweek < 5]
@@ -489,16 +489,16 @@ def fetch_stock_target_series(
     start_date: pd.Timestamp | str,
     end_date: pd.Timestamp | str,
 ) -> pd.Series | None:
-    """Close series for a single stock-target ticker (Nirnay-Swayam targets).
+    """Close series for a single stock-target ticker (Swayam targets).
 
-    Individual-stock targets (TARGET_ARCHETYPE == 'self') are deliberately
+    Individual-stock targets (config.is_stock_target) are deliberately
     NOT part of the macro batch universe (see fetch_commodity_dataset's
     ``_fetch_macro_live_uncached`` call — a dynamically varying per-target
     ticker set would break that batch's ``(start, end)``-keyed cache). Their
     price column is injected separately via this single-ticker fetch.
 
     Reuses fetch_constituent_ohlcv (two-tier cache + circuit breaker + stale
-    fallback) — a later Nirnay-Swayam OHLCV fetch of the SAME ticker is then
+    fallback) — a later Swayam OHLCV fetch of the SAME ticker is then
     a cache hit, so this costs no extra network call overall.
 
     Returns ``None`` if nothing usable came back (also doubles as the

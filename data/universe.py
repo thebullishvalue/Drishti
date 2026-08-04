@@ -6,16 +6,16 @@ Adds equity-INDEX targets (India sectoral/broad, US benchmarks, India sector-ETF
 universe) on top of the commodity/FX targets in ``core/config.py``. For an index
 target:
 
-  • the Aarambh **target** is the index price level (a yfinance index ticker), and
-  • the Nirnay **basket** is the index's own constituents — the natural bottom-up
-    cross-section (this is exactly what Nirnay was originally built for).
+  • the FVO **target** is the index price level (a yfinance index ticker), and
+  • the Swayam **basket** is the index's own constituents — the natural bottom-up
+    cross-section (this is exactly what Swayam was originally built for).
 
 Constituent lists are resolved live (NSE archive CSV for India, Wikipedia for US),
 cached to disk (24 h), and fall back to a hardcoded snapshot for the headline
 indices so the app keeps working if a scrape is blocked. By default the FULL
 constituent set is used (no cap) — capping an index drops real members and defeats
 its purpose. An optional stride-cap (``_DEFAULT_CAP``) can be re-enabled to bound
-the per-index Nirnay pass on the very large indices (e.g. an uncapped S&P 500 is
+the per-index Swayam pass on the very large indices (e.g. an uncapped S&P 500 is
 ~300 s of constituent analysis at ~0.6 s/name).
 
 Universe selection is adapted from the Sanket terminal (@thebullishvalue).
@@ -35,9 +35,9 @@ log = logging.getLogger(__name__)
 # Constituent lists change slowly — cache a full day, serve stale on failure.
 _constituent_cache = Cache(ttl=86_400, version="v1", namespace="constituents")
 
-# Max Nirnay constituents per index (stride-sampled). 0 = NO CAP: every index uses
+# Max Swayam constituents per index (stride-sampled). 0 = NO CAP: every index uses
 # its FULL constituent set — capping a "Nifty 50" down to 40 drops real members and
-# defeats the index's purpose. Trade-off: Nirnay's MMR cost is ~0.6 s/constituent,
+# defeats the index's purpose. Trade-off: Swayam's MMR cost is ~0.6 s/constituent,
 # so the per-index pass scales with size (Nifty 50 ≈ 30 s, an uncapped S&P 500 ≈
 # 300 s / ~5 min). Raise this to a positive integer to re-impose an upper bound.
 _DEFAULT_CAP = 0
@@ -58,11 +58,11 @@ _NSE_BASE = "content/indices/"
 # Index target catalogue
 # ════════════════════════════════════════════════════════════════════════
 # friendly name → metadata:
-#   ticker  : yfinance ticker for the index PRICE level (Aarambh target column)
+#   ticker  : yfinance ticker for the index PRICE level (FVO target column)
 #   kind    : "india" (NSE CSV) | "us" (Wikipedia) | "etf" (fixed basket)
 #   nse     : NSE index name (kind=india) → archive CSV slug
 #   wiki    : US index name (kind=us)
-#   cap     : max constituents for the Nirnay basket
+#   cap     : max constituents for the Swayam basket
 #   category: sidebar grouping
 
 INDEX_TARGETS: dict[str, dict] = {
@@ -116,7 +116,7 @@ ETF_BASKET = [
 
 # ── Hardcoded snapshots (fallback when live scrape AND cache both fail) ───────
 # Only the headline / most-likely-blocked indices; everything else degrades to
-# an empty basket → Aarambh-only convergence (the app already handles that).
+# an empty basket → FVO-only convergence (the app already handles that).
 _SNAPSHOTS: dict[str, list[str]] = {
     "Dow Jones": [
         "AAPL", "AMGN", "AMZN", "AXP", "BA", "CAT", "CRM", "CSCO", "CVX", "DIS",
@@ -127,7 +127,7 @@ _SNAPSHOTS: dict[str, list[str]] = {
     # see CHANGELOG 2.1.0) so this ~40-name snapshot is NOT a representative
     # sample of the index when live scrape + cache both fail; it's a small,
     # deliberately-incomplete fallback (~8% of the S&P 500) chosen only to keep
-    # SOME cross-sectional signal alive rather than falling back to Aarambh-only
+    # SOME cross-sectional signal alive rather than falling back to FVO-only
     # (audit finding B4 — a prior comment here claimed it "covers the stride-cap",
     # which stopped being true when the cap went 40 -> 0). The basket-source
     # string returned by resolve_index_constituents (e.g. "snapshot (40)")
@@ -244,10 +244,10 @@ def is_index_target(target: str) -> bool:
 
 
 def resolve_index_constituents(target: str, cap: int = _DEFAULT_CAP) -> tuple[list[str], str]:
-    """Resolve the Nirnay basket for an index target.
+    """Resolve the Swayam basket for an index target.
 
     Order: disk cache → live (NSE CSV / Wikipedia / fixed ETF list) → stale cache
-    → hardcoded snapshot → empty (Aarambh-only). Result is stride-capped and cached.
+    → hardcoded snapshot → empty (FVO-only). Result is stride-capped and cached.
     """
     meta = INDEX_TARGETS.get(target)
     if meta is None:
@@ -284,11 +284,11 @@ def resolve_index_constituents(target: str, cap: int = _DEFAULT_CAP) -> tuple[li
     if snap:
         snap = _stride_cap(snap, cap)
         return snap, f"snapshot ({len(snap)})"
-    return [], "unavailable (Aarambh-only)"
+    return [], "unavailable (FVO-only)"
 
 
 # ════════════════════════════════════════════════════════════════════════
-# Free-form individual-stock symbol resolution (Nirnay-Swayam targets)
+# Free-form individual-stock symbol resolution (Swayam targets)
 # ════════════════════════════════════════════════════════════════════════
 
 # Resolved symbol → (ticker, exchange_label), 7-day disk cache. Only SUCCESSES
