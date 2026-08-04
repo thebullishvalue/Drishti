@@ -49,19 +49,19 @@ def _safe_array_operation(
 
 
 # ─── Transformations ─────────────────────────────────────────────────────────
-# CANONICAL versions of Nirnay's private helpers (audit finding F11): this
+# CANONICAL versions of Swayam's private helpers (audit finding F11): this
 # module previously carried its OWN copies of sigmoid/zscore/ATR that were
-# dead (engines/nirnay.py always called its private _sigmoid/_zscore_clipped/
+# dead (engines/swayam.py always called its private _sigmoid/_zscore_clipped/
 # _calculate_atr instead) and, worse, NOT equivalent — zscore_clipped here
-# lacked Nirnay's ffill/min_periods=1/causal-shift(1) semantics, so a future
+# lacked Swayam's ffill/min_periods=1/causal-shift(1) semantics, so a future
 # caller picking THIS module's version would silently get different numbers.
-# Nirnay now imports these; there is exactly one implementation of each.
+# Swayam now imports these; there is exactly one implementation of each.
 
 
 def sigmoid(x: np.ndarray | float, scale: float = 1.0) -> np.ndarray | float:
     """Sigmoid transformation bounding values to [-1, 1].
 
-    Uses the original Nirnay formula: ``2 / (1 + exp(-x/scale)) - 1``.
+    Uses the original Swayam formula: ``2 / (1 + exp(-x/scale)) - 1``.
 
     Parameters
     ----------

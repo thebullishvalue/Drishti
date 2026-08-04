@@ -51,7 +51,7 @@ def _pop_var(buf: np.ndarray, lo: int, hi: int) -> float:
 
 @njit(cache=True)
 def _regime_loop_njit(sig: np.ndarray):
-    """Faithful single-pass port of the Nirnay regime-intelligence loop.
+    """Faithful single-pass port of the Swayam regime-intelligence loop.
 
     Runs the four sequential filters (Kalman → GARCH → HMM → CUSUM) exactly
     as the object versions below, but with zero per-step Python/NumPy dispatch

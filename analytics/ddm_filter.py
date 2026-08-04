@@ -66,7 +66,7 @@ def drift_diffusion_filter(
     if n == 0:
         return np.array([]), np.array([]), np.array([])
 
-    # A NaN seed (the engine's own warm-up region, see aarambh.py's A3 fix, can
+    # A NaN seed (the engine's own warm-up region, see fvo.py's A3 fix, can
     # leave obs[0] non-finite) would propagate NaN through the leaky state for
     # the whole series via state*(1-leak_rate). Seed a NEUTRAL 0.0 belief in
     # that case — matching the per-step `evidence = 0.0` fallback below.
