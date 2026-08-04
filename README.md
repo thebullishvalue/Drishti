@@ -5,7 +5,7 @@
 > *Tattva (तत्त्व)* — Sanskrit for "principle / essence / reality": the underlying
 > truth distilled from the convergence of evidence.
 
-Tattva is a research terminal that produces a single, calibrated directional
+Tattva is a research terminal that produces a single, reproducible directional
 signal for a **target** — a commodity (Gold, Silver, Copper, Brent, Cotton), an
 FX pair (USD/INR), or an equity **index** (Indian broad & sectoral, US benchmarks,
 or an India sector-ETF universe) — by converging two independent engines: a
@@ -24,15 +24,15 @@ terminal:
 
 | Engine | Question it answers | How |
 |---|---|---|
-| **AARAMBH** | *Is the macro setup pointing up or down?* | Walk-forward ensemble (members configurable per instrument via `aarambh_ensemble_models`) **forecasting the 10-day forward return** from trailing macro momentum. The walk-forward purges label overlap, so the out-of-sample IC is leakage-free. |
-| **NIRNAY** | *What is the related complex doing bottom-up?* | Per-instrument MSF + MMR oscillators with HMM/GARCH/CUSUM regime detection, aggregated into breadth. Two formulations, same output schema: **basket mode** runs it across the target's constituents (an equity index's own members, or the dollar-strength/agri basket for USD-INR / Jeera); **Swayam self-mode** runs it as a 15-view ensemble (timescale × information-set × mechanism) on the target's *own* OHLCV — used for **individual stocks** and the **liquid commodity futures** (Gold, Silver, Copper, Cotton, Brent), which have no need of a proxy basket when their own volume-bearing futures price is available. |
+| **FVO** | *Where should this be trading, given the state of the world?* | Recursive **dynamic cointegrating regression** of log price on the *integrated* common factors of ~200 macro instruments, with time-varying coefficients. Publishes a fair-value **level**, the mispricing gap against it, and the oscillator (gap in units of its own predictive SD). |
+| **SWAYAM** | *Do independent views of this asset agree?* | MSF + MMR oscillators with HMM/GARCH/CUSUM regime detection, run as a 15-view ensemble (timescale × information-set × mechanism) on the target's **own** OHLCV, aggregated into breadth. Views are weighted by their own recursively-estimated skill, not counted equally. |
 | **CONVERGENCE** | *Do the two agree, and how strongly?* | Adaptive-weighted, **directional** composite across Direction / Breadth / Magnitude / Regime, smoothed with a Drift-Diffusion filter. |
-| **INTELLIGENCE** | *Does the signal actually have edge?* | Optuna TPE calibration of the convergence weights/thresholds with a **purged k-fold CV objective** + held-out tail, plus an automatic **walk-forward IC** durability check (per target). |
+| **INTELLIGENCE** | *Which dimensions actually predict, and does it hold up?* | Dimension weights learned **online** from resolved outcomes — exponentially discounted directional skill, scaled by its own significance — plus a read-only expanding-window **walk-forward IC** durability check. Nothing is fitted to the whole sample and nothing is persisted. |
 | **PRECEDENT** | *When the state looked like today, what happened next?* | Covariance-aware **Mahalanobis** analog matching (OAS shrinkage) over Tattva's own state features, under a **Theiler exclusion window** so returned analogs are genuinely distinct episodes → an empirical, non-parametric forward-return base rate across a fixed **1/3/5/10/20/60d** term structure, independent of the model. |
 
 The headline output is a normalized convergence signal in `[-1, +1]`
-(STRONG BUY → HOLD → STRONG SELL) with an honest out-of-sample **Val IC** and a
-per-window walk-forward chart you can trust.
+(STRONG BUY → HOLD → STRONG SELL) with a per-window walk-forward IC chart you
+can trust — and a published history that does not change when you re-run it.
 
 ---
 
@@ -49,7 +49,7 @@ streamlit run app.py
 Then in the sidebar: pick a **Target** (a commodity, USD/INR, or an equity index)
 and click **Run Analysis**. First run fetches ~9 years of history (cached afterwards)
 and runs the full pipeline; subsequent runs are fast. Switching target re-runs the
-engines on the already-fetched macro universe (only the Nirnay basket re-pulls).
+engines on the already-fetched macro universe.
 
 No configuration is required — there are no secrets or environment variables to set.
 
@@ -57,12 +57,39 @@ No configuration is required — there are no secrets or environment variables t
 
 ## How the model works
 
-**Predictive, returns-based.** Aarambh does **not** regress price levels (which is a
-spurious regression). It forecasts the **forward log-return** of the target — over a
-fixed **10-day** horizon — from **trailing momentum** of ~135 macro/FX/commodity
-series, a genuine ex-ante setup. The forecast drives a directional conviction;
-out-of-sample skill is measured by rank **IC**, not R² (a price forecast's magnitude
-R² is ~0 by nature; the tradeable information is in the direction).
+**Valuation, in levels.** FVO regresses **log price** on the *integrated* common
+factors of the macro cross-section with time-varying coefficients:
+
+```
+p_t = alpha_t + sum_j beta_{j,t} F_{j,t} + e_t ,   F_{j,t} = sum_{s<=t} f_{j,s}
+```
+
+This is a dynamic cointegrating regression (Bierens & Martins 2010), not the
+spurious level regression the phrase usually implies: `p` and `F` are both
+integrated, and `e` is the deviation from the time-varying long-run relation —
+i.e. the mispricing. Two properties follow that a return-space regression cannot
+deliver. The residual is a **level**, so fair value is a price rather than a
+forecast, and the gap is a genuine mean-reverting spread. And if the relation is
+really cointegrating, that residual is stationary and its reversion is testable
+**online**, which is what tells the decision layer whether valuation is
+informative today instead of assuming it always is.
+
+Two independent valuation views are maintained and averaged by their own
+out-of-sample predictive evidence: a **latent** view on the principal factors of
+the cross-section (maximum statistical efficiency, weak economic labels), and a
+**block** view on named asset-class aggregates — equity, rates, credit,
+inflation, energy, metals, agriculture, currency, volatility, real assets. Every
+block coefficient has a name, which is what makes the output auditable, and
+leave-one-block-out refits give ablation-based driver importance plus a
+cross-sectional consistency score: independent slices of the world either agree
+about the mispricing or they do not, and that agreement is itself decision-relevant.
+
+**What is deliberately not claimed.** One step ahead, yesterday's close beats any
+valuation of a near-integrated price, so the engine is *not* scored against a
+random-walk null — that would measure a claim it never makes. It is scored
+against the honest competitor: the asset's own 252-day trailing mean. Positive
+means the global cross-section locates the level better than the asset's own
+history does.
 
 **One horizon, chosen by computation.** Tattva reads a single **10-day** forecast
 horizon (daily bars throughout — no weekly resampling), finalized from a 33-target
@@ -74,25 +101,69 @@ along with its selector. The Precedent tab still shows a fixed **1/3/5/10/20/60d
 term structure spanning past that collapse point on purpose — its per-horizon
 walk-forward IC makes the fade legible rather than hiding it behind a truncated grid.
 
-**Causal PCA, no repainting.** The ~112 collinear macro inputs are reduced to ~20
-orthogonal components **inside each walk-forward training window** — fit only on past
-data, so a component's value at time *t* never depends on the future. Adding new data
-never rewrites history. This stabilises the ensemble (low model spread) while keeping
-every input "on."
+**Estimated, not tuned.** A classification cut-point is the causal empirical
+quantile of the signal's own past; a weight is the exponentially-discounted
+realised skill of the thing being weighted. Both come from
+`analytics/adaptive.py`, both use only data that had already resolved, and both
+replace numbers that previously had to be re-swept whenever an instrument's
+distribution moved. The p90 conviction cut-point resolves to 15.28 on Gold,
+12.26 on USD/INR and 13.10 on S&P 500 — where one pooled 15.13 used to serve
+all three, leaving quiet instruments permanently NEUTRAL and volatile ones
+permanently at an extreme. The old constants survive as **warm-up priors**, so
+an instrument's first year is unchanged and the estimate takes over only once
+it is better informed than the prior.
 
-**Honest validation, leakage-free.** The intelligence calibration optimises a
-**purged k-fold cross-validation** objective (robust across time, not one slice) and
-reports a Val IC on a genuinely held-out, purged tail, scored **non-overlapping**
-(stride = the shortest hold horizon) rather than on every daily row — a daily-sampled
-IC on overlapping h-day forward returns overstates its own precision by roughly √h, so
-the trust chip's SOLID/MODEST/MARGINAL tiers are calibrated to the non-overlapping
-scale. The Aarambh walk-forward itself also **purges label overlap** — each
-forward-return label spans `(t, t+h]`, so training rows within `h` of the prediction
-point are dropped to stop the forecast window leaking into training (this materially
-lowered, and corrected, the long-horizon IC) — and the engine's own warm-up window
-(the first `MIN_TRAIN_SIZE` rows, before any walk-forward chunk has been fit) is left
-genuinely unscored rather than filled from an expanding mean of labels that overlap
-the forecast window. An expanding-window **walk-forward IC** runs every analysis and
+What stays declared is *structure* — horizons (what you intend to hold), the
+view bank and discount grid (the hypothesis space to average over), the
+estimability floors — because those are choices about the question, not
+estimates of an answer. Still genuinely hand-set, and the README would rather
+say so than pretend otherwise: the DDM filter constants, the analog blend
+weights, and the Swayam kernel knobs. The research suite went from 20 studies
+to 8 as the sweeps behind the estimated constants retired.
+
+**Nothing repaints, and it is asserted.** Every published value is a function of
+data available at its own date, so re-running on more data extends the record
+rather than rewriting it. That is not a claim about intent — it is a mechanical
+property with a mechanical test: `research/test_reproducibility.py` runs the
+system on `data[:T]` and on `data[:T-250]` and requires the two to agree
+**exactly** on every shared date, across the FVO engine, the Swayam view
+weights, the aggregated breadth, the convergence dimension weights and the
+adaptive thresholds. A component that consulted the future cannot pass it. The
+test also fails on all-NaN output, so a component that quietly stopped
+producing anything cannot pass it either.
+
+**Causal factors, no repainting.** The factor structure is estimated recursively
+from an exponentially weighted correlation matrix, with the number of factors set
+by the **Marchenko-Pastur** edge — the eigenvalues that stand above what pure
+noise of that dimension would produce — and the memory chosen online from a bank
+of half-lives by predictive likelihood. Everything is one-sided: an instrument
+joins the cross-section on the day its own accumulated print count first reaches
+the estimability floor, and contributes only on days it actually printed, so
+admission never retroactively changes and a foreign market's holiday cannot enter
+as a fabricated zero return. Adding new data never rewrites history.
+
+**Why the coefficient memory is slow.** Scoring discount factors by one-step
+predictive likelihood is degenerate for a *level* regression: the model that
+tracks price most closely always wins, and its limit is the useless statement
+"fair value = price". The grid is therefore restricted to implied memories of
+~4y, ~8y, ~40y and permanent. This is the single most consequential decision in
+the engine and it is a modelling commitment, not a tuned choice — admitting a
+~5-month memory collapses the measured mispricing by roughly a factor of three
+and its half-life from weeks to days, which is a residual, not a valuation.
+
+**Honest validation, leakage-free.** The durability diagnostic is an
+expanding-window walk-forward: each window learns weights on the past and is
+scored on the NEXT purged block, so every reported IC is genuinely out-of-sample
+and nothing it returns feeds back into the signal. Scoring is
+**non-overlapping** (stride = the shortest hold horizon) rather than on every
+daily row — a daily-sampled IC on overlapping h-day forward returns overstates
+its own precision by roughly √h, so the trust chip's SOLID/MODEST/MARGINAL tiers
+are set on the non-overlapping scale. FVO itself has no labels to leak: it is fit to no forward
+target, so there is no label overlap to purge and no horizon-specific refit. Its
+**burn-in** (the first `FVO_BURN_IN` rows, before an exponentially weighted
+correlation matrix over ~200 instruments has enough weight for the
+Marchenko-Pastur edge to mean anything) is left genuinely unpublished and flagged
+`Valid = False`, rather than filled with a prior dressed up as an estimate. An expanding-window **walk-forward IC** runs every analysis and
 is charted in Diagnostics — consistently positive bars = durable edge; a couple of
 spikes = a lucky regime. The **Precedent** tab is a separate, non-parametric base
 rate read alongside the model, not part of the calibrated convergence signal; its
@@ -109,17 +180,12 @@ not N adjacent days of the same episode.
   (bond/rates/equity/risk/real-asset ETFs) + `MACRO_SYMBOLS_YF` (commodities + FX).
 - **Index targets:** `INDEX_TARGETS` in `data/universe.py` (India broad/sectoral, US
   benchmarks, India sector-ETF universe).
-- **Nirnay input:** depends on the target's archetype (`TARGET_ARCHETYPE`,
+- **Swayam input:** depends on the target's archetype (`TARGET_ARCHETYPE`,
   `core/config.py`). *Basket-mode* targets fetch a cross-section — an index's own
-  constituents (resolved live via NSE archive CSV / Wikipedia, cached 24 h, with a
-  hardcoded-snapshot fallback), or the curated `COMMODITY_BASKETS` for USD/INR
-  (dollar-strength proxies) and Jeera (Indian agribusiness). *Swayam self-mode*
-  targets fetch only their own OHLCV and run the self-referential ensemble
-  (`engines/nirnay_self.py`) — this covers individual stocks (free-form symbol
-  entry) and the liquid commodity futures (Gold/Silver/Copper/Cotton/Brent), whose
-  volume-bearing front-month price makes a proxy basket unnecessary. (Jeera stays a
-  basket target because NCDEX cumin has no yfinance OHLCV; USD/INR because FX carries
-  no yfinance volume.)
+  its own OHLCV. Every target is read the same way — the constituent resolution
+  (NSE archive CSV / Wikipedia scrapes, 24h caches, hardcoded snapshot fallbacks)
+  and the curated proxy baskets went with the basket engine, taking a
+  503-symbol fetch off the critical path for a large index.
 
 Every external call is wrapped in a two-tier cache (memory + disk), a per-service
 circuit breaker, retry-with-backoff, a **partial-success re-fetch** (yfinance
@@ -139,8 +205,8 @@ absent, every check degrades to a plain Mon–Fri mask, identical to prior behav
 
 **Everything is per-instrument.** Each instrument carries its own full
 `InstrumentConfig` — routing *and* every tunable knob across ALL layers: the
-Aarambh forecast (train window / refit / ensemble / ridge / huber / lookback /
-PCA), Nirnay + Swayam breadth, convergence DDM + dimension weights, the
+FVO valuation (burn-in / print floor / coefficient-memory grid / lookback),
+Swayam + Swayam breadth, convergence DDM + dimension weights, the
 classification thresholds, and the interpretation/display tiers (markers,
 conviction, breadth, agreement, model-spread) — in the `INSTRUMENT_CONFIGS`
 registry (`core/config.py`). The five catalogue classes (commodity, fx,
@@ -157,17 +223,15 @@ class, edit its default in `CLASS_CONFIG_DEFAULTS`.
 |---|---|
 | Target commodities / FX | `COMMODITY_TARGETS` in `core/config.py` |
 | Index targets (India / US / ETF) | `INDEX_TARGETS` in `data/universe.py` |
-| **Per-instrument config (routing + all engine knobs)** | `InstrumentConfig` / `INSTRUMENT_CONFIGS` in `core/config.py` |
+| **Per-instrument config (structure, floors, warm-up priors)** | `InstrumentConfig` / `INSTRUMENT_CONFIGS` in `core/config.py` |
 | **Per-asset-class config defaults** | `CLASS_CONFIG_DEFAULTS` (`commodity`, `fx`, `india_index`, `us_index`, `etf`, `stock_india`, `stock_us`) + `STOCK_CONFIGS` in `core/config.py` |
-| Nirnay mode per instrument (basket vs Swayam self) | `InstrumentConfig.archetype` (`"self"` → Swayam; else basket) |
-| Nirnay basket (USD/INR, Jeera, retained-for-research commodities) | `InstrumentConfig.basket` / `basket_alias` (source: `COMMODITY_BASKETS`) |
-| Individual-stock targets (free-form symbol, Nirnay-Swayam self-mode) | Sidebar **India Stocks** / **US Stocks** asset class → `data/universe.py::resolve_stock_symbol` + `core/config.py::register_stock_target` |
-| Aarambh forecast + training (horizon / momentum / hold / PCA / refit / min-max train / ensemble / ridge / huber / lookback) | fields on each `InstrumentConfig` (`forecast_*`, `pca_components`, `aarambh_*`) |
+| Individual-stock targets (free-form symbol, Swayam self-mode) | Sidebar **India Stocks** / **US Stocks** asset class → `data/universe.py::resolve_stock_symbol` + `core/config.py::register_stock_target` |
+| FVO valuation + scoring horizons (burn-in / print floor / discount grid / lookback / hold) | fields on each `InstrumentConfig` (`fvo_*`, `forecast_horizon`, `hold_horizons`) |
 | DDM / dimension weights / thresholds / markers / display tiers / analog blend / Swayam grid | fields on each `InstrumentConfig` (defaults = the former globals) |
 | Macro predictor universe | `GLOBAL_MACRO_MAP` + `MACRO_SYMBOLS_YF` |
-| Ensemble members (per instrument) | `InstrumentConfig.aarambh_ensemble_models` (global default `ENSEMBLE_MODELS = ("ols",)`) |
 | Constituent cap | `_DEFAULT_CAP` in `data/universe.py` (`0` = no cap, full index) |
-| Walk-forward / train sizes | `core/config.py` (`MIN_TRAIN_SIZE`, `MAX_TRAIN_SIZE`, `MIN_DATA_POINTS`) |
+| Valuation burn-in / print floor / discount grid | `core/config.py` (`FVO_BURN_IN`, `FVO_MIN_PRINTS`, `FVO_VALUATION_DELTAS`, `MIN_DATA_POINTS`) |
+| Asset-class block map for the cross-section | `engines/fvo/blocks.py` |
 
 In-app: the sidebar **Model Configuration** lets you deselect predictors (the full
 universe is on by default). Calibrated profiles persist to
@@ -179,8 +243,8 @@ India symbols are resolved by probing `SYMBOL.NS` (NSE) first, then `SYMBOL.BO`
 (BSE) — an explicit `.NS`/`.BO` suffix skips the probe; US symbols are used as
 typed (`.` → `-`, the yfinance convention — e.g. `BRK.B` → `BRK-B`). A resolved
 symbol is registered as a first-class target (`RELIANCE (NSE)`, `AAPL (US)`, …) —
-Aarambh forecasts it and Nirnay runs Swayam self-mode on it, with the same
-per-target calibration as every other target. Successful resolutions are
+FVO values it and Swayam runs Swayam self-mode on it, with the same
+per-target treatment as every other target. Successful resolutions are
 cached 7 days (`~/.cache/tattva/symbol_resolution/`); a not-found symbol is never
 cached, so a transient yfinance outage can't permanently brand it invalid.
 
@@ -190,21 +254,25 @@ cached, so a transient yfinance outage can't permanently brand it invalid.
 
 ```
 app.py                  Streamlit entrypoint + 5-phase orchestration
-core/                   config — macro universe, baskets, thresholds, and the
+core/                   config — macro universe, structure, floors, priors, and the
                         per-instrument InstrumentConfig registry — + logging
 data/                   yfinance fetchers, index catalogue + constituent
                         resolution (universe), two-tier cache, circuit breakers,
                         per-exchange trading calendars (calendars.py)
-engines/                aarambh (forecast, purged walk-forward), nirnay (breadth),
-                        nirnay_self (Swayam self-referential ensemble for
-                        commodity + individual-stock targets)
-analytics/              OU, Hurst/DFA, robust-quantile z-scores, HMM/GARCH/CUSUM,
-                        breaks, analogs (Mahalanobis precedent matcher)
+engines/                fvo/ (valuation: recursive cointegrating regression —
+                        causal DLM/DMA primitives, online factor model with a
+                        Marchenko-Pastur cut, regime filter, asset-class block
+                        map), swayam/ (breadth: the per-series MSF/MMR/regime
+                        kernel + the skill-weighted self-referential view bank)
+analytics/              adaptive (causal thresholds + online skill weights — the
+                        layer that replaced the tuned constants), OU, Hurst/DFA,
+                        robust-quantile z-scores, HMM/GARCH/CUSUM, breaks,
+                        analogs (Mahalanobis precedent matcher)
 convergence/            cross-validator, conviction (DDM), divergence,
-                        normalization, intelligence (calibration + walk-forward)
-ui/                     theme, components, tabs (Convergence/Aarambh/Nirnay/
+                        normalization, intelligence (online weights + walk-forward)
+ui/                     theme, components, tabs (Convergence/FVO/Swayam/
                         Precedent/Diagnostics/Data)
-research/               tuning & validation harnesses (Aarambh/Nirnay/analog
+research/               tuning & validation harnesses (Swayam/Swayam/analog
                         sweeps, marker/hero studies) + run_tuning.py orchestrator
 ```
 
@@ -221,34 +289,38 @@ applied by hand after review.
 
 ## Interpreting the output
 
-- **Hero card** — normalized convergence signal and the Aarambh / Nirnay contributions.
-- **Aarambh tab** — price with the model's forward expected-price projection (an
-  implied target + uncertainty cone) and the expected-forward-return forecast driving
-  it; model quality shows **Val IC** and the train→val gap (overfit detector).
+- **Hero card** — normalized convergence signal and the FVO / Swayam contributions.
+- **FVO tab** — price against the fair-value level the cross-section implies,
+  inside its 95% predictive band, with the mispricing gap that drives the signal
+  stack below it. Model quality reads left to right as a chain: does the
+  cross-section track this asset at all (OOS R²), does it beat the asset's own
+  252d trailing mean (**R² vs Trailing Mean** — the discriminating number), do
+  independent slices of the world agree on the mispricing's sign (**Valuation
+  Confidence**), is the gap stationary and how fast (**Mean Reversion**), and how
+  tightly is fair value pinned today (**Model Spread**).
 - **Precedent tab** — the most statistically-similar historical states (Mahalanobis)
   and what the target did next, across a fixed **1/3/5/10/20/60d** term structure
-  (`PRECEDENT_HORIZONS`); an empirical base rate to read *alongside* Aarambh
+  (`PRECEDENT_HORIZONS`); an empirical base rate to read *alongside* FVO
   (agreement strengthens conviction, disagreement is a divergence). The Analog Skill
   chart shows walk-forward IC at each horizon, so where the edge is genuinely present
   (typically ~10–20d) vs weak (the 1d and 60d ends) is visible, not assumed.
-- **Diagnostics → Intelligence Center** — calibration state and the **walk-forward
+- **Diagnostics → Intelligence Center** — learned-vs-prior weights and the **walk-forward
   IC** chart (the durability verdict).
 
-Rule of thumb: trust the **Val IC** and the **walk-forward consistency**, not any
-single conviction reading. Across the universe the (leakage-free) directional edge is
+Rule of thumb: trust the **walk-forward consistency**, not any single conviction
+reading. Across the universe the (leakage-free) directional edge is
 modest and concentrated at **10–20d** — the precedent base rate is strongest as a
 ~10d confirmer, and is best treated as fading in the recent regime.
 
-**Nirnay-Swayam's honest limitation.** On individual-stock targets, breadth is read
-across 15 *views of one price series* rather than 15 independent names, so the
-ensemble is more internally correlated than a real constituent basket — expect
-lumpier breadth swings and more synchronized regime flips than the commodity/index
-tabs show. The Nirnay tab surfaces an "effective view count" (an eigenvalue-based
-diagnostic, never fed into the signal itself) so this is visible rather than hidden;
-the Intelligence layer recalibrates its weights/thresholds per target
-against the observed distribution rather than inheriting basket-tuned defaults. Ship
-status is evidence-gated by `research/nirnay_swayam_study.py` (`nirnay_swayam` in
-the tuning suite), not assumed.
+**Swayam's honest limitation.** Breadth is read across 15 *views of one price
+series* rather than 15 independent instruments, so the bank is more internally
+correlated than a genuine cross-section would be — expect lumpier breadth swings
+and more synchronized regime flips than a constituent read would show. That is
+the price of not needing a hand-curated proxy, and it is disclosed rather than
+hidden: the Swayam tab surfaces an "effective view count" (an eigenvalue-based
+diagnostic, never fed into the signal itself), and the views are skill-weighted,
+so a timescale that has stopped predicting fades out of the aggregate instead of
+padding the apparent agreement.
 
 ---
 

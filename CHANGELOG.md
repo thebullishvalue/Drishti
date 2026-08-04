@@ -11,6 +11,210 @@ Sections used: **Added · Changed · Deprecated · Removed · Fixed · Security 
 
 ## [Unreleased]
 
+### Changed
+- **Basket breadth removed; Swayam is the only breadth engine.** Nirnay ran a
+  per-series MSF/MMR/regime kernel across a *basket* — an index's constituents,
+  or a hand-curated proxy basket for a commodity/FX target — and aggregated the
+  results into cross-sectional breadth. A basket is a proxy, and every proxy
+  needed curation: which names, capped at how many, co-directional or inverse
+  (there was a `TARGET_POLARITY` flag to flip the ones that ran the other way).
+  Those were judgement calls the data never got to overrule, they went stale as
+  constituents changed, and on a large index they cost a 503-symbol OHLCV fetch.
+  Swayam asks the same breadth question of the target's OWN price across a bank
+  of timescales × information-sets × mechanisms, so "breadth" means agreement
+  among independent views of the thing itself. The kernel survived (Swayam is
+  built on it) and moved to `engines/swayam/kernel.py`; the orchestration did
+  not. **S&P 500 end-to-end: 830s → 45s.**
+- **Swayam views are skill-weighted, not counted equally** (`view_skill_weights`).
+  Each view's vote is scaled by its own discounted directional skill, so a
+  timescale that has stopped predicting this instrument fades out of the
+  aggregate without a grid having been chosen. Counts and percentages keep their
+  exact scale (rows sum to the view count), and `Total_Analyzed` stays
+  unweighted because coverage is participation, not skill.
+- **Tuned constants replaced by causal estimates** (`analytics/adaptive.py`).
+  Weights are the exponentially-discounted realised skill of what is being
+  weighted, with sharpness scaled by `sqrt(n_eff)` so concentration requires
+  *significance* rather than merely elapsed time. Classification and display
+  cut-points are the expanding empirical quantile of the signal's own past,
+  wired at every site that had a hand-set tier: the FVO engine's regime labels
+  and current signal, the conviction interpretation card, breadth alerts,
+  model-spread tiers, and the Unified-Signal plot markers. Config keeps the old
+  values as **warm-up priors** — used only until an instrument has a year of its
+  own history, so a new target's first year behaves exactly as before rather
+  than flapping on a quantile of forty points.
+
+  Measured effect: the p90 conviction cut-point resolves to 15.28 on Gold,
+  12.26 on USD/INR, 11.94 on Nifty 50 and 13.10 on S&P 500, against a single
+  pooled 15.13 for all four. Under the constant a quiet instrument sat
+  permanently NEUTRAL and a volatile one permanently STRONGLY-something.
+
+  What stays declared is structure — horizons, the view bank and discount grid,
+  the estimability floors — because those are choices about the question, not
+  estimates of an answer. Still genuinely hand-set and honest about it: the DDM
+  filter constants, the analog blend weights, and the Swayam kernel knobs.
+- **Intelligence: Optuna calibration → online learning.** The TPE search fit
+  dimension weights and thresholds on the WHOLE history and applied the winner
+  back across it, so adding one session rewrote every convergence score ever
+  published; the winner was also persisted to disk and reloaded, making output
+  depend on when you last calibrated. Weights are now learned recursively from
+  outcomes that had already resolved — at date *t* the weights reflect outcomes
+  through *t − h* and nothing later. The module went 1146 → ~330 lines, the
+  optuna dependency and the profile JSON are gone, and the "Intelligence Mode"
+  toggle went with them (there is no expensive optional step left to gate).
+  The tab survives as a read-only diagnostic: learned-vs-prior weights, and the
+  walk-forward IC that was always the honest number here.
+- **Precedent analog now matches on valuation state.** The feature set gained
+  **FVO** — how rich or cheap the target is versus its macro-implied level, in
+  units of the engine's own predictive SD. The matcher previously read only
+  price dynamics and breadth, so it would call two dates analogous while the
+  asset was two SDs rich on one and two cheap on the other, which is the most
+  decision-relevant difference the system computes. Dropped the rolling DFA
+  Hurst feature: on a price series it saturated near its 0.99 clip and was
+  effectively a constant, contributing a wasted dimension and a near-singular
+  covariance direction.
+
+### Added
+- **`research/test_reproducibility.py` — the non-repainting guarantee, asserted.**
+  Runs the system on `data[:T]` and `data[:T-250]` and requires exact agreement
+  on every shared date across the FVO engine, Swayam view weights, aggregated
+  breadth, convergence dimension weights and the adaptive thresholds. A
+  component that consulted the future cannot pass it, which is why this is
+  asserted rather than argued. Verified on real market data too: withholding
+  1/5/60/250 sessions leaves the surviving history byte-identical.
+
+### Removed
+- `engines/nirnay.py`, `engines/nirnay_self.py`, `data/constituents.py`,
+  `COMMODITY_BASKETS`, `NIRNAY_BASKET_ALIAS`, `TARGET_POLARITY`,
+  `TARGET_ARCHETYPE`, `apply_polarity`, and the `archetype`/`polarity`/`basket`/
+  `basket_alias` config fields. `TARGET_ARCHETYPE`'s one genuine use — deciding
+  whether a target's price column needs separate injection — became
+  `STOCK_TARGET_MARKETS` / `is_stock_target`, which states that fact directly
+  instead of inferring it from a routing label.
+- Nine research studies whose subject no longer exists: the basket-engine
+  sweeps (`nirnay_tuning_study`, `nirnay_index_check`, `nirnay_swayam_study`,
+  `test_polarity`), the calibration comparisons (`conv_weights_study`,
+  `calibration_lift_study`), and the three that existed purely to anchor the
+  now-estimated tiers (`markers_study`, `hero_threshold_study`,
+  `ui_anchors_study`). The suite went 20 studies → 8. Shared loaders they
+  hosted moved to `research/_fvo_panel.py`.
+- `optuna` from `requirements.txt` — nothing imports it any more.
+
+### Fixed
+- **`analytics/causal.py` moved out of `engines/fvo/`.** The generic one-sided
+  estimation primitives sat under an engine while `analytics.adaptive` imported
+  them, pointing the dependency backwards — analytics is the layer engines are
+  built ON. It surfaced as a genuine circular import the moment the adaptive
+  layer was wired into both the engine and the UI.
+- **The online re-weighting was overwriting `convergence_score` with the wrong
+  quantity.** The published score is `-consensus_direction × agreement_strength`
+  — direction from the engines' signed leans, magnitude from weighted agreement.
+  The first implementation published the re-weighted *agreement* alone, which
+  looks like a signal and moves like a signal but has no direction in it. Caught
+  by `test_convergence_integrity`'s says-vs-does check (divergence 109.28 vs a
+  0.2 tolerance), which exists precisely to catch this substitution.
+- **`test_reproducibility` could certify all-NaN output.** Two frames of NaN
+  compare equal, so a component that had silently stopped producing anything
+  would have passed. The comparison now counts finite cells and fails when there
+  is nothing to compare — found by injecting a deliberate repainter and watching
+  the test pass it.
+
+## [2.8.0-dev] — FVO engine
+
+### Changed
+- **Aarambh replaced by the FVO valuation engine** (`engines/fvo/`, ported from
+  AMIS's Market Valuation Engine). Aarambh answered "what forward return do
+  trailing macro momenta predict?" — a return-space supervised regression whose
+  residual was a forecast error. FVO answers the question the rest of the system
+  actually consumes: *where should this asset be trading, given the state of the
+  world?* Log price is regressed on the **integrated** common factors of ~200
+  macro instruments with time-varying coefficients — a dynamic cointegrating
+  regression (Bierens & Martins 2010), not a spurious level regression: both
+  sides are integrated and the residual is the deviation from the time-varying
+  long-run relation, i.e. the mispricing.
+
+  Two consequences. The residual is a **level**, so fair value is a price and the
+  gap is a genuine mean-reverting spread — which means the OU half-life, ADF/KPSS
+  and pivot machinery that Aarambh's mode flags had to suppress (they were
+  measuring a forecast's persistence, audit finding F20) are now interpretable,
+  and the OU projection is drawn again. And the residual's stationarity is
+  testable **online**, so the engine can say whether valuation is informative
+  *today* rather than assuming it always is.
+
+  Two valuation views are averaged by their own out-of-sample predictive
+  evidence: a **latent** view on the cross-section's principal factors, and a
+  **block** view on 12 named asset-class aggregates (`engines/fvo/blocks.py`
+  classifies each Tattva macro column). Leave-one-block-out refits give
+  ablation-based driver importance and a cross-sectional consistency score.
+
+  Everything downstream is unchanged: the multi-lookback robust-quantile
+  z-scores, zones, breadth, DDM conviction, regime labelling, divergences and
+  forward-change tests all now run on the mispricing gap, so the convergence
+  layer, Nishkarsh, the Intelligence calibrator and the precedent analog matcher
+  consume exactly the columns they always did. `FairValueEngine`'s public surface
+  is deliberately identical; only `fit()`'s inputs changed (a price panel, not a
+  feature matrix and forward labels).
+- **`R² vs RW` → `R² vs Trailing Mean`** on the FVO tab. A random-walk null is the
+  wrong yardstick for a level regression — one step ahead, yesterday's close beats
+  any valuation of a near-integrated price, so that card read a large negative
+  number for a perfectly sound cointegrating relation and measured a claim the
+  engine never makes. The baseline is now the honest competitor: the asset's own
+  causal 252-day trailing mean. New `Valuation Confidence` and `Mean Reversion`
+  cards surface the engine's own gate (`mr_prob × xs_consistency`) and the ADF
+  test on the gap.
+- **Diagnostics "Feature Impact" → "Driver Importance"** — per-block ablation
+  (refit without the block, measure how far the mispricing moves) instead of
+  Aarambh's `coef @ pca.components_` read-off, which was uninterpretable across
+  ~200 collinear macro series. It is also a genuine time series now: the
+  ablations run every published session, where the previous attribution existed
+  only for the last walk-forward chunk (audit finding C4).
+
+### Removed
+- **Every Aarambh training knob**, global and per-instrument: `MIN_TRAIN_SIZE`,
+  `MAX_TRAIN_SIZE`, `REFIT_INTERVAL`, `RIDGE_ALPHAS`, `HUBER_EPSILON`,
+  `HUBER_MAX_ITER`, `ENSEMBLE_MODELS`, `pca_components`, and the seven
+  `aarambh_*` `InstrumentConfig` fields with their 61 tuned override entries. The FVO engine is recursive — no training window, refit cadence,
+  ensemble roster or regularisation path — so none of them has a counterpart, and
+  a tuning measured on a retired model is not evidence about the current one, so
+  they were removed rather than remapped. Replaced by `FVO_BURN_IN`,
+  `FVO_MIN_PRINTS` and `FVO_VALUATION_DELTAS` (plus `fvo_*` per-instrument
+  fields) — estimability floors and a coefficient-memory grid argued from first
+  principles in `core/config.py`, not searched.
+- **`research/aarambh_tuning_study.py`, `confirm_max_sweep.py`,
+  `test_aarambh_config.py`, `precedent_vs_model_sweep.py`** — sweeps of parameters
+  that no longer exist. `run_tuning.py`'s suite, segments and config reference
+  updated accordingly. New `research/_fvo_panel.py` holds the one copy of the
+  app's valuation-panel construction; three studies previously carried
+  near-identical copies that had drifted.
+- **DFA Hurst is no longer surfaced** on the FVO tab (it remains on the engine for
+  the signal contract and the analog feature pool). `analytics.hurst.hurst_dfa`
+  fits a single log-log slope over box sizes 8..n/4, which is badly biased upward
+  for a *short-memory* series — exactly what a mean-reverting valuation gap is.
+  Measured on synthetic AR(1) at the gap's own ~7-day half-life it reads 0.96 at
+  n=1354 and is still 0.78 at n=20000, against a true asymptotic 0.5, so it would
+  have labelled a gap that ADF calls strongly stationary "trending" and
+  contradicted the card beside it. This is a pre-existing limitation, previously
+  invisible because Aarambh's forecast mode swapped the Hurst card for Val IC;
+  fixing the estimator would change the analog matcher's Hurst feature too and
+  belongs in its own change.
+
+- **`FORECAST_MOMENTUM` → `ANALOG_MOM_WINDOW`** (`InstrumentConfig.forecast_momentum`
+  → `analog_mom_window`). Not a removal: the constant did double duty as the
+  forecast engine's predictor-momentum window *and* as the precedent analog
+  matcher's state-feature window (trailing momentum, realized vol, and at 3× it
+  the rolling Hurst). Those were never the same quantity — they shared a value —
+  and only the second use survives, so it is named for that. Validated by
+  `precedent_univ`, which is what always swept it.
+
+### Fixed
+- **Stale quotes no longer enter the valuation cross-section as fabricated zero
+  returns.** An instrument now contributes only on days it genuinely printed. The
+  exact mask is the vendor's own NaNs, but `data/fetcher.py` forward-fills at
+  source, so a mask captured in `app.py` would be all-True and would assert that
+  a Nikkei quote on a Tokyo holiday is a real print; the engine instead infers
+  prints from where values change (conservative in the same direction as the gate
+  itself), and `fit()` takes an explicit `printed=` mask for when the fetcher can
+  supply one. Measured effect: ~5% of panel cells are stale carries.
+
 ## [2.7.0] — 2026-07-20 — *Nirnay-Swayam self mode · individual stocks · full per-instrument configuration · research-suite overhaul*
 
 ### Added
@@ -1580,7 +1784,7 @@ Production-grade data layer, refactored convergence wiring, self-calibrating
   - **NISHKARSH CONVICTION** ← normalized convergence (`norm_avg[-1]` in
     `[−1, +1]`), formatted `+0.42`. Signal classification re-thresholded for
     the new scale (`±0.3` moderate, `±0.5` strong).
-  - **AARAMBH CONVICTION** ← `aarambh_ts["ConvictionRaw"]` (was
+  - **Aarambh CONVICTION** ← `aarambh_ts["ConvictionRaw"]` (was
     `ConvictionBounded`), formatted `+0.42`.
   - **NIRNAY AVG SIGNAL** ← unchanged source, format upgraded from 1 to
     2 decimal places.
@@ -1643,7 +1847,7 @@ Full standardisation pass: module headers, documentation, and system integrity f
 ### Added
 - **Standardised module headers** across all 33 Python files. Every module now carries
   the `Nishkarsh v1.2.0` header with the निष्कर्ष tagline and a system-level description
-  (AARAMBH, NIRNAY, CONVERGENCE, DATA, ANALYTICS, UI, CORE).
+  (Aarambh, NIRNAY, CONVERGENCE, DATA, ANALYTICS, UI, CORE).
 - **Structural break fallback** — `BaiPerronTest` is only in unreleased statsmodels 0.15+.
   A rolling-mean change-point heuristic is now used as a fallback when the native
   implementation is unavailable.

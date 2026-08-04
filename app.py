@@ -36,13 +36,13 @@ os.environ.setdefault(
     os.path.join(os.path.expanduser("~"), ".cache", "tattva", "numba"),
 )
 
-import json
 import sys
 import time
 import warnings
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
+import html
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -54,7 +54,7 @@ import streamlit as st
 # not just the known-noisy sources it was meant to cover (audit finding C6).
 # The one legitimate source found by auditing (nanmean's "Mean of empty
 # slice" on the engine's own warm-up rows) is now scoped locally at its call
-# site (engines/aarambh.py's _compute_breadth_metrics) instead. FutureWarning
+# site (engines/fvo.py's _compute_breadth_metrics) instead. FutureWarning
 # stays broadly suppressed — it's pandas/numpy API-deprecation noise, not a
 # correctness signal, so it doesn't carry the same risk of masking a real bug.
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -84,23 +84,25 @@ from ui.components import (
     render_hero_card,
     render_warning_box,
     render_control_hint,
+    render_ticker,
     section_gap,
 )
-from ui.tabs.tab_aarambh import render_aarambh_tab
-from ui.tabs.tab_nirnay import render_nirnay_tab
+from ui.tabs.tab_fvo import render_fvo_tab
+from ui.tabs.tab_swayam import render_swayam_tab
 from ui.tabs.tab_diagnostics import render_diagnostics_tab
 from ui.tabs.tab_data import render_data_tab
 from ui.tabs.tab_precedent import render_precedent_tab
 
 # ── Data ─────────────────────────────────────────────────────────────────────
 from data.fetcher import fetch_constituent_ohlcv, fetch_macro_live, fetch_commodity_dataset, fetch_stock_target_series
-from data.constituents import get_commodity_basket, get_nirnay_mode
 from data.calendars import trading_days_behind, is_session, session_mask, resolve_exchange
 from data.universe import resolve_stock_symbol
 
 # ── Engines ──────────────────────────────────────────────────────────────────
-from engines.aarambh import FairValueEngine
-from engines.nirnay import run_full_analysis, aggregate_constituent_timeseries, apply_polarity
+from engines.fvo import FairValueEngine
+from engines.fvo.blocks import block_membership
+from engines.swayam import aggregate_views
+from engines.swayam.kernel import view_skill_weights
 
 # ── Convergence ──────────────────────────────────────────────────────────────
 from convergence.cross_validator import CrossValidator
@@ -109,8 +111,8 @@ from convergence.divergence_detector import CrossSystemDivergenceDetector
 
 # ── Logger & Config ──────────────────────────────────────────────────────────
 from core.logger_config import console, generate_run_id, Colors
-from core.config import LOOKBACK_WINDOWS, MIN_DATA_POINTS, STALENESS_DAYS, SESSION_FRESH_FLOOR, TARGET_EXCLUDED_PREDICTORS, TARGET_POLARITY, ALL_TARGETS, TARGET_CATEGORIES, TARGET_ARCHETYPE, FORECAST_HORIZON, UI_AGREEMENT_STRONG, UI_AGREEMENT_MODERATE, INTEL_N_TRIALS, RAW_YIELD_PREDICTORS, DIV_LOOKBACK, TIMEFRAME_TRADING_DAYS, swayam_macro_columns, FREEFORM_STOCK_CATEGORIES, register_stock_target, get_instrument_config
-from engines.nirnay_self import build_swayam_frames, effective_member_count, default_swayam_members
+from core.config import LOOKBACK_WINDOWS, MIN_DATA_POINTS, STALENESS_DAYS, SESSION_FRESH_FLOOR, TARGET_EXCLUDED_PREDICTORS, ALL_TARGETS, TARGET_CATEGORIES, is_stock_target, FORECAST_HORIZON, RAW_YIELD_PREDICTORS, DIV_LOOKBACK, TIMEFRAME_TRADING_DAYS, swayam_macro_columns, FREEFORM_STOCK_CATEGORIES, register_stock_target, get_instrument_config
+from engines.swayam import build_swayam_frames, effective_member_count, default_swayam_members
 from core.config import GLOBAL_MACRO_MAP, MACRO_SYMBOLS_YF, INDEX_TARGETS_MAP
 
 # Friendly column name → ticker, for resolving each predictor/target column to its
@@ -125,27 +127,25 @@ _COLUMN_TICKERS = {**GLOBAL_MACRO_MAP, **MACRO_SYMBOLS_YF, **INDEX_TARGETS_MAP, 
 # the user switches Gold → Silver → Gold) restores instantly instead of
 # recomputing the whole 5-phase pipeline. Bounded (LRU) to cap memory.
 _BUNDLE_KEYS = (
-    "engine", "aarambh_ts", "nirnay_daily", "nirnay_constituent_dfs",
+    "engine", "fvo_ts", "swayam_daily", "swayam_view_dfs",
     "convergence_df", "divergence_events", "nishkarsh_result", "last_agreement",
     "nishkarsh_conv_normalized", "wf_results",
     "intelligence_active_weights", "intelligence_active_thresholds",
     "intelligence_active_profile",
-    # The consensus headline's full history + DDM-smoothed trend
-    # (hero-history plot / TREND row; the headline scalar itself lives in
-    # nishkarsh_conv_normalized above), and the calibrated variant
-    # (CALIBRATED evidence row / amber overlay) — must all travel with the
-    # bundle so a cached target switch-back doesn't leave the PREVIOUS
-    # target's headline state in session state.
-    "hero_series", "hero_smoothed",
+    # The consensus's full history (Convergence-tab marker tiers) and the
+    # weighted composite (hero WEIGHTED row / amber overlay) — must travel
+    # with the bundle so a cached target switch-back doesn't leave the
+    # PREVIOUS target's state in session.
+    "hero_series",
     "nishkarsh_calibrated_score", "nishkarsh_calibrated_signal",
     "calibrated_conv_series",
     # Per-target UI metadata that must travel with the result bundle —
     # otherwise a cached target switch-back leaves the PREVIOUS target's
-    # value in session state (e.g. the Nirnay tab showing a stale
+    # value in session state (e.g. the Swayam tab showing a stale
     # "basket source: snapshot" hint for a target resolved live, or the
     # Convergence tab's "breadth carried forward" notice firing/missing
     # based on the WRONG target's basket-freshness timestamp).
-    "nirnay_basket_source", "nirnay_native_last", "nirnay_mode", "nirnay_swayam_n_eff",
+    "swayam_native_last", "swayam_n_eff",
 )
 # Keep the last N configs. The comment here previously said "the 3
 # commodities" — stale since the universe grew to 30+ targets (commodities,
@@ -158,42 +158,42 @@ _RESULTS_CACHE_MAX = 6
 
 # Baskets at/above this size get their per-constituent frames trimmed before
 # entering the _RESULTS_CACHE_MAX-deep results_cache LRU (audit finding F19).
-# nirnay_constituent_dfs carries ~200 columns per constituent (the full
-# run_full_analysis output); only the ~9 the Nirnay tab's drill-down actually
-# displays (_NIRNAY_DRILLDOWN_COLS) are needed once the result is just sitting
+# swayam_view_dfs carries ~200 columns per constituent (the full
+# kernel output); only the ~9 the Swayam tab's drill-down actually
+# displays (_SWAYAM_DRILLDOWN_COLS) are needed once the result is just sitting
 # in the switch-back cache. A small commodity basket (~15-20 names) is cheap
 # either way and kept at full width so nothing else that might read the wider
 # frame in-session breaks; an uncapped large index (S&P 500 ~500 names) is
 # where the ~200-column full width, multiplied across up to 6 LRU entries,
 # actually matters.
 _CONSTITUENT_TRIM_THRESHOLD = 60
-_NIRNAY_DRILLDOWN_COLS = (
+_SWAYAM_DRILLDOWN_COLS = (
     "Close", "MSF_Osc", "MMR_Osc", "Unified_Osc", "Condition",
     "Regime", "Vol_Regime", "Change_Point", "Confidence",
 )
 
 
-def _bundle_nirnay_constituent_dfs(dfs: dict) -> dict:
-    """Trim nirnay_constituent_dfs to the Nirnay tab's drill-down columns
+def _bundle_swayam_view_dfs(dfs: dict) -> dict:
+    """Trim swayam_view_dfs to the Swayam tab's drill-down columns
     before it enters the per-config results_cache LRU, for baskets at/above
     _CONSTITUENT_TRIM_THRESHOLD names. Only affects the SNAPSHOT stored in
     results_cache — the live session_state copy the active render reads
-    (and engines.nirnay.aggregate_constituent_timeseries, which needs the
+    (and engines.swayam.aggregate_views, which needs the
     full width and runs before this snapshot is taken) is never touched.
     """
     if not dfs or len(dfs) < _CONSTITUENT_TRIM_THRESHOLD:
         return dfs
     trimmed = {}
     for sym, df in dfs.items():
-        cols = [c for c in _NIRNAY_DRILLDOWN_COLS if c in df.columns]
+        cols = [c for c in _SWAYAM_DRILLDOWN_COLS if c in df.columns]
         trimmed[sym] = df[cols] if cols else df.iloc[:, :0]
     return trimmed
 
 
 def _ensure_stock_target_column(df: pd.DataFrame, active_target: str) -> pd.DataFrame:
-    """Inject a self-archetype target's Close into the model matrix.
+    """Inject a free-form stock target's Close into the model matrix.
 
-    Individual-stock targets (TARGET_ARCHETYPE == 'self') are deliberately
+    Individual-stock targets (``is_stock_target``) are deliberately
     NOT part of the macro batch universe fetch_commodity_dataset pulls (cache
     coherence — see fetch_stock_target_series's docstring); their price
     column is injected per-target here, the same pattern
@@ -203,7 +203,7 @@ def _ensure_stock_target_column(df: pd.DataFrame, active_target: str) -> pd.Data
     isn't a stock. Mutates st.session_state['data'] too, so a target switch
     or a cached rerun sees the column without re-fetching.
     """
-    if active_target in df.columns or TARGET_ARCHETYPE.get(active_target) != "self":
+    if active_target in df.columns or not is_stock_target(active_target):
         return df
     ticker = ALL_TARGETS.get(active_target)
     if not ticker:
@@ -223,11 +223,21 @@ def _ensure_stock_target_column(df: pd.DataFrame, active_target: str) -> pd.Data
 
 # ─── UI Rendering helpers ────────────────────────────────────────────────────
 
-def _render_header() -> None:
+def _render_header(frame=None) -> None:
+    """Masthead, then the tape.
+
+    The tape sits directly under the masthead and above everything else: it is
+    ambient context (where is the world today) that every reading below is
+    relative to, and it belongs where the eye lands before it starts working.
+    It draws from the run's OWN macro panel, so it cannot disagree with the
+    valuation underneath it.
+    """
     render_header(
         title=f"{PRODUCT_NAME}",
-        tagline="Cross-Asset Fair-Value + Basket Regime Intelligence  |  Unified Convergence"
+        tagline="Cross-Asset Fair Value · Self-Referential Breadth · Unified Convergence",
     )
+    if frame is not None:
+        render_ticker(frame)
 
 
 def _render_landing_page() -> None:
@@ -236,10 +246,10 @@ def _render_landing_page() -> None:
     col1, col2, col3 = st.columns(3, gap="small")
     with col1:
         st.markdown("""
-        <div class='system-card aarambh'>
+        <div class='system-card fvo'>
             <h3>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
-                AARAMBH
+                FVO
             </h3>
             <p>Walk-forward ensemble regression on the selected target (commodities, FX, indices & ETFs) vs the macro/FX universe, with robust quantile z-scores and DDM filtering.</p>
             <div class='spec'>
@@ -251,10 +261,10 @@ def _render_landing_page() -> None:
         """, unsafe_allow_html=True)
     with col2:
         st.markdown("""
-        <div class='system-card nirnay'>
+        <div class='system-card swayam'>
             <h3>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-                NIRNAY
+                SWAYAM
             </h3>
             <p>Per-instrument MSF + MMR analysis across a basket of related ETFs & miners, with HMM/GARCH/CUSUM regime intelligence aggregation.</p>
             <div class='spec'>
@@ -273,7 +283,7 @@ def _render_landing_page() -> None:
             </h3>
             <p>Adaptive-weighted composite of 4 dimensions: Direction, Breadth, Magnitude, Regime — with DDM.</p>
             <div class='spec'>
-                <span>Fusion:</span> Aarambh + Nirnay<br>
+                <span>Fusion:</span> FVO + Swayam<br>
                 <span>Smoothing:</span> Leaky DDM<br>
                 <span>Range:</span> Soft \u00b1100 limit
             </div>
@@ -292,43 +302,33 @@ def _render_landing_page() -> None:
     """, unsafe_allow_html=True)
 
 
-def _render_primary_signal(nishkarsh_norm, agreement, aarambh_signal) -> None:
-    """Render the hero Tattva convergence signal card.
+def _render_primary_signal(nishkarsh_norm, agreement, fvo_signal) -> None:
+    """Render the hero card.
 
-    All interpretation logic lives in ``ui.components.build_hero_verdict`` (a
-    pure, unit-testable function); this wrapper only gathers session-state
-    inputs and hands the verdict to ``render_hero_card``. The headline chain
-    is NORMALIZED CONSENSUS -> Aarambh-only, always paired with an honest
-    trust read (non-overlapping Val IC + walk-forward durability, attributed
-    to the calibrated composite variant), the CALIBRATED variant as a
-    second-opinion evidence row, and a minimum-n-gated precedent read.
+    All interpretation lives in ``ui.components.build_hero_verdict`` (a pure,
+    unit-testable function — see research/test_hero_verdict.py); this wrapper
+    only gathers session-state inputs and hands the verdict to
+    ``render_hero_card``.
 
-    The headline is ``nishkarsh_norm`` (passed in) — the normalized
-    consensus, the SAME object as the Unified Signal plot's top row and the
-    TATTVA CONVICTION card, so hero/card/plot reconcile identically by
-    construction. The calibrated composite (Phase 4e) feeds the CALIBRATED
-    evidence row; ``hero_smoothed`` (DDM of the consensus) feeds TREND.
+    The card is a CONVICTION CHAIN: direction from FVO, then six gates whose
+    product is the conviction, with the smallest gate named as the binding
+    constraint. Every engine contributes exactly one gate — FVO (mispricing
+    and reversion), Swayam (breadth), Convergence (agreement + normalized
+    consensus), the walk-forward read (edge), and Precedent (base rate).
     """
-    profile     = st.session_state.get("intelligence_active_profile")  # dict | None
     wf          = st.session_state.get("wf_results")                   # list[dict] | None
     div_events  = st.session_state.get("divergence_events")            # DataFrame | None
     prec        = st.session_state.get("precedent_summary")            # dict | None
-    hero_smoothed = st.session_state.get("hero_smoothed")               # pd.Series | None
-    calib_score  = st.session_state.get("nishkarsh_calibrated_score")   # float | None
-    calib_signal = st.session_state.get("nishkarsh_calibrated_signal")  # str | None
 
     # DEGENERATE-CONVERGENCE GATE: `nishkarsh_norm` is None exactly when the
-    # Aarambh∩Nirnay alignment found no overlap (empty/unresolvable basket) —
-    # the headline chain then falls through to the honest "Aarambh only (no
-    # basket convergence)" source automatically. The calibrated composite is
-    # gated too: with no basket it was computed against neutral PLACEHOLDER
-    # nirnay stats (a half-weight Aarambh-only signal wearing a convergence
-    # label), and divergence events are silenced for the same reason — the
-    # detector compared Aarambh against a basket that doesn't exist.
-    _has_genuine_convergence = nishkarsh_norm is not None
-    if not _has_genuine_convergence:
-        hero_smoothed = None
-        calib_score, calib_signal = None, None
+    # FVO/Swayam alignment found no overlap. The verdict handles that case
+    # directly now — `swayam_breadth=None` leaves the corroboration gate at a
+    # neutral 0.5 and says "no breadth read" on the card, rather than the
+    # signal quietly becoming half-weight FVO wearing a convergence label.
+    # Divergences are silenced for the same reason: the detector would be
+    # comparing FVO against breadth that does not exist.
+    if nishkarsh_norm is None:
+        div_events = None
 
     # Active instrument's forecast horizon - for interpretation copy only.
     try:
@@ -336,11 +336,12 @@ def _render_primary_signal(nishkarsh_norm, agreement, aarambh_signal) -> None:
     except KeyError:
         FWD_HORIZON = FORECAST_HORIZON
 
-    val_ic = None
-    if profile and profile.get("val_ic") is not None:
-        try: val_ic = float(profile["val_ic"])
-        except (TypeError, ValueError): val_ic = None
     wf_ics = [r["ic"] for r in wf if isinstance(r, dict) and r.get("ic") == r.get("ic")] if wf else []
+    # The edge number IS the walk-forward mean now. There is no calibration to
+    # hold out from: weights are learned forward, so every window's IC is
+    # already out-of-sample with respect to everything after it, and a separate
+    # "Val IC" would just be one more window of the same thing.
+    oos_ic = float(np.mean(wf_ics)) if wf_ics else None
     wf_pos = (sum(1 for v in wf_ics if v > 0) / len(wf_ics)) if wf_ics else None
     wf_n = len(wf_ics) if wf_ics else None
     # RECENT divergence count only (audit finding F7) — div_events spans the
@@ -351,7 +352,7 @@ def _render_primary_signal(nishkarsh_norm, agreement, aarambh_signal) -> None:
     # anchored on the LATEST event date in the table (a proxy for "today" —
     # div_events carries no direct handle on the engine's current as-of date).
     n_div = 0
-    if (_has_genuine_convergence and div_events is not None
+    if (div_events is not None
             and hasattr(div_events, "__len__") and len(div_events)):
         try:
             _div_dates = pd.to_datetime(div_events.index, errors="coerce")
@@ -364,26 +365,42 @@ def _render_primary_signal(nishkarsh_norm, agreement, aarambh_signal) -> None:
         except Exception:
             n_div = int(len(div_events))
 
+    # Swayam's current breadth — the corroboration gate. Read from the daily
+    # frame's last row rather than a session scalar so it is the same object
+    # the Swayam tab shows.
+    _sw = st.session_state.get("swayam_daily")
+    swayam_breadth = None
+    if _sw is not None and not _sw.empty:
+        _last = _sw.iloc[-1]
+        swayam_breadth = {
+            "oversold_pct": float(_last.get("Oversold_Pct", 50.0)),
+            "overbought_pct": float(_last.get("Overbought_Pct", 50.0)),
+        }
+
+    # The convergence layer's own output: how far the two engines concur
+    # (dimension-weighted by learned skill) and where the normalized consensus
+    # — the series the Convergence tab plots — currently points.
+    _cdf = st.session_state.get("convergence_df")
+    convergence_read = None
+    if _cdf is not None and not _cdf.empty:
+        convergence_read = {
+            "agreement_ratio": float(_cdf["agreement_ratio"].iloc[-1])
+            if "agreement_ratio" in _cdf.columns else 0.5,
+            "consensus": (float(nishkarsh_norm["value"])
+                          if nishkarsh_norm and nishkarsh_norm.get("value") is not None
+                          else None),
+        }
+
     verdict = build_hero_verdict(
-        calib_conviction=(float(calib_score) if calib_score is not None else None),
-        calib_signal=(calib_signal if calib_signal is not None else None),
-        has_profile=bool(profile),
-        consensus=nishkarsh_norm,
-        aarambh_signal=aarambh_signal,
-        agreement=float(agreement or 0.0),
-        val_ic=val_ic,
+        fvo_signal=fvo_signal,
+        swayam_breadth=swayam_breadth,
+        convergence=convergence_read,
+        wf_ic=oos_ic,
         wf_pos=wf_pos,
+        wf_n=wf_n,
         precedent=prec,
         n_divergences=n_div,
         horizon_days=FWD_HORIZON,
-        agreement_strong=UI_AGREEMENT_STRONG,
-        agreement_moderate=UI_AGREEMENT_MODERATE,
-        # DDM-smoothed value of the SAME consensus series ([-1,+1]) — lets
-        # the card interpret today's print against its own trend (TREND row)
-        # instead of leaving that to the hero-history plot.
-        smoothed=(float(hero_smoothed.iloc[-1])
-                  if hero_smoothed is not None and len(hero_smoothed) else None),
-        wf_n=wf_n,
         div_window=DIV_LOOKBACK,
     )
     render_hero_card(verdict)
@@ -391,181 +408,50 @@ def _render_primary_signal(nishkarsh_norm, agreement, aarambh_signal) -> None:
 
 
 def _render_model_passport_sidebar(current_universe: str, current_index: str | None = None) -> None:
-    """Sidebar Passport — visible in every mode.
+    """Sidebar Passport — what the model is doing right now.
 
-    Faithful port of Sanket's `_render_model_passport_sidebar`, adapted to
-    Nishkarsh's (universe, index) keying. Surfaces:
-      • Profile state (Default / Calibrated / Calibrated · ⚠ on mismatch)
-      • Trained-on label · Train IC · Val IC · Updated timestamp
-      • Universe-mismatch warning when the saved profile was fit on a
-        different universe than the active sidebar selection
-      • Import / Export / Reset controls
+    This used to be a PROFILE manager: it showed which calibrated profile was
+    loaded, its train/val IC and timestamp, warned when the profile had been fit
+    on a different universe, and offered Import / Export / Reset. All of that
+    existed because calibration produced a persisted artefact that could be
+    stale, mismatched, or shared — and because the output depended on which
+    artefact happened to be loaded.
 
-    Caller must be inside a ``with st.sidebar:`` context.
+    Nothing is persisted now. Weights are learned forward from the data in
+    front of the model, every run, so there is no profile to import, no
+    mismatch to warn about, and nothing to reset to. What remains worth showing
+    is the state the run actually reached.
     """
-    from convergence import intelligence as intel
-
     st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
     st.markdown('<div class="sidebar-title">Model Passport</div>', unsafe_allow_html=True)
 
-    # Intelligence-mode toggle. Default ON. When OFF, any saved profile is
-    # ignored and CrossValidator falls back to its ±10% adaptive-shift
-    # heuristic on top of the factory 0.30/0.25/0.25/0.20 base allocation —
-    # NOT the bare fixed weights (audit finding F20: the help text previously
-    # implied the base weights are applied verbatim when OFF; the ±10%
-    # per-day clarity-based shift always runs on top of them in that path —
-    # see convergence.cross_validator.CrossValidator.compute_convergence).
-    # Thresholds ARE the bare factory defaults when OFF — the composite's own
-    # p75/p90-anchored COMPOSITE_THRESHOLDS (no equivalent heuristic exists
-    # for thresholds).
-    intelligence_mode = st.toggle(
-        "Intelligence Mode",
-        value=bool(st.session_state.get("intelligence_mode", True)),
-        help=(
-            "When ON, Tattva uses the persisted calibrated profile for the "
-            "selected universe (if one exists). When OFF, Tattva runs on the "
-            "factory 0.30 / 0.25 / 0.25 / 0.20 dimension weights (adaptively "
-            "shifted ±10% per day by signal clarity — not applied verbatim) "
-            "and the composite's data-anchored factory thresholds "
-            "(±0.11 moderate / ±0.18 strong)."
-        ),
-        key="passport_intel_toggle",
+    w = st.session_state.get("intelligence_active_weights") or {}
+    wf = st.session_state.get("wf_results") or []
+
+    if not w:
+        render_control_hint("Run an analysis to populate.")
+        return
+
+    _top = sorted(w.items(), key=lambda kv: -kv[1])
+    st.markdown(
+        '<div style="font-family:var(--data);font-size:0.72rem;color:var(--ink-secondary);'
+        'line-height:1.7;padding:0.2rem 0 0.4rem 0;">'
+        + "".join(
+            f'<div style="display:flex;justify-content:space-between;">'
+            f'<span>{k}</span><span style="color:var(--amber);font-weight:700;">{v:.3f}</span></div>'
+            for k, v in _top)
+        + '</div>',
+        unsafe_allow_html=True,
     )
-    st.session_state["intelligence_mode"] = intelligence_mode
+    render_control_hint("Dimension weights · learned forward from resolved outcomes")
 
-    # What profile (if any) is saved for THIS universe?
-    saved_profile = intel.load_profile_for(current_universe, current_index)
-
-    # Status card values
-    if intelligence_mode and saved_profile is not None:
-        cal_universe = saved_profile.universe
-        cal_index    = saved_profile.selected_index
-        cal_label    = cal_index or cal_universe or "—"
-        cur_label    = current_index or current_universe or "—"
-        universe_mismatch = cal_label != "—" and cur_label != "—" and cal_label != cur_label
-        train_v = float(saved_profile.train_ic or 0.0)
-        val_v   = float(saved_profile.val_ic or 0.0)
-        train_str = f"{train_v:+.3f}"
-        val_str   = f"{val_v:+.3f}"
-        updated   = saved_profile.timestamp or "—"
-        train_color = "var(--emerald)" if train_v > 0 else "var(--rose)"
-        val_color   = "var(--emerald)" if val_v   > 0 else "var(--rose)"
-        if universe_mismatch:
-            profile_label = "Calibrated · ⚠"
-            card_class = "warning"
-        else:
-            profile_label = "Calibrated"
-            card_class = "success" if (val_v > 0 and train_v > 0) else "warning"
-    elif not intelligence_mode:
-        cal_label = "—"
-        profile_label = "Default · Off"
-        train_str = val_str = updated = "—"
-        train_color = val_color = "var(--ink-secondary)"
-        card_class = "neutral"
-        universe_mismatch = False
-    else:
-        cal_label = "—"
-        profile_label = "Default"
-        train_str = val_str = updated = "—"
-        train_color = val_color = "var(--ink-secondary)"
-        card_class = "neutral"
-        universe_mismatch = False
-
-    def _trim(s: str, n: int = 22) -> str:
-        s = str(s)
-        return s if len(s) <= n else s[: n - 1] + "…"
-
-    cal_label_disp = _trim(cal_label)
-
-    st.markdown(f"""
-    <div class="metric-card {card_class}" style="
-            min-height:auto;
-            padding:0.85rem 0.95rem;
-            margin-bottom:0.7rem;
-            animation:none;">
-        <h4 style="margin:0 0 0.3rem 0;">Profile</h4>
-        <h2 style="font-size:1.05rem; margin:0 0 0.7rem 0; letter-spacing:-0.01em;">{profile_label}</h2>
-        <div style="display:flex; flex-direction:column; gap:0.32rem;
-                    padding-top:0.55rem;
-                    border-top:1px solid rgba(255,255,255,0.06);">
-            <div style="display:flex; justify-content:space-between; align-items:baseline; font-family:var(--data); font-size:0.62rem;">
-                <span style="color:var(--ink-tertiary); text-transform:uppercase; letter-spacing:0.1em; font-size:0.58rem;">Trained on</span>
-                <span style="color:var(--ink-secondary); font-weight:500; max-width:62%; text-align:right; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{cal_label_disp}</span>
-            </div>
-            <div style="display:flex; justify-content:space-between; align-items:baseline; font-family:var(--data); font-size:0.65rem;">
-                <span style="color:var(--ink-tertiary); text-transform:uppercase; letter-spacing:0.1em; font-size:0.58rem;">Train IC</span>
-                <span style="color:{train_color}; font-weight:600;">{train_str}</span>
-            </div>
-            <div style="display:flex; justify-content:space-between; align-items:baseline; font-family:var(--data); font-size:0.65rem;">
-                <span style="color:var(--ink-tertiary); text-transform:uppercase; letter-spacing:0.1em; font-size:0.58rem;">Val IC</span>
-                <span style="color:{val_color}; font-weight:600;">{val_str}</span>
-            </div>
-            <div style="display:flex; justify-content:space-between; align-items:baseline; font-family:var(--data); font-size:0.6rem;">
-                <span style="color:var(--ink-tertiary); text-transform:uppercase; letter-spacing:0.1em; font-size:0.58rem;">Updated</span>
-                <span style="color:var(--ink-secondary);">{updated}</span>
-            </div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    if universe_mismatch:
-        st.markdown(f"""
-        <div style="font-family:var(--data); font-size:0.62rem; color:var(--amber);
-                    background:rgba(212,168,83,0.08);
-                    border:1px solid rgba(212,168,83,0.22);
-                    border-radius:6px; padding:0.55rem 0.65rem;
-                    margin-bottom:0.7rem; line-height:1.45;">
-            <span style="font-weight:700;">Profile mismatch — calibrated weights still active.</span><br>
-            Profile fit on <b>{_trim(cal_label, 28)}</b><br>
-            Active universe is <b>{_trim(current_index or current_universe, 28)}</b><br>
-            <span style="color:var(--ink-tertiary);">Weights learned for one universe do not generalise.
-            Reset to defaults or run a new calibration for the current selection.</span>
-        </div>
-        """, unsafe_allow_html=True)
-
-    # Import / Export / Reset controls
-    with st.expander("↑ Import Profile", expanded=False):
-        uploaded = st.file_uploader(
-            " ", type=["json"], label_visibility="collapsed", key="passport_uploader",
-        )
-        if uploaded is not None:
-            try:
-                payload = json.load(uploaded)
-                if isinstance(payload, dict) and "weights" in payload:
-                    imported = intel.IntelligenceProfile.from_dict(payload)
-                    intel.save_profile(imported)
-                    st.toast("Profile imported.", icon="✅")
-                    st.success(f"Profile imported · {imported.universe}")
-                    st.rerun()
-                else:
-                    st.error("Import failed: file is not a valid profile dict (missing 'weights').")
-            except Exception as e:
-                st.error(f"Import failed: {e}")
-
-    if saved_profile is not None:
-        export_payload = saved_profile.to_dict()
-        ts_slug = (saved_profile.timestamp or "").split(" ")[0] or "snapshot"
-        # Sanitize for a safe filename: spaces → "_", and "/" (e.g. "USD/INR")
-        # → "-" so it doesn't read as a path separator in the download.
-        _slug = (saved_profile.selected_index or saved_profile.universe or "profile")
-        _slug = _slug.replace(" ", "_").replace("/", "-")
-        fname = f"tattva_profile_{_trim(_slug, 30)}_{ts_slug}.json"
-        st.download_button(
-            "↓ Export Profile",
-            data=json.dumps(export_payload, indent=2, default=str),
-            file_name=fname,
-            mime="application/json",
-            use_container_width=True,
-            key="passport_export",
-        )
-        if st.button("↺ Reset to Defaults", use_container_width=True, key="passport_reset"):
-            intel.delete_profile(saved_profile.universe, saved_profile.selected_index)
-            # Streamlit's toast `icon=` only accepts emojis from a curated
-            # whitelist; "↺" (U+21BA, our "Reset" mark used on the button) is
-            # rejected. Drop the icon — the "↺" stays on the button text where
-            # the user actually sees it.
-            st.toast("Profile reset.")
-            st.rerun()
+    if wf:
+        _ics = [r["ic"] for r in wf if np.isfinite(r.get("ic", float("nan")))]
+        if _ics:
+            _mean = float(np.mean(_ics))
+            _pos = sum(1 for v in _ics if v > 0)
+            render_control_hint(
+                f"Walk-forward IC {_mean:+.3f} · {_pos}/{len(_ics)} windows positive")
 
 
 def _render_footer() -> None:
@@ -589,7 +475,7 @@ def main():
     st.set_page_config(
         page_title="TATTVA | Unified Convergence",
         page_icon="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PGNpcmNsZSBjeD0iMTIiIGN5PSIxMiIgcj0iMTAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI0Q0QTg1MyIgc3Ryb2tlLXdpZHRoPSIyIi8+PHBhdGggZD0iTTggMTRsMy01IDIgMyAzLTQiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI0Q0QTg1MyIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz48L3N2Zz4=",
-        layout="wide", initial_sidebar_state="collapsed",
+        layout="wide", initial_sidebar_state="expanded",
     )
     inject_css()
 
@@ -599,7 +485,7 @@ def main():
     # st.session_state survives a rerun as the durable record, so a freeform
     # symbol resolved earlier this session (e.g. "RELIANCE (NSE)") must be
     # re-registered before anything below resolves active_target against
-    # ALL_TARGETS/TARGET_ARCHETYPE. Idempotent — safe every rerun.
+    # ALL_TARGETS/STOCK_TARGET_MARKETS. Idempotent — safe every rerun.
     for _dname, _dmeta in st.session_state.get("dynamic_stock_targets", {}).items():
         register_stock_target(_dname, _dmeta["ticker"], _dmeta["market"])
 
@@ -675,7 +561,7 @@ def main():
                 "Symbol", key=f"stock_symbol_{_market}",
                 label_visibility="collapsed",
                 placeholder="e.g. RELIANCE, TATASTEEL" if _market == "india" else "e.g. AAPL, BRK.B",
-                help="Nirnay runs in Swayam self-mode on this instrument's own OHLCV "
+                help="Swayam runs in Swayam self-mode on this instrument's own OHLCV "
                      "(no constituent basket exists for a single stock).",
             )
             selected_commodity = None
@@ -708,26 +594,17 @@ def main():
             selected_commodity = st.selectbox(
                 "Target", cat_targets,
                 label_visibility="collapsed", key="target_select",
-                help="Aarambh forecasts this target's forward return; Nirnay reads "
+                help="FVO forecasts this target's forward return; Swayam reads "
                      "bottom-up breadth — across its constituent basket (index members, "
                      "producers, sector ETFs), or as a Swayam self-ensemble on the "
                      "instrument's own price (commodities & stocks).",
             )
-        # Show the Nirnay mode as a subtle hint. For a FREEFORM stock the
-        # resolution hint just above already states the ticker/exchange and the
-        # Symbol help text explains Swayam, so a 'self' line here would repeat —
-        # suppress it there only. For a dropdown 'self' target (the commodity
-        # futures) show a Swayam label; for basket targets show the archetype.
-        _arch = TARGET_ARCHETYPE.get(selected_commodity, "") if selected_commodity else ""
-        _is_freeform = sel_cat in FREEFORM_STOCK_CATEGORIES
-        if _arch and not (_arch == "self" and _is_freeform):
-            if _arch == "self":
-                render_control_hint("Nirnay · Swayam self-ensemble (own OHLCV)")
-            else:
-                _arch_label = {"producer": "producer cross-section",
-                               "hybrid": "agribusiness + futures", "proxy": "cross-asset proxy",
-                               "index": "index constituents"}.get(_arch, _arch)
-                render_control_hint(f"Nirnay basket · {_arch_label}")
+        # Breadth source hint. Every target now reads the same way, so this is
+        # a statement of method rather than a routing label. Suppressed for a
+        # FREEFORM stock, where the resolution hint just above already states
+        # the ticker/exchange and the Symbol help text explains Swayam.
+        if selected_commodity and sel_cat not in FREEFORM_STOCK_CATEGORIES:
+            render_control_hint("Swayam · self-referential view bank (own OHLCV)")
 
         df = None
         has_data = "data" in st.session_state and "run_analysis" in st.session_state
@@ -741,8 +618,8 @@ def main():
                 df = st.session_state["data"]
         elif not has_data:
             # Initial load. The fetch pulls the entire macro universe once and
-            # is target-agnostic — the chosen commodity only selects Aarambh's
-            # target column and Nirnay's basket.
+            # is target-agnostic — the chosen commodity only selects FVO's
+            # target column and Swayam's basket.
             if st.button("Run Analysis", type="primary"):
                 # No spinner — drive the main-area progress bar from the very first
                 # click. The fetch is one blocking call, so we show the stage before it
@@ -772,7 +649,7 @@ def main():
         else:
             df = st.session_state["data"]
             # Post-load target switch — re-runs the engines on the already
-            # fetched universe (no re-fetch; only the Nirnay basket re-pulls).
+            # fetched universe (no re-fetch; only the Swayam basket re-pulls).
             if selected_commodity != st.session_state.get("active_target"):
                 if st.button(f"Switch target → {selected_commodity}", type="primary"):
                     st.session_state["selected_commodity"] = selected_commodity
@@ -832,53 +709,22 @@ def main():
             unsafe_allow_html=True,
         )
 
-        # Exclude self-replicating predictors (e.g. GLTR for a precious metal)
-        # so they can't leak into Aarambh's fair-value residual.
+        # The valuation panel is the WHOLE macro cross-section, minus this
+        # target's self-replicating near-duplicates (e.g. GLTR for a precious
+        # metal, which would let the regression explain gold with gold). There
+        # is no predictor picker any more: the FVO engine prices the target
+        # against the traded opportunity set, and hand-deselecting instruments
+        # from that set does not make it a better opportunity set — it makes it
+        # a smaller one with an undocumented reason. The engine already handles
+        # a wide panel on its own terms (Marchenko-Pastur decides how many
+        # factors are real; an instrument that never prints is never admitted).
         _excluded = set(TARGET_EXCLUDED_PREDICTORS.get(target_col, []))
         available = [c for c in numeric_cols if c != target_col and c not in _excluded]
-        # Default to the entire macro universe as predictors (bonds, rates,
-        # equity/risk, real-asset & commodity/FX). Users can deselect below.
-        valid_defaults = list(available)
-
-        if "active_features" not in st.session_state:
-            st.session_state["active_features"] = tuple(valid_defaults or available[:3])
-
-        with st.expander("Predictor Columns", expanded=False):
-            render_control_hint("Select predictors · click Apply to recompute")
-            staging_features = st.multiselect(
-                "Predictor Columns", options=available,
-                default=[f for f in st.session_state["active_features"] if f in available],
-                label_visibility="collapsed",
-            )
-            if not staging_features:
-                st.warning("Select at least one predictor.")
-                staging_features = [f for f in st.session_state["active_features"] if f in available] or available[:3]
-
-            staging_set = set(staging_features)
-            active_set = set(st.session_state["active_features"])
-            has_changes = staging_set != active_set
-
-            if has_changes:
-                added = staging_set - active_set
-                removed = active_set - staging_set
-                parts = []
-                if added:
-                    parts.append(f"+{len(added)} added")
-                if removed:
-                    parts.append(f"−{len(removed)} removed")
-                render_control_hint(f"Pending · {' · '.join(parts)}")
-
-            if st.button("Apply Configuration" if has_changes else "No changes", disabled=not has_changes, type="primary" if has_changes else "secondary"):
-                if has_changes:
-                    st.session_state["active_target"] = target_col
-                    st.session_state["active_features"] = tuple(staging_features)
-                    st.session_state["active_date_col"] = date_col
-                    st.session_state.pop("engine", None)
-                    st.session_state.pop("engine_cache", None)
-                    st.rerun()
-
-            if len(st.session_state["active_features"]) != len(available):
-                st.info(f"Active: {len(st.session_state['active_features'])}/{len(available)} predictors")
+        st.session_state["active_features"] = tuple(available)
+        st.session_state["active_date_col"] = date_col
+        render_control_hint(
+            f"{len(available)} macro instruments · full cross-section"
+            + (f" ({len(_excluded)} excluded as self-replicating)" if _excluded else ""))
 
         st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
 
@@ -887,8 +733,8 @@ def main():
                 st.session_state.pop("data", None)
                 st.session_state.pop("engine", None)
                 st.session_state.pop("engine_cache", None)
-                st.session_state.pop("aarambh_engine", None)
-                st.session_state.pop("aarambh_fit_key", None)
+                st.session_state.pop("fvo_engine", None)
+                st.session_state.pop("fvo_fit_key", None)
                 st.session_state.pop("wf_results", None)
                 st.session_state.pop("results_cache", None)  # drop all cached configs
                 st.session_state.pop("run_analysis", None)
@@ -915,15 +761,15 @@ def main():
                     st.session_state["data"] = _rdf   # keep run_analysis → stay in results
                 else:
                     progress_container.empty()
-                for _k in ("engine", "engine_cache", "aarambh_engine", "aarambh_fit_key",
+                for _k in ("engine", "engine_cache", "fvo_engine", "fvo_fit_key",
                            "wf_results", "results_cache", "nishkarsh_result",
                            "precedent_summary", "_prec_key", "_precedent_analogs_cache", "conv_norm_params",
-                           # Horizon-independent Nirnay cache (audit finding F17) —
+                           # Horizon-independent Swayam cache (audit finding F17) —
                            # must be dropped on a live re-fetch too, else Refresh
-                           # Data re-pulls Aarambh's macro universe live but
-                           # silently keeps serving the PRE-refresh Nirnay
+                           # Data re-pulls the FVO macro universe live but
+                           # silently keeps serving the PRE-refresh Swayam
                            # basket/constituent analysis.
-                           "_nirnay_fetch_cache", "_nirnay_analysis_cache"):
+                           "_swayam_fetch_cache", "_swayam_analysis_cache"):
                     st.session_state.pop(_k, None)
                 # The convergence tab's actual per-config normalization cache key is
                 # "conv_norm_causal::<engine_cache>" (ui/tabs/tab_convergence.py) — the
@@ -938,8 +784,8 @@ def main():
             render_control_hint("Force-fetch live data · recompute · slower than Reset")
 
         # ── Model Passport (Sanket-style) ──────────────────────────────
-        # Surfaces the active calibrated profile (Intelligence Mode). Each target
-        # keys its own profile (must match the key used at calibration time — see
+        # Surfaces the learned dimension weights + walk-forward read. (Each
+        # target used to key its own persisted profile here — see
         # _intel_index below).
         _current_universe = st.session_state.get("active_target") or st.session_state.get("selected_commodity", "Gold")
         _current_index = st.session_state.get("nishkarsh_index", _current_universe)
@@ -957,7 +803,7 @@ def main():
 
     # ─── Resolve active configuration ──────────────────────────────────────
     active_target = st.session_state.get("active_target", target_col)
-    # Per-instrument config — every engine knob (Nirnay/Swayam, Aarambh forecast,
+    # Per-instrument config — every engine knob (Swayam/Swayam, FVO forecast,
     # DDM, convergence weights, precedent) is read from THIS target's own config
     # (core.config.INSTRUMENT_CONFIGS), so an instrument can be retuned in
     # isolation. Falls back to the base defaults for any target that somehow
@@ -1135,7 +981,7 @@ def main():
     df = _ensure_stock_target_column(df, active_target)
     if active_target not in df.columns:
         _tgt_ticker_guard = ALL_TARGETS.get(active_target, "?")
-        if TARGET_ARCHETYPE.get(active_target) == "self":
+        if is_stock_target(active_target):
             console.failure("Stock target fetch failed", f"'{active_target}' (ticker {_tgt_ticker_guard}) — yfinance returned no usable data.")
             st.error(f"'{active_target}' price fetch failed (ticker {_tgt_ticker_guard}) — yfinance returned no data. "
                      f"Check the symbol, or try again once yfinance recovers.")
@@ -1155,25 +1001,30 @@ def main():
         """Print the data-prep pipeline to the terminal (visible on success & failure)."""
         console.section("DATA PREPARATION")
         console.item("Target", f"{active_target}  (ticker={_tgt_ticker_prep or 'n/a'}, exch={_tgt_exch_prep})")
-        console.item("Horizon", f"forecast {_prep.get('fwd_h','?')}d · momentum {_prep.get('fwd_k','?')}d")
+        console.item("Scoring Horizon", f"{_prep.get('fwd_h','?')}d "
+                     "(convergence / analogs / display — the engine is fit to no label)")
         console.item("Rows · fetched", _prep.get("rows_initial", "?"))
         console.item("Rows · after session spine", f"{_prep.get('rows_session','?')}  ({_prep.get('sessions_dropped','?')} non-session rows removed)")
-        console.item("Features · requested", _prep.get("feats_requested", "?"))
-        console.item("Features · dropped (short history)", f"{len(_prep.get('feats_dropped', []))}"
+        console.item("Instruments · requested", _prep.get("feats_requested", "?"))
+        console.item("Instruments · dropped (short history)", f"{len(_prep.get('feats_dropped', []))}"
                      + (f" → {', '.join(_prep['feats_dropped'][:6])}{'…' if len(_prep.get('feats_dropped', [])) > 6 else ''}" if _prep.get("feats_dropped") else ""))
-        console.item("Features · kept", _prep.get("feats_kept", "?"))
+        if _prep.get("yield_cols_dropped"):
+            # Raw yield LEVELS are rate series, not prices: they print at/near/
+            # below zero and the engine's log transform is undefined there. The
+            # tradeable expression of the curve is already in the panel as the
+            # Treasury ETF complex, so they are excluded rather than transformed.
+            console.item("Instruments · dropped (raw yield levels, not prices)",
+                         _prep["yield_cols_dropped"])
+        console.item("Instruments · in valuation panel", _prep.get("feats_kept", "?"))
         console.item("Rows · after dropna (final spine)", _prep.get("rows_final", "?"))
-        if "valid_rows" in _prep:
-            console.item("Rows · usable (momentum warmup trimmed)", _prep["valid_rows"])
-            console.item("Labels · real (tail forecasts excluded)", _prep["label_valid"])
-        if _prep.get("interior_gap_rows", 0):
-            # Rows lost to a non-finite predictor value AFTER the leading warmup
-            # has already ended (e.g. a yield/price print at/below zero, a
-            # temporary data gap) — distinct from the expected warmup trim above.
-            # Was previously invisible: the row-wise validity check silently
-            # dropped these for every target (audit finding F4).
-            console.item("Rows · lost to interior gap (non-finite predictor mid-series)",
-                         _prep["interior_gap_rows"])
+        if "burn_in" in _prep and isinstance(_prep.get("rows_final"), int):
+            # Unlike a rolling momentum window there is no warm-up head to trim
+            # here — every row carries a finite level for the target and every
+            # surviving instrument. The engine applies its own burn-in
+            # internally and flags those rows `Valid = False`.
+            _pub = max(0, _prep["rows_final"] - _prep["burn_in"])
+            console.item("Rows · valued (after engine burn-in)",
+                         f"{_pub}  ({_prep['burn_in']} burn-in rows published as Valid=False)")
         if stage == "complete":
             console.checkpoint(f"Data spine ≥ {MIN_DATA_POINTS}", "OK")
 
@@ -1203,6 +1054,20 @@ def main():
             data = data[_smask].reset_index(drop=True)
     _prep["rows_session"] = len(data)
     _prep["sessions_dropped"] = max(0, _rows_pre_session - len(data))
+    # NOTE on the FVO print mask. The engine admits an instrument to the
+    # cross-section only on days it genuinely traded — a carried-forward quote
+    # otherwise enters as a fabricated zero return and drags whatever factor it
+    # loads on toward zero on every foreign holiday. The exact answer is the
+    # vendor's own NaN mask, but it no longer exists by the time this runs:
+    # data/fetcher.py forward-fills the combined frame at source (see its
+    # `combined.ffill()`), so a mask taken here would be all-True and would
+    # silently assert that a Nikkei quote on a Tokyo holiday is a real print.
+    # Rather than pass a mask that looks exact and is not, the panel is handed
+    # over without one and the engine infers prints from where values actually
+    # change (FairValueEngine._infer_printed) — conservative in the same
+    # direction as the gate itself. Threading the true mask would mean
+    # returning it from the fetcher alongside the prices, through the cache
+    # layer; the `printed=` parameter on fit() is there for when that happens.
     data[[active_target] + active_features] = data[[active_target] + active_features].ffill()
     # Drop features with insufficient real history. We ffill (causal: carry last known
     # value forward) but deliberately do NOT bfill — backfilling leading NaNs would inject
@@ -1248,88 +1113,71 @@ def main():
         console.failure("No valid features", f"{active_target}: every predictor was dropped for short history.")
         st.error("No valid features found after data cleaning.")
         return
-    # Returns-based forecasting takes log() of the target → it must be strictly
-    # positive. Every shipped target is (prices/levels/ratios), but a future target
+    # The valuation regression models LOG price → the target must be strictly
+    # positive. Every shipped target is a price/level/ratio, but a future target
     # (a spread, a net position, a yield differential) could go ≤0; fail clean
-    # rather than silently producing all-NaN forecasts.
+    # rather than silently producing all-NaN valuations.
     if (pd.to_numeric(data[active_target], errors="coerce") <= 0).any():
         _log_prep(stage="fail")
-        console.failure("Non-positive target", f"{active_target}: contains values ≤ 0; log-return engine needs a strictly positive series.")
-        st.error(f"'{active_target}' has non-positive values — the returns-based engine needs a "
-                 f"strictly positive series (it forecasts log-returns).")
+        console.failure("Non-positive target", f"{active_target}: contains values ≤ 0; the log-level valuation engine needs a strictly positive series.")
+        st.error(f"'{active_target}' has non-positive values — the valuation engine models "
+                 f"log price and needs a strictly positive series.")
         return
 
-    # ── Predictive representation: FORECAST the forward return from lagged
-    # macro MOMENTUM (ex-ante), rather than explaining the same-day return.
-    #   • Features X[t] = trailing FWD_MOM_K-day cumulative log-return of each
-    #     predictor (a momentum/trend signal known at time t).
-    #   • Target  y[t] = forward FWD_HORIZON-day log-return of the commodity
-    #     (t → t+h). The last h rows have no realized future — they are the
-    #     LIVE forecasts we trade, so we keep them (target filled 0 only so the
-    #     regression doesn't choke; the signal there is the prediction itself).
-    # The engine runs in forward_signal mode: conviction is driven by the
-    # prediction (expected forward return), and R²/R²-vs-RW measure real
-    # out-of-sample forecast skill.
-    # Per-instrument forecast horizon + predictor-momentum window (this target's
-    # own InstrumentConfig). Daily bars throughout.
-    FWD_HORIZON = _icfg.forecast_horizon   # forecast horizon (trading days)
-    FWD_MOM_K = _icfg.forecast_momentum    # trailing momentum window for predictors
-    _prep["fwd_h"], _prep["fwd_k"] = FWD_HORIZON, FWD_MOM_K
-    _lvl = data[[active_target] + active_features].astype(float)
-    # Log-return for prices/levels (the target is always one of these — every
-    # ALL_TARGETS entry is a price/level, never a raw yield). RAW_YIELD_PREDICTORS
-    # (^IRX/^FVX/^TNX/^TYX) are percent-point RATE series, not prices: they can
-    # print at/near/below zero (2020-21 zero-rate era), and log() of a
-    # non-positive value is NaN. Previously that NaN poisoned _mom.notna().all()
-    # for EVERY predictor on that row (the row-wise validity check requires ALL
-    # features finite) — silently deleting rows for every target around the most
-    # informative volatility regime (audit finding F4). Yield columns instead get
-    # an arithmetic level-diff, which is well-defined at any sign and is the
-    # economically correct "momentum" for a rate series (a move, not a return).
-    # Built as separate blocks and joined via ONE pd.concat rather than
-    # assigning each block into an initially-empty frame column-by-column —
-    # the latter triggers pandas' "highly fragmented DataFrame"
-    # PerformanceWarning on every rerun (same fragmentation hazard already
-    # documented in engines/nirnay.py's block-build comments).
+    # ── Valuation representation: price the target against the traded
+    # opportunity set, rather than forecasting its next move.
+    #   • Panel   = the LEVEL of every macro predictor. The FVO engine takes
+    #     its own logs and differences internally, integrates the resulting
+    #     factors back into levels, and regresses log price on them with
+    #     time-varying coefficients. It therefore wants prices, not the
+    #     pre-engineered momentum features the previous engine consumed.
+    #   • Target  = the target's own price level. There is no forward label
+    #     and so no forward-label overlap, no purge gap, and no zero-filled
+    #     tail: the newest row is valued the same way every other row is.
+    # FWD_HORIZON survives as a SCORING horizon only — the convergence layer,
+    # the precedent analogs and the Intelligence calibrator all score against
+    # the h-day forward return, and the UI projects the current mispricing
+    # over it. Daily bars throughout.
+    FWD_HORIZON = _icfg.forecast_horizon   # scoring / display horizon (trading days)
+    _prep["fwd_h"] = FWD_HORIZON
+    # RAW_YIELD_PREDICTORS (^IRX/^FVX/^TNX/^TYX) are percent-point RATE series,
+    # not prices: they print at/near/below zero (2020-21 zero-rate era), and
+    # the engine's log transform is undefined there. A yield LEVEL is also not
+    # an instrument the target can be valued against — the tradeable expression
+    # of the curve is already in the panel as the Treasury ETF complex
+    # (SHY/IEF/TLT/…), which the block map classifies as "Rates". So they are
+    # dropped from the valuation panel rather than transformed.
     _yield_feats = [f for f in active_features if f in RAW_YIELD_PREDICTORS]
-    _price_cols = [c for c in _lvl.columns if c not in _yield_feats]
-    _ret_parts = []
-    if _price_cols:
-        _ret_parts.append(np.log(_lvl[_price_cols].where(_lvl[_price_cols] > 0)).diff().replace([np.inf, -np.inf], np.nan))
     if _yield_feats:
-        _ret_parts.append(_lvl[_yield_feats].diff())
-    _ret = pd.concat(_ret_parts, axis=1)[_lvl.columns]
-    _mom = _ret[active_features].rolling(FWD_MOM_K, min_periods=FWD_MOM_K).sum()
-    _fwd = _ret[active_target].rolling(FWD_HORIZON, min_periods=FWD_HORIZON).sum().shift(-FWD_HORIZON)
-    # Keep only rows with fully-formed momentum features (drop the warmup head);
-    # the forward-target NaN tail is retained for live forecasting.
-    _valid = _mom.notna().all(axis=1).to_numpy()
-    _label_valid = _fwd.loc[_valid].notna().to_numpy()   # False for last FWD_HORIZON rows (no real label)
-    _prep["valid_rows"] = int(_valid.sum())
-    _prep["label_valid"] = int(_label_valid.sum())
-    # Rows invalid AFTER the leading warmup has ended (first True in _valid) are
-    # an INTERIOR gap — a predictor printed non-finite momentum mid-series (see
-    # RAW_YIELD_PREDICTORS comment above) — as opposed to the expected warmup
-    # trim before any window is fully formed. Surfaced so a future predictor
-    # with the same non-positive-print risk doesn't silently delete rows again.
-    if _valid.any():
-        _first_valid = int(np.argmax(_valid))
-        _prep["interior_gap_rows"] = int((~_valid[_first_valid:]).sum())
-    else:
-        _prep["interior_gap_rows"] = 0
+        active_features = [f for f in active_features if f not in RAW_YIELD_PREDICTORS]
+        _prep["yield_cols_dropped"] = len(_yield_feats)
+        # Re-stamp the kept count: it was recorded after the short-history guard
+        # but before this exclusion, so the prep log would otherwise report a
+        # panel four instruments wider than the one the engine is handed.
+        _prep["feats_kept"] = len(active_features)
+    if not active_features:
+        _log_prep(stage="fail")
+        console.failure("Empty valuation panel", f"{active_target}: no price-level predictors survived.")
+        st.error("No price-level predictors remain — the valuation engine needs a cross-section of prices.")
+        return
+    # No warm-up head to trim, and no row-validity mask: every surviving row
+    # already carries a finite level for the target and every instrument (the
+    # dropna above). The predecessor needed both — a rolling momentum window
+    # left a NaN head, and its forward labels left a zero-filled tail — so the
+    # prep log reported "usable rows" and "real labels" as separate counts.
+    # Here the only exclusion is the engine's own burn-in, applied internally
+    # and reported as `Valid`.
+    _prep["burn_in"] = int(_icfg.fvo_burn_in)
     # Date-range fingerprint for the cache key. `data` carries a RangeIndex (reset at
     # load), so the real dates live in the active_date column, not the index — using
     # the index here would be integers (AttributeError on .date()). Fall back to a
-    # valid-row-count surrogate when there's no date column.
+    # row-count surrogate when there's no date column.
     if active_date != "None" and active_date in data.columns:
-        _vd = pd.to_datetime(data.loc[_valid, active_date], errors="coerce").dropna()
-        _date_range = f"{_vd.iloc[0].date()}_{_vd.iloc[-1].date()}" if len(_vd) else f"n{int(_valid.sum())}"
+        _vd = pd.to_datetime(data[active_date], errors="coerce").dropna()
+        _date_range = f"{_vd.iloc[0].date()}_{_vd.iloc[-1].date()}" if len(_vd) else f"n{len(data)}"
     else:
-        _date_range = f"n{int(_valid.sum())}"
-    data = data.loc[_valid].reset_index(drop=True)
-    X = _mom.loc[_valid].to_numpy()
-    y = np.nan_to_num(_fwd.loc[_valid].to_numpy(), nan=0.0)
-    cache_key = f"fwd{FWD_HORIZON}m{FWD_MOM_K}|{active_target}|{'|'.join(sorted(active_features))}|{_date_range}"
+        _date_range = f"n{len(data)}"
+    cache_key = f"fvo{FWD_HORIZON}|{active_target}|{'|'.join(sorted(active_features))}|{_date_range}"
     if st.session_state.get("engine_cache") != cache_key:
         # ── Restore from the per-config result cache if this exact config was
         # already computed this session (e.g. the user switched commodities and
@@ -1362,71 +1210,36 @@ def main():
         # so the bar continues from where the fetch left it (~15%) with no gap.
 
         # ── Phase 1: Data Loading ─────────────────────────────────────────
-        # HORIZON-INDEPENDENT: basket resolution, macro fetch, and constituent
-        # OHLCV depend only on active_target, never on the forecast horizon
-        # (FWD_HORIZON/FWD_MOM_K). Cached separately (audit finding F17) so a
-        # re-run for the same target reuses this expensive fetch — the
-        # walk-forward engine cache_key includes the horizon, this one
-        # deliberately doesn't. (The former user-switchable Signal-Horizon lens
-        # was removed; the horizon is now a single fixed per-instrument value,
-        # but the fetch/compute split it motivated is retained and still saves
-        # the re-fetch on every rerun.)
-        # Mode resolution — 'self' (Nirnay-Swayam) for individual-stock targets
-        # (TARGET_ARCHETYPE == 'self'), 'basket' for everything else. Single
-        # source of truth in data.constituents.get_nirnay_mode; see
-        # NIRNAY_SWAYAM_PLAN.md §6.1.
-        nirnay_mode = get_nirnay_mode(active_target)
-        st.session_state["nirnay_mode"] = nirnay_mode
-
-        _nirnay_fetch_key = f"nirnay_fetch::{active_target}"
-        _nf_cache = st.session_state.get("_nirnay_fetch_cache")
-        if _nf_cache is not None and _nf_cache.get("key") == _nirnay_fetch_key:
+        # HORIZON-INDEPENDENT: the macro fetch and the target's own OHLCV depend
+        # only on active_target, never on the scoring horizon, so they are cached
+        # separately (audit finding F17) and survive a re-run.
+        #
+        # There is no mode resolution left to do. Every target reads breadth off
+        # its own price through Swayam; the branch that used to choose between
+        # that and a constituent basket — and the basket resolution, the
+        # snapshot fallbacks, and the up-to-503-symbol OHLCV fetch behind it —
+        # went with the basket engine. On a large index that fetch was ~13 of
+        # the run's ~14 minutes.
+        _swayam_fetch_key = f"swayam_fetch::{active_target}"
+        _nf_cache = st.session_state.get("_swayam_fetch_cache")
+        if _nf_cache is not None and _nf_cache.get("key") == _swayam_fetch_key:
             console.start_phase("DATA ACQUISITION", 1, 5)
-            constituents = _nf_cache["constituents"]
-            src_msg = _nf_cache["src_msg"]
-            constituent_ohlcv = _nf_cache["constituent_ohlcv"]
-            nirnay_macro_df = _nf_cache["nirnay_macro_df"]
+            target_ohlcv = _nf_cache["target_ohlcv"]
+            swayam_macro_df = _nf_cache["swayam_macro_df"]
             macro_cols_list = _nf_cache["macro_cols_list"]
-            st.session_state["nirnay_basket_source"] = src_msg
-            console.item("Basket/Macro/OHLCV", "reused cached fetch (horizon-independent)")
-            progress_bar(progress_container, 20, "Data Acquisition Reused", f"{len(constituent_ohlcv)} Constituents · {len(macro_cols_list)} Macros (cached)")
+            console.item("Macro/OHLCV", "reused cached fetch (horizon-independent)")
+            progress_bar(progress_container, 20, "Data Acquisition Reused", f"{len(macro_cols_list)} Macros (cached)")
             console.end_phase("DATA ACQUISITION")
         else:
             console.start_phase("DATA ACQUISITION", 1, 5)
-            _resolve_sub = (f"{active_target} · own OHLCV (Swayam self-ensemble)" if nirnay_mode == "self"
-                            else f"{active_target} · related producers / constituents / sector ETFs")
-            progress_bar(progress_container, 16, "Resolving Nirnay Source", _resolve_sub)
-
-            console.section("Basket Resolution")
-            if nirnay_mode == "self":
-                # No constituent basket — Nirnay-Swayam formulates breadth on
-                # the target's OWN OHLCV. "constituents" is the target's own
-                # ticker (a 1-symbol fetch list); Phase 3 branches on
-                # nirnay_mode to build the self-ensemble instead of iterating
-                # constituents as separate instruments.
-                constituents = [ALL_TARGETS[active_target]]
-                src_msg = "swayam · self-referential ensemble"
-            else:
-                constituents, src_msg = get_commodity_basket(active_target)
-            # Surfaced in the Nirnay tab (not just the console — audit finding B4):
-            # a "snapshot (N)" source means live scrape + cache both failed, and
-            # for an uncapped large index (S&P 500 / Nasdaq 100) N is a small
-            # fraction of the true index, so breadth there is read from a partial
-            # basket, not the full constituent set.
-            st.session_state["nirnay_basket_source"] = src_msg
-            console.item("Target", active_target)
-            console.item("Source", src_msg)
-            console.item("Count", len(constituents))
-            if constituents:
-                console.item("Symbols", f"{', '.join(constituents[:3])}...")
-            console.success(f"Resolved {len(constituents)}-instrument {active_target} basket")
-            progress_bar(progress_container, 17, "Fetching Nirnay Macro Data", "yfinance · Global Macro ETFs · FX · Commodities · ~9y")
+            progress_bar(progress_container, 16, "Resolving Swayam Source",
+                         f"{active_target} · own OHLCV (self-referential ensemble)")
 
             console.section("Macro Data")
             end_date = pd.Timestamp.today()
-            # Match the Aarambh model-dataset window (~9y) so the Nirnay basket and
-            # macro features overlap the FULL series — convergence + Intelligence
-            # calibration then run on real data, not neutral placeholders.
+            # Match the FVO model-dataset window (~9y) so the Swayam views and
+            # macro drivers overlap the FULL series — convergence then runs on
+            # real data, not neutral placeholders.
             start_date = end_date - pd.Timedelta(days=365 * 9)
             macro_df = fetch_macro_live(start_date, end_date)
             console.item("Date Range", f"{start_date.date()} to {end_date.date()}")
@@ -1436,236 +1249,206 @@ def main():
                 console.success(f"Macro data: {len(macro_df.columns)} symbols × {len(macro_df)} rows")
             else:
                 console.warning("No macro data available")
-            progress_bar(progress_container, 18, "Fetching Constituent OHLCV", f"yfinance · {len(constituents)} basket constituents")
 
-            console.section("Constituent OHLCV")
-            constituent_ohlcv = {}
-            if constituents:
-                constituent_ohlcv = fetch_constituent_ohlcv(constituents, start_date, end_date)
-                console.item("Requested", len(constituents))
-                console.item("Downloaded", len(constituent_ohlcv))
-                if constituent_ohlcv:
-                    sample = list(constituent_ohlcv.items())[0]
-                    console.item("Sample", f"{sample[0]}: {len(sample[1])} rows")
-                console.success(f"OHLCV data for {len(constituent_ohlcv)} constituents")
-            progress_bar(progress_container, 19, "Assembling Macro Indicators", f"{len(constituent_ohlcv)} constituents downloaded · aligning macro frame")
+            console.section("Target OHLCV")
+            # Swayam needs the target's own OHLC (and volume where it exists —
+            # the volume-dependent views abstain when it does not; see
+            # ensemble._is_volume_dependent).
+            _tgt_ticker = ALL_TARGETS[active_target]
+            progress_bar(progress_container, 18, "Fetching Target OHLCV", f"yfinance · {_tgt_ticker}")
+            _ohlcv = fetch_constituent_ohlcv([_tgt_ticker], start_date, end_date)
+            target_ohlcv = _ohlcv.get(_tgt_ticker)
+            if target_ohlcv is not None and not target_ohlcv.empty:
+                console.item("Symbol", _tgt_ticker)
+                console.item("Rows", len(target_ohlcv))
+                console.item("Has Volume", bool("Volume" in target_ohlcv.columns
+                                                and target_ohlcv["Volume"].fillna(0).abs().sum() > 0))
+                console.success(f"Target OHLCV: {len(target_ohlcv)} rows")
+            else:
+                console.warning(f"No OHLCV for {_tgt_ticker} — Swayam breadth will be unavailable")
 
-            console.section("Nirnay Macro Assembly")
-            nirnay_macro_df = macro_df.copy() if macro_df is not None and not macro_df.empty else pd.DataFrame()
-            if not nirnay_macro_df.empty:
-                console.item("YF Symbols", len(nirnay_macro_df.columns))
-                console.success(f"Macro indicators: {len(nirnay_macro_df.columns)} × {len(nirnay_macro_df)} rows")
-            macro_cols_list = list(nirnay_macro_df.columns) if not nirnay_macro_df.empty else []
+            console.section("Swayam Macro Assembly")
+            swayam_macro_df = macro_df.copy() if macro_df is not None and not macro_df.empty else pd.DataFrame()
+            if not swayam_macro_df.empty:
+                console.item("YF Symbols", len(swayam_macro_df.columns))
+                console.success(f"Macro indicators: {len(swayam_macro_df.columns)} × {len(swayam_macro_df)} rows")
+            macro_cols_list = list(swayam_macro_df.columns) if not swayam_macro_df.empty else []
             console.end_phase("DATA ACQUISITION")
-            progress_bar(progress_container, 20, "Data Acquisition Complete", f"{len(constituent_ohlcv)} Constituents · {len(nirnay_macro_df.columns)} Macros")
+            progress_bar(progress_container, 20, "Data Acquisition Complete", f"{len(swayam_macro_df.columns)} Macros")
 
-            st.session_state["_nirnay_fetch_cache"] = {
-                "key": _nirnay_fetch_key,
-                "constituents": constituents, "src_msg": src_msg,
-                "constituent_ohlcv": constituent_ohlcv,
-                "nirnay_macro_df": nirnay_macro_df, "macro_cols_list": macro_cols_list,
+            st.session_state["_swayam_fetch_cache"] = {
+                "key": _swayam_fetch_key,
+                "target_ohlcv": target_ohlcv,
+                "swayam_macro_df": swayam_macro_df,
+                "macro_cols_list": macro_cols_list,
             }
 
-        # ── Phase 2: Aarambh FairValueEngine ─────────────────────────────
-        console.start_phase("AARAMBH ENGINE", 2, 5)
-        progress_bar(progress_container, 20, "Running Aarambh Engine", f"Walk-Forward · {len(active_features)} Predictors · {len(data)} Rows")
+        # ── Phase 2: FVO FairValueEngine ─────────────────────────────────
+        console.start_phase("FVO ENGINE", 2, 5)
+        progress_bar(progress_container, 20, "Running FVO Engine", f"Valuation · {len(active_features)} Instruments · {len(data)} Rows")
 
-        # PCA component count — this target's own config (default 2, per the
-        # aarambh_full PCA lever, research/TUNING_COVERAGE.md). Single local so the
-        # console line below and the engine.fit call can never disagree.
-        _N_PCA = _icfg.pca_components
+        _price_level = data[active_target].to_numpy(dtype=np.float64)
+        _cal = (pd.to_datetime(data[active_date].values)
+                if active_date != "None" and active_date in data.columns
+                else pd.RangeIndex(len(data)))
+        _tgt_px = pd.Series(_price_level, index=_cal, name=active_target)
+        _expl_px = data[active_features].astype(float)
+        _expl_px.index = _cal
+
+        _blk_names, _blk_map = block_membership(active_features)
 
         console.section("Engine Configuration")
-        console.item("Mode", f"Predictive · forecast {FWD_HORIZON}d forward return")
+        console.item("Mode", "Valuation · dynamic cointegrating regression on log price")
         console.item("Target", active_target)
-        console.item("Features", f"{len(active_features)} macro momentum ({FWD_MOM_K}d) → PCA({_N_PCA}) causal")
+        console.item("Cross-section", f"{len(active_features)} macro instruments → {len(_blk_names)} asset-class blocks")
+        console.item("Blocks", ", ".join(f"{b}({sum(1 for v in _blk_map.values() if v == b)})" for b in _blk_names))
         console.item("Observations", f"{len(data)} rows")
+        console.item("Burn-in", f"{_icfg.fvo_burn_in} rows before first publication")
+        console.item("Print Floor", f"{_icfg.fvo_min_prints} prints before an instrument may join")
+        console.item("Coefficient Memory", f"deltas {_icfg.fvo_valuation_deltas}")
         console.item("Min Data Points", MIN_DATA_POINTS)
         console.item("Lookback Windows", f"{LOOKBACK_WINDOWS}")
 
-        console.section("Walk-Forward Regression")
-        # Reuse an already-fit Aarambh engine for this exact config if a prior
+        console.section("Recursive Valuation")
+        # Reuse an already-fit FVO engine for this exact config if a prior
         # (possibly interrupted) execution in THIS session already produced one.
         # `engine_cache` is only set at the end of Phase 5, so a Streamlit rerun
         # mid-pipeline (yfinance retry, cloud reconnect, stray interaction) would
-        # otherwise re-enter this block and re-run the expensive walk-forward.
+        # otherwise re-enter this block and re-run the expensive valuation pass.
         # Keyed by cache_key → identical inputs → identical fit, so reuse is safe.
-        if (st.session_state.get("aarambh_fit_key") == cache_key
-                and isinstance(st.session_state.get("aarambh_engine"), FairValueEngine)):
-            engine = st.session_state["aarambh_engine"]
-            console.item("Walk-Forward", "reused cached fit (resumed run)")
-            progress_bar(progress_container, 40, "Aarambh Engine Reused", "Cached walk-forward fit")
+        if (st.session_state.get("fvo_fit_key") == cache_key
+                and isinstance(st.session_state.get("fvo_engine"), FairValueEngine)):
+            engine = st.session_state["fvo_engine"]
+            console.item("Valuation", "reused cached fit (resumed run)")
+            progress_bar(progress_container, 40, "FVO Engine Reused", "Cached valuation pass")
         else:
             engine = FairValueEngine()
-            # Pass the genuine price LEVEL into fit() so the forward-change
-            # table and divergence detection use real (non-overlapping) price
-            # differences instead of reconstructing a pseudo-price from the
-            # h-day FORWARD-return target y (which would sum each daily return
-            # up to h times — see FairValueEngine.fit's `price` docstring).
-            _price_level = data[active_target].to_numpy(dtype=np.float64)
-            # `config=_icfg` threads this instrument's per-instrument Aarambh
-            # training knobs (refit / min-max train / ensemble / ridge / huber /
-            # lookback) into the walk-forward, so Aarambh is tuned per instrument
-            # / asset class exactly like Nirnay and Swayam.
-            engine.fit(X, y, feature_names=active_features, forward_signal=True, n_pca_components=_N_PCA, purge=FWD_HORIZON, label_mask=_label_valid, price=_price_level, config=_icfg, progress_callback=lambda pct, msg: progress_bar(progress_container, int(20 + pct * 20), "Running Aarambh Engine", msg))
-            # Carry the raw price LEVEL on the engine output too (returns-space
-            # modeling otherwise leaves only return-scale columns). Used by the
-            # Aarambh tab for price display and by the Intelligence tuner.
+            # `config=_icfg` threads this instrument's per-instrument FVO knobs
+            # (burn-in, print floor, discount grid, lookback windows) into the
+            # valuation, so FVO is tuned per instrument / asset class exactly
+            # like Swayam and Swayam.
+            engine.fit(
+                _tgt_px, _expl_px,
+                feature_names=active_features, config=_icfg,
+                progress_callback=lambda pct, msg: progress_bar(
+                    progress_container, int(20 + pct * 20), "Running FVO Engine", msg),
+            )
+            # Carry the raw price LEVEL on the engine output too. `Actual` is
+            # already the price here, but the analog matcher and Intelligence
+            # tuner both key off a column literally named "Price".
             engine.ts_data["Price"] = _price_level
-            st.session_state["aarambh_engine"] = engine
-            st.session_state["aarambh_fit_key"] = cache_key
+            st.session_state["fvo_engine"] = engine
+            st.session_state["fvo_fit_key"] = cache_key
 
         sig = engine.get_current_signal()
         stats = engine.get_model_stats()
         console.section("Engine Results")
         console.item("Signal", f"{sig['signal']} ({sig['strength']})")
         console.item("Conviction", f"{sig['conviction_score']:+.0f}")
-        console.item("OOS R²", f"{stats['r2_oos']:.3f} (forecast vs realized fwd return)")
-        console.item("Model Spread", f"{sig['model_spread'] * 10000:.1f} bps (ensemble disagreement)")
-        # NOTE: R²-vs-RW, OU half-life and Hurst are computed on the forecast
-        # series in predictive mode and are NOT meaningful (the RW baseline is
-        # overlap-inflated; OU/Hurst describe forecast persistence, not mean
-        # reversion). Omitted here — see the Diagnostics tab / Val IC instead.
-        console.success(f"Aarambh engine complete | {len(engine.ts_data)} output rows")
-        console.end_phase("AARAMBH ENGINE")
-        progress_bar(progress_container, 40, "Aarambh Engine Complete", f"Signal: {sig['signal']} ({sig['strength']}) · Conviction: {sig['conviction_score']:+.0f}")
+        console.item("FVO", f"{sig['fvo']:+.2f}σ ({sig['pct_mispricing'] * 100:+.2f}% vs fair value)")
+        console.item("Fair Value", f"{sig['fair_value']:,.2f} vs price {sig['actual']:,.2f}")
+        console.item("OOS R²", f"{stats['r2_oos']:.3f} (log price vs fitted level)")
+        console.item("R² vs Trailing Mean", f"{stats['r2_vs_anchor']:+.3f} (edge over a 252d anchor)")
+        console.item("Model Spread", f"{sig['model_spread'] * 10000:.1f} bps (predictive SD of fair value)")
+        console.item("Valuation Confidence", f"{sig['valuation_confidence']:.2f} "
+                     f"(mean-reversion {sig['mr_prob']:.2f} × cross-sectional agreement {sig['xs_consistency']:.2f})")
+        # DFA Hurst is deliberately not printed: its single log-log slope is
+        # biased sharply upward for a short-memory series and would read
+        # "trending" for a gap ADF calls strongly stationary. See
+        # FairValueEngine._compute_hurst.
+        console.item("Gap Half-Life", f"{sig['gap_half_life']:.0f}d (online AR1) · OU {sig['ou_half_life']:.0f}d")
+        console.item("Gap Stationarity", f"ADF p={sig['adf_pvalue']:.4f} "
+                     f"({'stationary — reversion licensed' if sig['adf_pvalue'] < 0.05 else 'unit root not rejected'})")
+        console.item("Factors", f"k={sig['k_factors']} above the MP edge · {sig['n_available']} instruments admitted today")
+        console.item("Market Regime", f"{sig['market_regime']} (stress pct {sig['stress']:.2f})")
+        console.success(f"FVO engine complete | {len(engine.ts_data)} output rows "
+                        f"({int(engine.ts_data['Valid'].sum())} valued, {engine.min_train_size} burn-in)")
+        console.end_phase("FVO ENGINE")
+        progress_bar(progress_container, 40, "FVO Engine Complete", f"Signal: {sig['signal']} ({sig['strength']}) · Conviction: {sig['conviction_score']:+.0f}")
 
-        # ── Phase 3: Nirnay Constituent Analysis ──────────────────────────
-        # HORIZON-INDEPENDENT (audit finding F17): per-constituent MSF/MMR/regime
-        # analysis and aggregation depend only on active_target's basket +
-        # macro window, never on the forecast horizon. This is the ~30s
-        # (Nifty 50) to ~5min (uncapped S&P 500) cost a re-run would otherwise
-        # re-pay for byte-identical output. Cached under the SAME
-        # _nirnay_fetch_key as Phase 1; only the target-calendar reindex below
-        # (cheap — no yfinance calls) re-runs, since the horizon's warm-up trim
-        # can shift the target's date spine slightly. (Former Signal-Horizon
-        # lens removed; horizon is now a single fixed per-instrument value.)
-        console.start_phase("NIRNAY ENGINE", 3, 5)
-        _nirnay_sub = ("MSF+MMR+Regime · Swayam self-ensemble (own OHLCV)" if nirnay_mode == "self"
-                       else f"MSF+MMR+Regime · {len(constituent_ohlcv)} Constituents")
-        progress_bar(progress_container, 42, "Running Nirnay Engine", _nirnay_sub)
+        # ── Phase 3: Swayam Breadth ───────────────────────────────────────
+        # HORIZON-INDEPENDENT (audit finding F17): the view bank and its
+        # aggregation depend only on the target's own OHLCV + the macro driver
+        # window, never on the scoring horizon. Cached under the SAME
+        # _swayam_fetch_key as Phase 1; only the target-calendar reindex below
+        # (cheap — no yfinance calls) re-runs.
+        console.start_phase("SWAYAM ENGINE", 3, 5)
+        progress_bar(progress_container, 42, "Running Swayam Engine",
+                     "MSF+MMR+Regime · self-referential view bank")
 
-        _na_cache = st.session_state.get("_nirnay_analysis_cache")
-        if _na_cache is not None and _na_cache.get("key") == _nirnay_fetch_key:
-            nirnay_constituent_dfs = _na_cache["nirnay_constituent_dfs"]
-            nirnay_daily_pre_reindex = _na_cache["nirnay_daily_pre_reindex"]
-            if nirnay_mode == "self" and "n_eff" in _na_cache:
-                st.session_state["nirnay_swayam_n_eff"] = _na_cache["n_eff"]
-            console.item("Per-Stock Analysis", "reused cached fit (horizon-independent)")
-            progress_bar(progress_container, 74, "Nirnay Engine Reused", f"{len(nirnay_constituent_dfs)} Stocks (cached)")
+        _na_cache = st.session_state.get("_swayam_analysis_cache")
+        if _na_cache is not None and _na_cache.get("key") == _swayam_fetch_key:
+            swayam_view_dfs = _na_cache["swayam_view_dfs"]
+            swayam_daily_pre_reindex = _na_cache["swayam_daily_pre_reindex"]
+            if "n_eff" in _na_cache:
+                st.session_state["swayam_n_eff"] = _na_cache["n_eff"]
+            console.item("View Bank", "reused cached fit (horizon-independent)")
+            progress_bar(progress_container, 74, "Swayam Engine Reused", f"{len(swayam_view_dfs)} Views (cached)")
         else:
-            nirnay_daily_pre_reindex = pd.DataFrame()
-            nirnay_constituent_dfs = {}
+            swayam_daily_pre_reindex = pd.DataFrame()
+            swayam_view_dfs = {}
 
-            if constituent_ohlcv and nirnay_mode == "self":
-                console.section("Swayam Self-Ensemble")
-                target_tkr = constituents[0]
-                target_ohlcv = constituent_ohlcv.get(target_tkr)
-                if target_ohlcv is not None and not target_ohlcv.empty:
-                    # Leakage guard (NIRNAY_SWAYAM_PLAN.md §4.4): drop the
-                    # target's own macro column + its excluded-predictor
-                    # near-replicas from the MMR driver pool — a member's
-                    # Close correlates ~1.0 with the target's own macro
-                    # column, which would let MMR "explain" the target with
-                    # itself and silently zero the deviation oscillator.
-                    swayam_cols = swayam_macro_columns(active_target, macro_cols_list)
-                    # This target's own Swayam grid (from its InstrumentConfig).
-                    _swayam_members = default_swayam_members(_icfg.swayam_lengths, _icfg.swayam_roc_frac)
-                    console.item("Views (grid)", f"{len(_swayam_members)} · timescale × information-set × mechanism")
-                    console.item("MSF Length Grid", str(_icfg.swayam_lengths))
-                    console.item("Regime Sensitivity", _icfg.nirnay_regime_sensitivity)
-                    console.item("Base Weight", _icfg.nirnay_base_weight)
-                    console.item("Macro Columns (post-leakage-guard)", len(swayam_cols))
+            if target_ohlcv is not None and not target_ohlcv.empty:
+                console.section("Self-Referential View Bank")
+                # Leakage guard: drop the target's own macro column + its
+                # excluded-predictor near-replicas from the MMR driver pool — a
+                # view's Close correlates ~1.0 with the target's own macro
+                # column, which would let MMR "explain" the target with itself
+                # and silently zero the deviation oscillator.
+                swayam_cols = swayam_macro_columns(active_target, macro_cols_list)
+                _swayam_members = default_swayam_members(_icfg.swayam_lengths, _icfg.swayam_roc_frac)
+                console.item("Views (bank)", f"{len(_swayam_members)} · timescale × information-set × mechanism")
+                console.item("Timescale Span", str(_icfg.swayam_lengths))
+                console.item("Regime Sensitivity", _icfg.swayam_regime_sensitivity)
+                console.item("Base Weight", _icfg.swayam_base_weight)
+                console.item("Macro Columns (post-leakage-guard)", len(swayam_cols))
 
-                    def _swayam_progress(done, total, name):
-                        pct_val = int(45 + done / max(total, 1) * 30)
-                        progress_bar(progress_container, pct_val, f"View {name}", f"{done}/{total} views")
+                def _swayam_progress(done, total, name):
+                    pct_val = int(45 + done / max(total, 1) * 30)
+                    progress_bar(progress_container, pct_val, f"View {name}", f"{done}/{total} views")
 
-                    nirnay_constituent_dfs = build_swayam_frames(
-                        target_ohlcv, nirnay_macro_df, swayam_cols,
-                        members=_swayam_members,
-                        regime_sensitivity=_icfg.nirnay_regime_sensitivity, base_weight=_icfg.nirnay_base_weight,
-                        num_vars=_icfg.nirnay_mmr_num_vars,
-                        oversold=_icfg.nirnay_oversold, overbought=_icfg.nirnay_overbought,
-                        progress_cb=_swayam_progress,
-                    )
-                    n_eff = effective_member_count(nirnay_constituent_dfs)
-                    st.session_state["nirnay_swayam_n_eff"] = n_eff
-                    console.success(f"Swayam ensemble: {len(nirnay_constituent_dfs)} views · ~{n_eff:.1f} effective")
+                swayam_view_dfs = build_swayam_frames(
+                    target_ohlcv, swayam_macro_df, swayam_cols,
+                    members=_swayam_members,
+                    regime_sensitivity=_icfg.swayam_regime_sensitivity,
+                    base_weight=_icfg.swayam_base_weight,
+                    num_vars=_icfg.swayam_mmr_num_vars,
+                    oversold=_icfg.swayam_oversold, overbought=_icfg.swayam_overbought,
+                    progress_cb=_swayam_progress,
+                )
+                n_eff = effective_member_count(swayam_view_dfs)
+                st.session_state["swayam_n_eff"] = n_eff
+                console.success(f"View bank: {len(swayam_view_dfs)} views · ~{n_eff:.1f} effective")
 
-                if nirnay_constituent_dfs:
-                    console.section("Aggregation")
-                    nirnay_daily_pre_reindex = aggregate_constituent_timeseries(nirnay_constituent_dfs)
-                    # Self mode is definitionally co-directional (the target
-                    # vs itself) — apply_polarity is never invoked here
-                    # (INV: self-mode polarity is always a no-op).
-            elif constituent_ohlcv:
-                total = len(constituent_ohlcv)
-                console.section("Per-Stock Analysis")
-                console.item("Constituents", total)
-                console.item("MSF Length", _icfg.nirnay_msf_length)
-                console.item("ROC Length", _icfg.nirnay_roc_len)
-                console.item("Regime Sensitivity", _icfg.nirnay_regime_sensitivity)
-                console.item("Base Weight", _icfg.nirnay_base_weight)
-                console.item("MMR Top-N Drivers", _icfg.nirnay_mmr_num_vars)
-                console.item("Oversold / Overbought", f"{_icfg.nirnay_oversold} / {_icfg.nirnay_overbought}")
-                console.item("Macro Columns", len(macro_cols_list))
+            if swayam_view_dfs:
+                console.section("Aggregation")
+                # Views are weighted by their own realised skill, estimated
+                # causally (analytics.adaptive) — a timescale that has stopped
+                # predicting this instrument contributes less to breadth, and
+                # no grid had to be chosen for that to happen.
+                _view_w = view_skill_weights(swayam_view_dfs, horizon=FWD_HORIZON)
+                swayam_daily_pre_reindex = aggregate_views(swayam_view_dfs, weights=_view_w)
+                if not _view_w.empty:
+                    _last = _view_w.iloc[-1].sort_values(ascending=False)
+                    console.item("View Weighting", f"skill-weighted · {len(_last)} views")
+                    console.item("Top Views", " · ".join(f"{k} {v:.2f}" for k, v in _last.head(4).items()))
+                    console.item("Weakest View", f"{_last.index[-1]} {_last.iloc[-1]:.2f}")
 
-                for i, (sym, ohlcv_df) in enumerate(constituent_ohlcv.items()):
-                    try:
-                        merged = ohlcv_df.copy()
-                        if nirnay_macro_df is not None and not nirnay_macro_df.empty:
-                            merged = merged.join(nirnay_macro_df, how="left")
-                            merged[macro_cols_list] = merged[macro_cols_list].ffill()
-
-                        n_rows = len(merged)
-                        has_macro = len([c for c in macro_cols_list if c in merged.columns])
-
-                        result_df, _ = run_full_analysis(
-                            merged, length=_icfg.nirnay_msf_length, roc_len=_icfg.nirnay_roc_len,
-                            regime_sensitivity=_icfg.nirnay_regime_sensitivity, base_weight=_icfg.nirnay_base_weight,
-                            num_vars=_icfg.nirnay_mmr_num_vars,
-                            oversold=_icfg.nirnay_oversold, overbought=_icfg.nirnay_overbought,
-                            macro_columns=macro_cols_list,
-                        )
-                        nirnay_constituent_dfs[sym] = result_df
-
-                        last_row = result_df.iloc[-1]
-                        osc = last_row.get('Unified_Osc', 0)
-                        cond = last_row.get('Condition', 'N/A')
-                        regime = last_row.get('Regime', 'N/A')
-                        console.detail(f"[{i+1}/{total}] {sym}: osc={osc:+.1f} [{cond}] regime={regime} rows={n_rows} macros={has_macro}")
-
-                        pct_val = int(45 + (i + 1) / total * 30)
-                        progress_bar(progress_container, pct_val, f"Analyzing {sym}", f"Osc={osc:+.1f} [{cond}] Regime={regime}")
-
-                    except Exception as e:
-                        console.failure(f"{sym}", str(e))
-
-                if nirnay_constituent_dfs:
-                    console.section("Aggregation")
-                    nirnay_daily_pre_reindex = aggregate_constituent_timeseries(nirnay_constituent_dfs)
-                    # Re-orient breadth to the target's direction for inverse baskets
-                    # (no-op for co-directional baskets, i.e. all current targets).
-                    _polarity = TARGET_POLARITY.get(active_target, 1)
-                    if _polarity < 0:
-                        nirnay_daily_pre_reindex = apply_polarity(nirnay_daily_pre_reindex, _polarity)
-                        console.item("Polarity", f"{_polarity} (basket inverted to target)")
-
-            st.session_state["_nirnay_analysis_cache"] = {
-                "key": _nirnay_fetch_key,
-                "nirnay_constituent_dfs": nirnay_constituent_dfs,
-                "nirnay_daily_pre_reindex": nirnay_daily_pre_reindex,
-                "n_eff": st.session_state.get("nirnay_swayam_n_eff") if nirnay_mode == "self" else None,
+            st.session_state["_swayam_analysis_cache"] = {
+                "key": _swayam_fetch_key,
+                "swayam_view_dfs": swayam_view_dfs,
+                "swayam_daily_pre_reindex": swayam_daily_pre_reindex,
+                "n_eff": st.session_state.get("swayam_n_eff"),
             }
 
         # ── HORIZON-DEPENDENT tail: reindex onto the target's calendar ──────
         # Cheap (pure pandas, no yfinance) — re-runs since the horizon's
         # warm-up trim can shift the target's date spine.
-        nirnay_daily = nirnay_daily_pre_reindex
-        if not nirnay_daily.empty:
+        swayam_daily = swayam_daily_pre_reindex
+        if not swayam_daily.empty:
             # Carry the basket forward onto the TARGET's trading calendar. The
-            # constituents (often global / US-listed) trade on a different calendar
+            # views share the target's own calendar by construction, but the macro
+            # driver pool behind MMR does not
             # than the target — on a Monday-morning IST run, or when the target's
             # market is open but the basket's is on holiday, the basket's last close
             # IS its current value. Reindexing it onto the target's dates (ff-fill)
@@ -1673,11 +1456,11 @@ def main():
             # instead of truncating to the slowest constituent. We record the
             # basket's true last-native date so the UI can flag how much is carried
             # over (the partial-session notice covers the row-level staleness).
-            st.session_state["nirnay_native_last"] = pd.Timestamp(nirnay_daily.index.max())
+            st.session_state["swayam_native_last"] = pd.Timestamp(swayam_daily.index.max())
             if active_date in data.columns:
                 _cal = pd.DatetimeIndex(sorted(pd.to_datetime(
                     data[active_date], errors="coerce").dropna().dt.normalize().unique()))
-                _nd = nirnay_daily.copy()
+                _nd = swayam_daily.copy()
                 _nd.index = pd.to_datetime(_nd.index).normalize()
                 _nd = _nd[~_nd.index.duplicated(keep="last")].sort_index()
                 # _Native marks rows that are a genuine basket observation
@@ -1685,110 +1468,88 @@ def main():
                 # the ffill below (the basket's market was closed/hadn't
                 # posted that day). Carried through so the calibration
                 # overlap gate can require NATIVE overlap, not ffilled
-                # rows masquerading as fresh Nirnay signal (audit finding
+                # rows masquerading as fresh Swayam signal (audit finding
                 # F21) — the UI's own "breadth carried forward" notice
                 # already discloses this to the user; the gate didn't.
                 _native_dates = set(_nd.index)
-                nirnay_daily = _nd.reindex(_cal, method="ffill").dropna(how="all")
-                nirnay_daily["_Native"] = nirnay_daily.index.isin(_native_dates)
-            console.item("Trading Days", len(nirnay_daily))
-            if len(nirnay_daily) > 0:
-                last = nirnay_daily.iloc[-1]
+                swayam_daily = _nd.reindex(_cal, method="ffill").dropna(how="all")
+                swayam_daily["_Native"] = swayam_daily.index.isin(_native_dates)
+            console.item("Trading Days", len(swayam_daily))
+            if len(swayam_daily) > 0:
+                last = swayam_daily.iloc[-1]
                 console.item("Avg Signal", f"{last.get('Avg_Signal', 0):+.2f}")
                 console.item("Oversold %", f"{last.get('Oversold_Pct', 0):.0f}%")
                 console.item("Overbought %", f"{last.get('Overbought_Pct', 0):.0f}%")
                 console.item("Buy Signals", int(last.get('Buy_Signals', 0)))
                 console.item("Sell Signals", int(last.get('Sell_Signals', 0)))
-            console.success(f"Nirnay aggregation: {len(nirnay_daily)} trading days")
+            console.success(f"Swayam aggregation: {len(swayam_daily)} trading days")
 
-        console.end_phase("NIRNAY ENGINE")
-        progress_bar(progress_container, 75, "Nirnay Engine Complete", f"{len(nirnay_constituent_dfs)} Stocks · {len(nirnay_daily)} Trading Days")
+        console.end_phase("SWAYAM ENGINE")
+        progress_bar(progress_container, 75, "Swayam Engine Complete", f"{len(swayam_view_dfs)} Views · {len(swayam_daily)} Trading Days")
 
         # ── Phase 4: Convergence ──────────────────────────────────────────
         console.start_phase("CONVERGENCE", 4, 5)
         progress_bar(progress_container, 78, "Computing Convergence", "Cross-Validation · DDM Filtering")
 
         console.section("Cross-Validation Setup")
-        # ── Intelligence Mode — PRIOR profile resolution ─────────────────
-        # The first convergence pass uses the PRIOR profile (saved from a
-        # previous run, if any). After this pass we auto-calibrate on the
-        # fresh data and apply the new weights in-place (see Phase 4.5).
-        # When the Intelligence Mode toggle is OFF, both passes use the
-        # factory defaults — no calibration runs.
+        # ── Convergence weights: prior, then learned forward ─────────────
+        # The first pass builds the dim_* matrix with the PRIOR weights. The
+        # composite is then recomputed (Phase 4b) with weights learned online
+        # from resolved outcomes only, so no score depends on data that had
+        # not happened when it was published.
+        #
+        # There is no profile to resolve and no mode to be in. The Optuna
+        # search that used to run here fit the whole history at once and wrote
+        # its winner to disk, which meant the output depended both on future
+        # data and on when you last calibrated; both are gone.
         from convergence import intelligence as _intel_mod
-        _intel_universe = active_target
-        # One calibrated profile per target (the forecast-lens tag was dropped
-        # from the key when the Signal-Horizon selector was removed — there is a
-        # single horizon now, so no Tactical/Positional profiles to disambiguate).
-        _intel_index = st.session_state.get("nishkarsh_index", _intel_universe)
-        _intel_enabled = bool(st.session_state.get("intelligence_mode", True))
-        if _intel_enabled:
-            _prior_w, _prior_t, _prior_profile = _intel_mod.resolve_active(_intel_universe, _intel_index)
-        else:
-            _prior_w, _prior_t, _prior_profile = (
-                _icfg.weights_seed(),          # this instrument's convergence-weight seed
-                _icfg.composite_thresholds(),  # …and its classification threshold seed
-                None,
-            )
-        if _prior_profile is not None:
-            console.item(
-                "Prior profile",
-                f"✅ {_prior_profile.universe} · val IC {_prior_profile.val_ic:+.3f} · "
-                f"trained {_prior_profile.timestamp}",
-            )
-        else:
-            console.item("Prior profile", "None (first run / no profile)")
-        console.item(
-            "Intelligence Mode",
-            "ON (auto-calibrate after convergence)" if _intel_enabled else "OFF (defaults locked)",
-        )
+        _prior_w = _icfg.weights_seed()
+        console.item("Dimension weights", "prior → learned online (causal, no calibration step)")
 
-        # First-pass validator uses the learned profile's weights when available,
-        # else this instrument's own convergence-weight seed (from its config).
-        _validator_weights = _prior_w if _prior_profile is not None else _icfg.weights_seed()
-        # In self mode "constituents" is a 1-item list (the target's own
-        # ticker) — the actual vote count is the Swayam ensemble's member
-        # count (all views always report, so coverage reads 1.0), not 1.
-        _expected_constituents = (
-            (len(nirnay_constituent_dfs) or None) if nirnay_mode == "self"
-            else (len(constituents) or None)
-        )
+        # First pass builds the dim_* sub-scores; the composite it also writes
+        # is superseded below by the online-weighted recomputation.
+        _validator_weights = _prior_w
+        # The vote count is the Swayam bank's member count. Every view always
+        # reports, so coverage reads 1.0 — unlike a basket, where a constituent
+        # could simply be missing that day and breadth was read off a partial
+        # cross-section without saying so.
+        _expected_constituents = len(swayam_view_dfs) or None
         validator = CrossValidator(
             active_weights=_validator_weights,
             expected_constituents=_expected_constituents,
         )
         divergence_detector = CrossSystemDivergenceDetector()
 
-        aarambh_ts = engine.ts_data.copy()  # carries "Price" (set after fit)
+        fvo_ts = engine.ts_data.copy()  # carries "Price" (set after fit)
         if active_date != "None" and active_date in data.columns:
-            aarambh_ts["Date"] = pd.to_datetime(data[active_date].values)
-            aarambh_ts = aarambh_ts.set_index("Date")
+            fvo_ts["Date"] = pd.to_datetime(data[active_date].values)
+            fvo_ts = fvo_ts.set_index("Date")
         else:
-            aarambh_ts["Date"] = np.arange(len(aarambh_ts))
-        aarambh_ts = aarambh_ts[~aarambh_ts.index.duplicated(keep="last")]
-        console.item("Aarambh Dates", len(aarambh_ts))
+            fvo_ts["Date"] = np.arange(len(fvo_ts))
+        fvo_ts = fvo_ts[~fvo_ts.index.duplicated(keep="last")]
+        console.item("FVO Dates", len(fvo_ts))
 
-        nirnay_by_date = {}
-        if not nirnay_daily.empty:
-            nirnay_unique = nirnay_daily[~nirnay_daily.index.duplicated(keep="last")]
-            for idx in nirnay_unique.index:
+        swayam_by_date = {}
+        if not swayam_daily.empty:
+            swayam_unique = swayam_daily[~swayam_daily.index.duplicated(keep="last")]
+            for idx in swayam_unique.index:
                 key = str(idx.date()) if hasattr(idx, "date") else str(pd.Timestamp(idx).date())
-                nirnay_by_date[key] = nirnay_unique.loc[idx]
-            console.item("Nirnay Dates", len(nirnay_by_date))
+                swayam_by_date[key] = swayam_unique.loc[idx]
+            console.item("Swayam Dates", len(swayam_by_date))
 
         console.section("Daily Convergence Scoring")
         overlap_count = 0
         native_overlap_count = 0
         skipped_warmup = 0
-        total_dates = len(aarambh_ts.index)
-        for i, ts_idx in enumerate(aarambh_ts.index):
+        total_dates = len(fvo_ts.index)
+        for i, ts_idx in enumerate(fvo_ts.index):
             ts_date = ts_idx.date() if hasattr(ts_idx, "date") else pd.Timestamp(ts_idx).date()
             date_str = str(ts_date)
-            row_a = aarambh_ts.loc[ts_idx]
+            row_a = fvo_ts.loc[ts_idx]
             if isinstance(row_a, pd.DataFrame):
                 row_a = row_a.iloc[-1]
             # Skip the engine's own [0, MIN_TRAIN_SIZE) warm-up rows — the
-            # `Valid` column (engines/aarambh.py) is False there because no
+            # `Valid` column (engines/fvo.py) is False there because no
             # genuine walk-forward forecast covers them (see A3 in the audit).
             # Scoring them would feed the Intelligence calibration frame and
             # the walk-forward IC a fabricated "neutral" convergence reading
@@ -1796,14 +1557,14 @@ def main():
             if not bool(row_a.get("Valid", True)):
                 skipped_warmup += 1
                 continue
-            aarambh_sig = {
+            fvo_sig = {
                 "conviction_score": float(row_a.get("ConvictionBounded", 0)),
                 "oversold_breadth": float(row_a.get("OversoldBreadth", 50)),
                 "regime": str(row_a.get("Regime", "NEUTRAL")),
             }
-            if date_str in nirnay_by_date:
-                row_n = nirnay_by_date[date_str]
-                nirnay_stats = {
+            if date_str in swayam_by_date:
+                row_n = swayam_by_date[date_str]
+                swayam_stats = {
                     "oversold_pct": float(row_n.get("Oversold_Pct", 50)),
                     "overbought_pct": float(row_n.get("Overbought_Pct", 50)),
                     "avg_unified_osc": float(row_n.get("Avg_Signal", 0)),
@@ -1816,73 +1577,55 @@ def main():
                 if bool(row_n.get("_Native", True)):
                     native_overlap_count += 1
             else:
-                nirnay_stats = {
+                swayam_stats = {
                     "oversold_pct": 50, "overbought_pct": 50, "avg_unified_osc": 0,
                     "regime_bull_pct": 33, "regime_bear_pct": 33,
                     "regime_neutral": 34, "num_constituents": 0,
                 }
-            validator.compute_convergence(aarambh_sig, nirnay_stats, date_str)
-            divergence_detector.detect(aarambh_sig, nirnay_stats, date_str)
+            validator.compute_convergence(fvo_sig, swayam_stats, date_str)
+            divergence_detector.detect(fvo_sig, swayam_stats, date_str)
 
             if (i + 1) % 10 == 0 or i == total_dates - 1:
                 pct_val = int(78 + (i + 1) / total_dates * 7)
                 progress_bar(progress_container, pct_val, "Computing Convergence", f"{i + 1}/{total_dates} Dates Scored")
 
-        console.item("Total Aarambh Dates", len(aarambh_ts))
+        console.item("Total FVO Dates", len(fvo_ts))
         console.item("Skipped (warm-up, no genuine forecast)", skipped_warmup)
         console.item("Overlap Dates", f"{overlap_count} ({native_overlap_count} native, "
                      f"{overlap_count - native_overlap_count} carried-forward)")
         console.success("Convergence scoring complete")
 
-        # ── Intelligence Mode overlap gate ───────────────────────────────
-        # Decided HERE (overlap_count is final) rather than just before the
-        # calibration block itself, because the "First-Pass"/"(initial pass)"
-        # labels below are chosen from _intel_enabled — deciding the gate
-        # after those labels were already picked meant a skip run advertised
-        # a "first pass" that would never have a second pass.
-        #
-        # Skip entirely when the Aarambh/Nirnay overlap is too thin (an
-        # Aarambh-only target with an empty/unresolvable basket, or a target
-        # whose basket barely overlaps the model's date range). With no
-        # overlap every date gets the same neutral nirnay_stats default
-        # (app.py's fallback above), so the continuous consensus direction
-        # degenerates to aarambh_bull/2 and every nirnay-driven dim score is
-        # constant — the tuner would then "calibrate" what is really a
-        # half-weight Aarambh-only signal against forward returns and persist
-        # it as a convergence profile (under the old hard direction gate the
-        # score was a constant 0 and the objective all-NaN; the continuous
-        # form makes the gate MORE necessary, since the degenerate signal now
-        # looks alive). 60 overlap dates is a low bar (~3 trading months)
-        # chosen only to exclude the genuinely-empty-basket case, not to
-        # second-guess a real but short-history calibration.
+        # ── Online-weighting overlap gate ────────────────────────────────
+        # Skip the online re-weighting when the FVO/Swayam overlap is too thin.
+        # With no genuine overlap every date takes the same neutral swayam_stats
+        # default, so the continuous consensus direction degenerates to
+        # fvo_bull/2 and every Swayam-driven dim score is constant — the learner
+        # would then be scoring what is really a half-weight FVO-only signal and
+        # attributing its skill to dimensions that never varied.
         #
         # Gated on NATIVE overlap, not raw overlap (audit finding F21):
-        # nirnay_daily is forward-filled onto the target's calendar before
-        # this loop runs (the basket's own market may be closed on a day the
-        # target trades), so `overlap_count` alone would happily count a long
-        # run of carried-forward, non-fresh Nirnay rows as "signal to
-        # calibrate against" — the SAME breadth reading repeated across many
-        # dates, not genuinely new cross-sectional information each day.
-        _MIN_OVERLAP_FOR_CALIBRATION = 60
-        if _intel_enabled and native_overlap_count < _MIN_OVERLAP_FOR_CALIBRATION:
+        # swayam_daily is forward-filled onto the target's calendar before the
+        # scoring loop, so `overlap_count` alone would count a long run of
+        # carried-forward, non-fresh breadth rows as new information each day.
+        # 60 dates (~3 trading months) excludes the genuinely-degenerate case
+        # without second-guessing a real but short history.
+        _MIN_OVERLAP_FOR_LEARNING = 60
+        _learn_weights = native_overlap_count >= _MIN_OVERLAP_FOR_LEARNING
+        if not _learn_weights:
             console.warning(
-                f"Intelligence calibration skipped: only {native_overlap_count} NATIVE "
-                f"Aarambh/Nirnay overlap dates (< {_MIN_OVERLAP_FOR_CALIBRATION}; "
-                f"{overlap_count} total overlap incl. carried-forward rows) — "
-                f"convergence_score would be dominated by repeated, non-fresh breadth."
+                f"Online dimension weighting skipped: only {native_overlap_count} NATIVE "
+                f"FVO/Swayam overlap dates (< {_MIN_OVERLAP_FOR_LEARNING}; "
+                f"{overlap_count} total incl. carried-forward) — the dimensions would be "
+                f"constant and their measured skill meaningless. Prior weights stand."
             )
-            _intel_enabled = False
 
         # ── 4a. First-pass conviction model ─────────────────────────────
         # First-pass DDM filter on the convergence_score from the first
         # validator pass. Labeled "first-pass" only when Intelligence Mode
         # is ON (a second pass will follow); just "Conviction Model" otherwise.
-        _first_pass_label = "First-Pass Conviction Model" if _intel_enabled else "Conviction Model"
-        console.section("Conviction Model (initial pass)" if _intel_enabled else "Conviction Model")
-        progress_bar(
-            progress_container, 83, _first_pass_label,
-            "DDM Filter · Prior Weights" if (_intel_enabled and _prior_profile is not None) else "DDM Filter · Default Weights",
-        )
+        _first_pass_label = "First-Pass Conviction Model" if _learn_weights else "Conviction Model"
+        console.section("Conviction Model (initial pass)" if _learn_weights else "Conviction Model")
+        progress_bar(progress_container, 83, _first_pass_label, "DDM Filter · Prior Weights")
         convergence_df = validator.get_convergence_series()
         # DDM smoothing = the shared consensus-filter tuning (CONV_DDM_*).
         conviction_model = UnifiedConvictionModel(
@@ -1896,176 +1639,102 @@ def main():
         )
         if results:
             latest = results[-1]
-            _pre_label = "DDM Conviction (pre-cal)" if _intel_enabled else "DDM Conviction"
-            _sig_label = "DDM Signal (pre-cal)" if _intel_enabled else "DDM Signal"
+            _pre_label = "DDM Conviction (pre-weighting)" if _learn_weights else "DDM Conviction"
+            _sig_label = "DDM Signal (pre-weighting)" if _learn_weights else "DDM Signal"
             console.item(_pre_label, f"{latest.nishkarsh_conviction:+.0f}")
             console.item(_sig_label, latest.nishkarsh_signal)
         console.success(f"Initial conviction: {len(results)} scores computed")
 
-        # ── 4b. AUTO-CALIBRATION (Intelligence Mode) ────────────────────
-        # Runs Optuna TPE on the fresh convergence_df + aarambh_ts. The
-        # search learns optimal (weights, thresholds) for this universe,
-        # persists them to disk, and we immediately re-apply them below
-        # so the user's signals reflect the calibrated state on THIS run.
-        # (The overlap gate that can force _intel_enabled = False lives
-        # earlier now, right after the convergence-scoring summary — see
-        # "Intelligence Mode overlap gate" above — so it decides before the
-        # first-pass labels are chosen, not after.)
-        _final_profile: _intel_mod.IntelligenceProfile | None = None
-        if _intel_enabled:
-            console.section("Intelligence Calibration")
-            _n_trials = int(st.session_state.get("intel_n_trials", INTEL_N_TRIALS))
-            progress_bar(
-                progress_container, 84,
-                "Intelligence Mode · Setup",
-                f"Building Tuner · Purged K-Fold CV + Holdout · {_n_trials} Trials",
-            )
+        # ── 4b. Learn the dimension weights, forward only ───────────────
+        # Replaces the Optuna calibration that used to sit here. That search
+        # fit the whole history and applied its winner back across the same
+        # history, so every published score changed whenever a session was
+        # added; it also persisted the winner to disk, making the output depend
+        # on when it was last run. This learns the same thing — which
+        # dimensions actually predict this instrument — from resolved outcomes
+        # only, at a fraction of the cost and with no state carried between
+        # runs.
+        _weight_hist = pd.DataFrame()
+        if _learn_weights:
+            console.section("Online Dimension Weighting")
+            progress_bar(progress_container, 86, "Learning Dimension Weights",
+                         "Causal · discounted directional skill per dimension")
             try:
-                tuner = _intel_mod.ConvergenceTuner(
-                    convergence_df, aarambh_ts,
-                    universe=_intel_universe, selected_index=_intel_index,
-                    target_col="Price",
-                    horizons=_icfg.hold_horizons,  # validate at this instrument's forecast horizons
+                convergence_df, _weight_hist = _intel_mod.apply_online_weights(
+                    convergence_df, fvo_ts, horizon=FWD_HORIZON, target_col="Price",
                 )
-                console.item("TPE Trials", _n_trials)
-                console.item("Objective", f"{tuner.n_cv_folds}-fold CV (purged) · L2 {tuner.l2_alpha}")
-                console.item("Holdout", f"{int((1-tuner.train_frac)*100)}% purged chronological")
-                console.item("Horizons", " · ".join(str(h) for h in tuner.horizons))
-                console.item("Opt Rows", len(tuner.train_frame))
-                console.item("Holdout Rows", len(tuner.val_frame))
+                if not _weight_hist.empty:
+                    _wnow = _weight_hist.iloc[-1]
+                    _wprior = _intel_mod.PRIOR_WEIGHTS
+                    console.item("Horizon", f"{FWD_HORIZON}d (outcome resolves h days after the call)")
+                    console.item("Learned Weights",
+                                 " · ".join(f"{k} {v:.3f}" for k, v in _wnow.sort_values(ascending=False).items()))
+                    console.item("Prior Weights",
+                                 " · ".join(f"{k} {_wprior[k]:.2f}" for k in _wnow.index))
+                    _moved = max(abs(_wnow[k] - _wprior[k]) for k in _wnow.index)
+                    console.item("Max Shift From Prior", f"{_moved:+.3f}")
+                    console.success(f"Dimension weights learned over {len(_weight_hist)} dates (no repaint)")
+                else:
+                    console.warning("Online weighting produced no coverage — prior weights stand")
+            except Exception as _we:
+                console.warning(f"Online weighting failed: {_we} — prior weights stand")
 
-                def _cal_cb(trial_num: int, total: int, best: float) -> None:
-                    # Map trial progress to 84% → 90% on the global bar.
-                    # Linear interpolation gives smooth motion through the loop.
-                    pct = int(84 + (trial_num / max(1, total)) * 6)
-                    progress_bar(
-                        progress_container, pct,
-                        "Intelligence Mode · Calibrating",
-                        f"Optuna Trial {trial_num}/{total} · Best Score {best:+.4f}",
-                    )
-
-                _final_profile, _ = tuner.optimize(n_trials=_n_trials, progress_callback=_cal_cb)
-                tuner.evaluate_validation()
-                _final_profile = tuner._make_profile()
-                _intel_mod.save_profile(_final_profile)
-
-                progress_bar(
-                    progress_container, 90,
-                    "Intelligence Mode · Profile Saved",
-                    f"Train IC {_final_profile.train_ic:+.3f} · Val IC {_final_profile.val_ic:+.3f}",
-                )
-                console.item("Train IC", f"{_final_profile.train_ic:+.4f}")
-                console.item("Val IC",   f"{_final_profile.val_ic:+.4f}")
-                # Top-3 most important parameters
-                if _final_profile.sensitivity:
-                    _top3 = sorted(_final_profile.sensitivity.items(), key=lambda kv: -kv[1])[:3]
-                    console.item("Top drivers", " · ".join(f"{k} {v:.0f}%" for k, v in _top3))
-                console.success(
-                    f"Calibration complete · val IC {_final_profile.val_ic:+.3f} · "
-                    f"persisted to disk ({_intel_universe} · {_intel_index})"
-                )
-            except Exception as _cal_e:
-                console.warning(f"Calibration failed: {_cal_e} — falling back to prior profile / defaults")
-                _final_profile = _prior_profile
-
-        # ── 4c. APPLY calibrated weights + thresholds to current run ────
-        # Either we just calibrated (use _final_profile) or Intelligence
-        # Mode is OFF (use defaults). Vectorized recomputation of
-        # convergence_score from existing dim_* columns — no need to
-        # re-loop CrossValidator over every date.
-        if _final_profile is not None:
-            progress_bar(
-                progress_container, 91,
-                "Applying Calibrated Profile",
-                "Re-Weighting Convergence · Vectorized Recompute",
-            )
-            convergence_df = _intel_mod.apply_calibrated_weights(
-                convergence_df, _final_profile.weights,
-            )
-            progress_bar(
-                progress_container, 92,
-                "Re-Fitting Conviction Model",
-                "Post-Calibration DDM Pass",
-            )
-            # Re-fit the conviction model with the new convergence_score
-            # (same consensus-filter DDM as the initial pass).
+            # Re-fit the conviction model on the re-weighted composite.
+            progress_bar(progress_container, 92, "Re-Fitting Conviction Model",
+                         "DDM pass on the online-weighted composite")
             conviction_model = UnifiedConvictionModel(
-                leak_rate=_icfg.ddm_leak,
-                drift_scale=_icfg.ddm_drift,
-                long_run_var=_icfg.ddm_lrv,
+                leak_rate=_icfg.ddm_leak, drift_scale=_icfg.ddm_drift, long_run_var=_icfg.ddm_lrv,
             )
             results = conviction_model.fit(
                 convergence_df["convergence_score"].tolist(),
                 convergence_df.index.tolist(),
             )
-            console.section("Conviction Model (post-cal)")
+            console.section("Conviction Model (re-weighted)")
             if results:
                 latest = results[-1]
                 console.item("DDM Conviction", f"{latest.nishkarsh_conviction:+.0f}")
                 console.item("DDM Signal", latest.nishkarsh_signal)
                 console.item("DDM Band", f"[{latest.confidence_lower:.0f}, {latest.confidence_upper:.0f}]")
-            console.success("Re-fit complete with calibrated profile")
-            _active_w = _final_profile.weights
-            _active_t = _final_profile.thresholds
-        elif _prior_profile is not None:
-            # Intelligence Mode OFF, or the overlap gate skipped calibration
-            # THIS run — but `validator` above was already constructed with
-            # `_prior_w` (a saved profile's weights), so convergence_df's
-            # dim_* composite reflects the PRIOR calibrated weights, not
-            # factory defaults. Publish what actually ran, so the Passport /
-            # Convergence cards don't report "Default" while the computed
-            # series is calibrated (previously always fell to the defaults
-            # branch below regardless of whether a prior profile seeded the
-            # first pass).
-            _active_w = _prior_w
-            _active_t = _prior_t
-        else:
-            # Genuinely no profile involved — record this instrument's own
-            # config seed as the active weights + thresholds (per-instrument).
-            _active_w = _icfg.weights_seed()
-            _active_t = _icfg.composite_thresholds()
+            console.success("Re-fit complete on online-weighted convergence")
+
+        _active_w = (dict(_weight_hist.iloc[-1]) if not _weight_hist.empty
+                     else _icfg.weights_seed())
+        _active_t = _icfg.composite_thresholds()
 
         # Publish to session state so the Passport sidebar + Convergence cards
         # see the calibrated state immediately on the next rerun.
         st.session_state["intelligence_active_weights"] = _active_w
         st.session_state["intelligence_active_thresholds"] = _active_t
         st.session_state["intelligence_active_profile"] = (
-            _final_profile.to_dict() if _final_profile is not None
-            else (_prior_profile.to_dict() if _prior_profile is not None else None)
+            {"weights": _active_w, "learned": bool(_learn_weights)}
         )
 
-        # ── 4d. NORMALIZED CONSENSUS — the HEADLINE object ───────────────────
-        # Product decision (consensus-headline): the hero card headlines the
-        # normalized consensus — the causal expanding-z average of Aarambh's
-        # ConvictionRaw and Nirnay's Avg_Signal, classified with its OWN
-        # factory p75/p90-anchored thresholds (±0.26/±0.39). This is the SAME object as the
-        # Unified Signal plot's top row and the TATTVA CONVICTION card, so
-        # hero, card and plot reconcile identically by construction (no
-        # cross-object reconciliation needed), and it is the object
-        # hero_study historically validated as the directional read. It is
-        # never classified with calibrated thresholds (audit finding F1) —
-        # the calibrated composite below is a separate evidence row.
-        # `consensus_series` is the single source for the full history
-        # (hero-history plot + DDM trend); the dict is its last point.
+        # ── 4d. NORMALIZED CONSENSUS ─────────────────────────────────────────
+        # The causal expanding-z average of FVO's ConvictionRaw and Swayam's
+        # Avg_Signal. It headlined the hero card until the card became a
+        # conviction chain; it is now an INPUT to that chain's convergence
+        # gate (a consensus pointing against the FVO call shuts the gate), and
+        # the top row of the Unified Signal plot. `consensus_series` is the
+        # single source for the full history; the dict is its last point.
         from convergence.normalization import (
             compute_normalized_convergence, consensus_series, classify_convergence_score,
         )
-        _consensus_full = consensus_series(aarambh_ts, nirnay_daily)
-        _nishkarsh_norm = compute_normalized_convergence(aarambh_ts, nirnay_daily)
+        _consensus_full = consensus_series(fvo_ts, swayam_daily)
+        _nishkarsh_norm = compute_normalized_convergence(fvo_ts, swayam_daily)
         if _nishkarsh_norm:
             console.section("Normalized Consensus (headline)")
             console.item("Conviction", f"{_nishkarsh_norm['value']:+.2f}")
             console.item("Signal", _nishkarsh_norm['signal'])
-            console.item("  Aarambh contribution", f"{_nishkarsh_norm['aarambh_norm']:+.2f}")
-            console.item("  Nirnay contribution",  f"{_nishkarsh_norm['nirnay_norm']:+.2f}")
+            console.item("  FVO contribution", f"{_nishkarsh_norm['fvo_norm']:+.2f}")
+            console.item("  Swayam contribution",  f"{_nishkarsh_norm['swayam_norm']:+.2f}")
 
-        # ── 4e. CALIBRATED SIGNAL — the learned variant (evidence row) ──────
-        # convergence_score (post apply_calibrated_weights, ±100 scale) IS the
-        # exact quantity Intelligence Mode's Optuna search scores and bins
-        # with _active_t — so this is the one place the learned thresholds are
-        # semantically valid (audit findings F1/F2). Not the headline: it
-        # feeds the hero's CALIBRATED evidence row (second opinion on the
-        # consensus read) and carries the Val IC the trust chip reports. The
+        # ── 4e. WEIGHTED COMPOSITE — the second construction ────────────────
+        # convergence_score (post online re-weighting, ±100 scale) IS the exact
+        # quantity the learner scores, so this is the one place the learned
+        # weights are semantically valid (audit findings F1/F2). It feeds the
+        # hero's WEIGHTED evidence row — a genuine second opinion, being a
+        # dimension-weighted construction of the same two engines rather than
+        # their plain 50/50 mean. The
         # RAW factory-weight composite is no longer surfaced in the UI at all
         # — it remains the research baseline in
         # research/calibration_lift_study.py (raw-vs-calibrated ablation).
@@ -2094,7 +1763,7 @@ def main():
         try:
             _hold_grid = _icfg.hold_horizons  # IC durability at this instrument's forecast horizons
             _wf_frame = _intel_mod._build_calibration_frame(
-                convergence_df, aarambh_ts, target_col="Price", horizons=_hold_grid,
+                convergence_df, fvo_ts, target_col="Price", horizons=_hold_grid,
             )
             _wf_results = _intel_mod.walk_forward_ic(_wf_frame, horizons=_hold_grid)
             st.session_state["wf_results"] = _wf_results
@@ -2115,7 +1784,7 @@ def main():
         console.end_phase("CONVERGENCE")
         _conv_complete_sub = (
             f"{overlap_count} Overlap Dates · {len(events)} Divergence Events · "
-            f"{'Calibrated Profile Applied' if (_intel_enabled and _final_profile is not None) else 'Factory Defaults'}"
+            f"{'Online-Weighted' if _learn_weights else 'Prior Weights'}"
         )
         progress_bar(progress_container, 95, "Convergence Phase Complete", _conv_complete_sub)
 
@@ -2126,49 +1795,31 @@ def main():
 
         st.session_state["engine"] = engine
         st.session_state["engine_cache"] = cache_key
-        st.session_state["aarambh_ts"] = aarambh_ts
-        st.session_state["nirnay_daily"] = nirnay_daily
-        st.session_state["nirnay_constituent_dfs"] = nirnay_constituent_dfs
+        st.session_state["fvo_ts"] = fvo_ts
+        st.session_state["swayam_daily"] = swayam_daily
+        st.session_state["swayam_view_dfs"] = swayam_view_dfs
         st.session_state["convergence_df"] = convergence_df
         st.session_state["divergence_events"] = events
         st.session_state["nishkarsh_result"] = results[-1] if results else None
         st.session_state["last_agreement"] = convergence_df["agreement_ratio"].iloc[-1] if not convergence_df.empty else 0
-        # THE CALIBRATED variant (CALIBRATED evidence row + trust-chip Val IC
-        # — Phase 4e). The headline itself is the normalized consensus
-        # (nishkarsh_conv_normalized below + hero_series), so no separate
-        # headline scalars are stored.
+        # The weighted composite — the hero's WEIGHTED evidence row and the
+        # Unified Signal plot's amber overlay.
         st.session_state["nishkarsh_calibrated_score"] = _calibrated_score
         st.session_state["nishkarsh_calibrated_signal"] = _calibrated_signal
 
-        # Series for the hero-history plot + TREND row.
-        #   • hero_series   — the HEADLINE object's full history: the
-        #     normalized consensus ([-1,+1], from consensus_series — the
-        #     single source shared with the Unified Signal plot's top row)
-        #   • hero_smoothed — DDM of the SAME consensus (config DDM params,
-        #     tanh-bounded like every other DDM consumer) — the trend the
-        #     hero's TREND row compares today's print against
-        #   • calibrated_conv_series — DDM of the CALIBRATED composite (the
-        #     Unified Signal plot's amber overlay); index converted to a
-        #     genuine DatetimeIndex (convergence_df's index is DATE STRINGS —
-        #     a string index would silently reindex to all-NaN, verification
-        #     finding V1)
-        if not _consensus_full.empty:
-            st.session_state["hero_series"] = _consensus_full["Consensus"].rename("HeroConsensus")
-            from analytics.ddm_filter import drift_diffusion_filter as _ddm
-            from analytics.utils import _apply_conviction_bounds as _bound
-            _cons_filt, _, _ = _ddm(
-                _consensus_full["Consensus"].to_numpy() * 100.0,
-                leak_rate=_icfg.ddm_leak,
-                drift_scale=_icfg.ddm_drift,
-                long_run_var=_icfg.ddm_lrv,
-            )
-            st.session_state["hero_smoothed"] = pd.Series(
-                _bound(_cons_filt) / 100.0, index=_consensus_full.index,
-                name="HeroConsensusSmoothed",
-            )
-        else:
-            st.session_state["hero_series"] = None
-            st.session_state["hero_smoothed"] = None
+        # `hero_series` — the normalized consensus's full history (from
+        # consensus_series, the single source shared with the Unified Signal
+        # plot's top row). It is no longer a "hero" series in the sense of
+        # being what the card plots: the card has no plot. It survives because
+        # the Convergence tab's marker tiers are causal quantiles of THIS
+        # distribution (see _series_tier there), which needs the history.
+        #
+        # `hero_smoothed` (a DDM of the same consensus) went with the TREND
+        # evidence row it existed to feed.
+        st.session_state["hero_series"] = (
+            _consensus_full["Consensus"].rename("HeroConsensus")
+            if not _consensus_full.empty else None)
+
         if results:
             _ccs_index = pd.to_datetime(convergence_df.index, errors="coerce")
             st.session_state["calibrated_conv_series"] = pd.Series(
@@ -2191,9 +1842,9 @@ def main():
             else (results[-1].nishkarsh_signal if results else "N/A")
         )
 
-        console.item("Aarambh Engine", "✅ Cached")
-        console.item("Nirnay Daily", f"✅ {len(nirnay_daily)} rows")
-        console.item("Constituent Results", f"✅ {len(nirnay_constituent_dfs)} stocks")
+        console.item("FVO Engine", "✅ Cached")
+        console.item("Swayam Daily", f"✅ {len(swayam_daily)} rows")
+        console.item("View Bank", f"✅ {len(swayam_view_dfs)} views")
         console.item("Convergence DF", f"✅ {len(convergence_df)} rows")
         console.item("Convergence Result", f"✅ {display_signal}")
 
@@ -2201,9 +1852,9 @@ def main():
 
         console.summary("RUN SUMMARY", {
             "Total Phases": "5/5 complete",
-            "Aarambh Rows": len(engine.ts_data),
-            "Nirnay Stocks": len(nirnay_constituent_dfs),
-            "Nirnay Trading Days": len(nirnay_daily),
+            "FVO Rows": len(engine.ts_data),
+            "Swayam Views": len(swayam_view_dfs),
+            "Swayam Trading Days": len(swayam_daily),
             "Convergence Scores": len(convergence_df),
             "Overlap Dates": overlap_count,
             "Divergence Events": len(events),
@@ -2222,9 +1873,9 @@ def main():
         _rcache.pop(cache_key, None)
         _bundle_snapshot = {bk: st.session_state.get(bk) for bk in _BUNDLE_KEYS}
         # Trim large baskets' per-constituent frames before they enter the LRU
-        # (audit finding F19) — see _bundle_nirnay_constituent_dfs's docstring.
-        _bundle_snapshot["nirnay_constituent_dfs"] = _bundle_nirnay_constituent_dfs(
-            _bundle_snapshot.get("nirnay_constituent_dfs") or {}
+        # (audit finding F19) — see _bundle_swayam_view_dfs's docstring.
+        _bundle_snapshot["swayam_view_dfs"] = _bundle_swayam_view_dfs(
+            _bundle_snapshot.get("swayam_view_dfs") or {}
         )
         _rcache[cache_key] = _bundle_snapshot
         while len(_rcache) > _RESULTS_CACHE_MAX:
@@ -2245,8 +1896,8 @@ def main():
         ts["Date"] = pd.to_datetime(data[active_date].values)
     else:
         ts["Date"] = np.arange(len(ts))
-    if "aarambh_ts" not in st.session_state:
-        st.session_state["aarambh_ts"] = ts.copy()
+    if "fvo_ts" not in st.session_state:
+        st.session_state["fvo_ts"] = ts.copy()
 
     nishkarsh_norm = st.session_state.get("nishkarsh_conv_normalized")
     agreement = st.session_state.get("last_agreement", 0)
@@ -2289,9 +1940,8 @@ def main():
         try:
             from analytics.analogs import find_similar_periods as _fsp, summarize_forward as _sf
             _display_hold = _icfg.precedent_horizons
-            _analogs = _fsp(ts, active_target, hold_horizons=_display_hold, mom_window=_icfg.forecast_momentum,
-                            maha_weight=_icfg.analog_w_maha, trajectory_weight=_icfg.analog_w_traj,
-                            recency_weight=_icfg.analog_w_recv)
+            _analogs = _fsp(ts, active_target, hold_horizons=_display_hold,
+                            mom_window=_icfg.analog_mom_window)
             _cached_analogs = _analogs
             _cached_display_hold = _display_hold
             _ps = _sf(_analogs, _display_hold) if _analogs else {}
@@ -2307,7 +1957,16 @@ def main():
                 _med = _row["median"]
                 _prec_summary = {
                     "horizon": int(_hp), "median": float(_med),
-                    "positive_pct": float(_row["positive_pct"]), "n": int(_row["n"]),
+                    "positive_pct": float(_row["positive_pct"]),
+                    # n_eff, not n, is what the hero's precedent gate reads:
+                    # ten analogs carried by one episode is one observation.
+                    "n": int(round(_row.get("n_eff", _row["n"]))),
+                    "n_raw": int(_row["n"]),
+                    "n_eff": float(_row.get("n_eff", _row["n"])),
+                    "p25": float(_row.get("p25", float("nan"))),
+                    "p75": float(_row.get("p75", float("nan"))),
+                    "usable": bool(_row.get("usable", True)),
+                    "note": str(_row.get("note", "")),
                     "dir": 1 if _med > 0 else -1 if _med < 0 else 0,
                 }
         except Exception:
@@ -2318,7 +1977,11 @@ def main():
         }
         st.session_state["_prec_key"] = _pkey
 
-    # ─── Primary Signal (Above Tabs, Always Visible) ───────────────────────
+    # ─── Masthead + tape, then the verdict (above tabs, always visible) ────
+    # The tape reads from `data` — the same panel the valuation engine was fit
+    # on this run — so the ambient context above the card cannot disagree with
+    # the card underneath it.
+    _render_header(frame=data)
     _render_primary_signal(nishkarsh_norm, agreement, signal)
 
     # ─── Sidebar Discovery Hint (passive — the sidebar collapse control lives
@@ -2374,7 +2037,7 @@ def main():
     # written here on every render but never read anywhere, under a comment
     # claiming lazy loading that isn't actually happening (audit finding C5).
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-        "CONVERGENCE", "AARAMBH", "NIRNAY", "PRECEDENT", "DIAGNOSTICS", "DATA",
+        "CONVERGENCE", "FVO", "SWAYAM", "PRECEDENT", "DIAGNOSTICS", "DATA",
     ])
 
     # Error boundary wrapper
@@ -2384,13 +2047,9 @@ def main():
             render_fn()
         except Exception as e:
             st.markdown(
-                f'<div style="background:rgba(251,113,133,0.05);border:1px solid rgba(251,113,133,0.2);'
-                f'border-radius:var(--r-md);padding:var(--sp-6);margin:var(--sp-4) 0;">'
-                f'<div style="font-family:var(--display);font-size:0.72rem;font-weight:700;color:var(--rose);'
-                f'text-transform:uppercase;letter-spacing:0.08em;margin-bottom:var(--sp-3);">'
-                f'Error in {name}</div>'
-                f'<div style="font-family:var(--data);font-size:0.8rem;color:var(--ink-secondary);line-height:1.6;">'
-                f'{str(e)}</div>'
+                f'<div class="warning-box">'
+                f'<div class="interp-title">Error in {html.escape(name)}</div>'
+                f'<div class="interp-body">{html.escape(str(e))}</div>'
                 f'</div>',
                 unsafe_allow_html=True,
             )
@@ -2398,9 +2057,9 @@ def main():
     with tab1:
         _safe_render("Convergence", lambda: render_convergence_tab(ts_filtered))
     with tab2:
-        _safe_render("Aarambh", lambda: render_aarambh_tab(engine, ts_filtered, x_axis, x_title, signal, model_stats, regime_stats, ts, active_target))
+        _safe_render("FVO", lambda: render_fvo_tab(engine, ts_filtered, x_axis, x_title, signal, model_stats, regime_stats, ts, active_target))
     with tab3:
-        _safe_render("Nirnay", lambda: render_nirnay_tab(selected_tf=selected_tf))
+        _safe_render("Swayam", lambda: render_swayam_tab(selected_tf=selected_tf))
     # Reuse the analog list already computed above (Precedent base-rate for the
     # hero) instead of having the tab call find_similar_periods a second time
     # for the same (ts, target, mom_window) — audit finding F18. Guarded on
@@ -2413,9 +2072,9 @@ def main():
     )
     with tab4:
         # Precedent term structure + momentum/horizon come from this instrument's
-        # own config (precedent_horizons / forecast_momentum / forecast_horizon).
+        # own config (precedent_horizons / analog_mom_window / forecast_horizon).
         _safe_render("Precedent", lambda: render_precedent_tab(
-            ts, active_target, _icfg.precedent_horizons, _icfg.forecast_momentum, _icfg.forecast_horizon,
+            ts, active_target, _icfg.precedent_horizons, _icfg.analog_mom_window, _icfg.forecast_horizon,
             precomputed_periods=_cached_periods))
     with tab5:
         _safe_render("Diagnostics", lambda: render_diagnostics_tab(engine, ts_filtered, x_axis, x_title, signal, model_stats))
