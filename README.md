@@ -46,10 +46,17 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-Then in the sidebar: pick a **Target** (a commodity, USD/INR, or an equity index)
-and click **Run Analysis**. First run fetches ~9 years of history (cached afterwards)
-and runs the full pipeline; subsequent runs are fast. Switching target re-runs the
+Then in the control rail on the left: pick an **Asset Class** and a **Target**
+(a commodity, USD/INR, an equity index, or any listed stock) and click
+**Run Analysis**. First run fetches ~9 years of history (cached afterwards) and
+runs the full pipeline; subsequent runs are fast. Switching target re-runs the
 engines on the already-fetched macro universe.
+
+The rail is grouped by how often you touch it — **Instrument** → **Session**
+(Reset / Refresh) → **Model** (read-only status) → **Appearance** (Terminal, the
+dark working theme; Paper, the light one for reading and print). Page-local
+controls — currently just the chart window — live in the toolbar strip docked
+under the command bar, not in the rail.
 
 No configuration is required — there are no secrets or environment variables to set.
 
@@ -233,9 +240,13 @@ class, edit its default in `CLASS_CONFIG_DEFAULTS`.
 | Valuation burn-in / print floor / discount grid | `core/config.py` (`FVO_BURN_IN`, `FVO_MIN_PRINTS`, `FVO_VALUATION_DELTAS`, `MIN_DATA_POINTS`) |
 | Asset-class block map for the cross-section | `engines/fvo/blocks.py` |
 
-In-app: the sidebar **Model Configuration** lets you deselect predictors (the full
-universe is on by default). Calibrated profiles persist to
-`~/.cache/tattva/intelligence/profiles.json` (one per target).
+In-app: nothing about the model is user-configurable, by design. The valuation
+panel is the whole traded cross-section minus this target's self-replicating
+near-duplicates, and the dimension weights are learned forward every run rather
+than loaded from a profile — so there is no predictor picker to set and no
+calibration artefact to go stale. The rail's **Model** group shows what the run
+actually reached (dimension weights, walk-forward IC); it is a readout, not a
+control.
 
 **Individual stocks are free-form, not a drop-down.** Selecting **India Stocks** or
 **US Stocks** as the Asset Class swaps the Target picker for a symbol text box.

@@ -73,6 +73,67 @@ Sections used: **Added · Changed · Deprecated · Removed · Fixed · Security 
   effectively a constant, contributing a wasted dimension and a near-singular
   covariance direction.
 
+- **UI: the "Graphite" ground replaces the navy one, and the page shell is
+  restructured.** Three separate problems, one pass.
+  *Colour* — the surface ramp was a saturated navy (`#04070D` → `#1E2C44`) under
+  the stock Tailwind-500 semantic set (`#10B981`/`#EF4444`/`#F59E0B`). Every
+  panel carried a blue cast, so the accent had to shout to read as interactive
+  and the greens/reds read as decoration against an already-coloured field. The
+  ramp is now near-achromatic graphite (`#0A0C10` → `#1C212A`) and the semantics
+  are muted toward the institutional register (`#4C7DF0`/`#2CA36B`/`#DD5A5A`/
+  `#D79A3C`/`#4E9FC4`). Every ink tier and every semantic hue clears WCAG AA on
+  every surface it is used on, in **both** themes — including the 9px
+  micro-label tier, which previously did not. `_PALETTE_RGB` (the chart palette)
+  and the iframe table tokens moved with them, so a green line still equals the
+  green value beside it.
+  *Flow* — page order was: freshness notices → a decorative "◄ CONFIGURE"
+  arrow → seven full-width timeframe buttons → command bar → content. The
+  instrument you were looking at was the fourth thing on the page, under an
+  apology and a control row. It is now: tape → command bar → toolbar strip →
+  notice rail → content, identically on every page. Freshness notices are
+  queued during the pipeline and rendered *below* the chrome they qualify, one
+  compact row each instead of stacked boxes.
+  *Modes* — the timeframe is a segmented control docked under the command bar
+  (local scope), and the theme is a segmented Terminal/Paper control at the
+  *bottom* of the rail (it was the first control under the brand, giving the
+  least consequential switch in the app the most valuable position in it). The
+  rail itself is now grouped by frequency of use — Instrument → Session →
+  Model → Appearance — with real widget labels instead of markdown divs
+  posing as labels, which also gives screen readers an accessible name.
+  Overview leads with the KPI strip and follows with the conviction chain,
+  rather than the reverse.
+
+- **UI: one component system — panels, charts, tables, icons, motion.** The
+  palette pass above unified how the app *looks*; this one unifies what it is
+  *made of*.
+  *Charts* — all eighteen now render through `render_chart_panel` into the
+  shared panel chrome, and every one passes the same `PLOTLY_CONFIG`. That
+  config existed as `PLOTLY_MODEBAR` and was wired to **zero** call sites, so
+  every chart shipped Plotly's stock toolbar, its logo, and a link out to
+  plotly.com — the one element in the app that visibly belonged to another
+  product. Panel headers carry *context* (instrument · window · units,
+  resolved from the same session keys the command bar reads) rather than a
+  title, because every chart already sits under a section header that names
+  it. Axis ticks and titles are the app's mono at its own micro sizes; the
+  crosshair is now on **both** axes.
+  *Tables* — all four go through `render_table_panel`. The iframe declared
+  `IBM Plex Mono` while importing JetBrains, so the declared family never
+  loaded and every table in the app fell through to the system default:
+  tables were the one surface rendering in a typeface the rest of the UI does
+  not use. Header rule went from a 2px accent bar (the heaviest horizontal
+  line in the app, under its quietest content) to a hairline; rows from 42px
+  to 27px.
+  *Everything else* — nine `st.caption`s became one note tier, four
+  `st.info`/`st.warning`s became the app's own empty states, `st.error` and
+  the spinner were brought into the notice system, and the inline `style="…"`
+  fragments in the tab files became shared classes. Icons are normalised to
+  one stroke weight by `get_icon` regardless of what each SVG literal
+  declares, and the Material glyphs Streamlit's nav forces on us are pulled to
+  the same optical weight via `font-variation-settings`. Motion is three
+  duration tokens and three easings, with `transition: all` removed and the
+  progress bar's inline `box-shadow: 0 0 10px` glow — on the element every
+  user watches for a full minute — deleted.
+
 ### Added
 - **`research/test_reproducibility.py` — the non-repainting guarantee, asserted.**
   Runs the system on `data[:T]` and `data[:T-250]` and requires exact agreement
@@ -100,6 +161,62 @@ Sections used: **Added · Changed · Deprecated · Removed · Fixed · Security 
 - `optuna` from `requirements.txt` — nothing imports it any more.
 
 ### Fixed
+- **Paper (light) mode was applied one rerun late, and half-applied within
+  that rerun.** `inject_css()` runs first in `main()`, but the derived `theme`
+  key was written by the appearance control far down the sidebar — so on the
+  rerun following a click the CSS still used the *previous* theme while every
+  chart, which resolves its palette at render time further down the script,
+  already used the new one. The page rendered as a mix of both. The theme is
+  now derived from the control's own widget key at the top of `main()`, where
+  Streamlit has already restored it, so the whole script agrees on one value.
+- **The app's button rules had never matched a single element.** They were
+  written as `.stButton > button`, but Streamlit renders the `<button>` inside
+  a wrapper, so the child combinator selected nothing — every button in the
+  app was wearing Streamlit's own face. On the dark theme that happens to look
+  close enough that it went unnoticed for as long as the rules have existed;
+  on Paper it rendered as a near-black pill with near-black text
+  (`rgb(20,24,31)` on `rgb(20,25,32)` — measured, not inferred). The rules now
+  target `[data-testid^="stBaseButton"]`, which is the button itself.
+- **Paper mode wore the dark theme's text colour.** `.streamlit/config.toml`
+  pins Streamlit to `base = "dark"` with `textColor = #E6EAF1`, and that is a
+  STATIC config — it cannot follow a runtime theme switch. So on Paper the
+  token swap repainted every surface white while Streamlit kept colouring its
+  own internals near-white: navigation labels, button faces, input text and
+  placeholders all rendered white-on-white, while anything drawn through the
+  app's own classes stayed correct. That split is what made the failure look
+  arbitrary rather than total. `LIGHT_TOKENS` now reclaims those natives
+  explicitly.
+- **Charts never followed the theme at all.** The tab files imported
+  `core.config`'s `COLOR_*` constants *by value* at module load, and that
+  palette is tuned for the dark ground: a `#2CA36B` that clears 5.9:1 on
+  graphite manages 2.6:1 on white. Paper mode therefore flipped the chrome and
+  the axes while every line, bar and marker kept its dark-theme colour — "some
+  elements show up, some do not". Colours now resolve per render through
+  `ui.theme.chart_color`/`chart_rgba` against a per-theme palette whose light
+  values are the same hexes the chrome uses. Twelve in-plot rules hardcoded as
+  `rgba(255,255,255,…)` (white on white) became `grid_rgba()`; the driver-
+  importance bars, which *lightened* toward the panel as contribution rose,
+  now vary opacity instead; `--violet` was the one semantic with no light
+  override and its tints were inlined — both fixed.
+- **Rail buttons wrapped mid-word.** "Refresh" at the app's uppercase +
+  0.1em tracking broke to "REFRES / H" in the two-up Session row, leaving the
+  pair at different heights.
+- **Component copy inherited page typography through a stray `<p>`.**
+  Streamlit runs component HTML through a CommonMark parser, which wraps bare
+  text nodes in `<p>`; that `<p>` then picked up `.stMarkdown p`'s size,
+  colour and 1em margins. It is why a section header's subtitle sat ~15px
+  further from its title than the header's own row-gap specified, and it was
+  doing the same, invisibly, inside several other components.
+- **`render_table_panel(units=…)` raised `TypeError`.** `units` was not a
+  declared parameter, so it fell through `**table_kwargs` into
+  `render_data_table`, which has no such argument — every table panel that
+  passed one died with `render_data_table() got an unexpected keyword
+  argument 'units'`.
+- **The command bar's session change was wrong by 100×.** `render_top_bar`
+  received the change as a *fraction* (`0.0042`) and printed it through a
+  `"%.2f%%"` format, so a `+0.42%` session rendered as `0.00%` — on every page,
+  on every render, for the one number a desk reads before any other. It now
+  takes percent points, with the flat band at half a basis point.
 - **`analytics/causal.py` moved out of `engines/fvo/`.** The generic one-sided
   estimation primitives sat under an engine while `analytics.adaptive` imported
   them, pointing the dependency backwards — analytics is the layer engines are

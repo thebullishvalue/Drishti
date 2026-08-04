@@ -79,13 +79,17 @@ from ui.theme import inject_css, VERSION, PRODUCT_NAME, COMPANY, progress_bar
 from ui.tabs.tab_convergence import render_convergence_tab
 from ui.components import (
     render_header,
-    render_info_box,
     build_hero_verdict,
     render_hero_card,
-    render_warning_box,
     render_control_hint,
     render_ticker,
     section_gap,
+    render_section_header,
+    render_kpi_strip,
+    render_top_bar,
+    render_empty_state,
+    render_notice_rail,
+    render_rail_readout,
 )
 from ui.tabs.tab_fvo import render_fvo_tab
 from ui.tabs.tab_swayam import render_swayam_tab
@@ -224,13 +228,13 @@ def _ensure_stock_target_column(df: pd.DataFrame, active_target: str) -> pd.Data
 # ─── UI Rendering helpers ────────────────────────────────────────────────────
 
 def _render_header(frame=None) -> None:
-    """Masthead, then the tape.
+    """Cold-start masthead (and, if a panel is passed, the tape under it).
 
-    The tape sits directly under the masthead and above everything else: it is
-    ambient context (where is the world today) that every reading below is
-    relative to, and it belongs where the eye lands before it starts working.
-    It draws from the run's OWN macro panel, so it cannot disagree with the
-    valuation underneath it.
+    Only the landing page uses this. Once a session is loaded the masthead's
+    job — say what this is — is done, and the command bar takes over: it
+    carries the same mark plus the thing the masthead cannot, namely which
+    instrument you are looking at and what it is worth. Two persistent
+    headers stacked on every page was one more than the screen could justify.
     """
     render_header(
         title=f"{PRODUCT_NAME}",
@@ -240,75 +244,91 @@ def _render_header(frame=None) -> None:
         render_ticker(frame)
 
 
+#: The three systems, as the cold-start screen describes them. Data, not
+#: markup — the landing page renders them through one template, so the three
+#: panels cannot drift apart in structure the way three hand-written HTML
+#: blocks did (they already had: two said "Ensemble/Signal", one said
+#: "Fusion", and the label column was a <span> in one and a <div> in another).
+_SYSTEM_PANELS = (
+    ("fvo", "System 01", "FVO", "Top-down valuation",
+     "Prices the target against the whole traded macro cross-section with a dynamic "
+     "cointegrating regression on log price. It answers one question: is this instrument "
+     "cheap or dear relative to everything it moves with?",
+     (("Estimator", "PCA-OLS + Huber"),
+      ("Validation", "Walk-forward OOS"),
+      ("Factors", "Marchenko-Pastur edge"))),
+    ("swayam", "System 02", "SWAYAM", "Bottom-up breadth",
+     "Reads the instrument's own internals through a self-referential bank of views "
+     "spanning timescale, information set and mechanism, then aggregates them by "
+     "realised skill rather than by a fixed grid.",
+     (("Signal", "MSF + MMR oscillator"),
+      ("Breadth", "Oversold / overbought share"),
+      ("Regime", "HMM \u00b7 GARCH \u00b7 CUSUM"))),
+    ("convergence", "System 03", "CONVERGENCE", "Adaptive fusion",
+     "Scores the two systems against each other across four dimensions \u2014 direction, "
+     "breadth, magnitude, regime \u2014 with weights learned forward from resolved "
+     "outcomes, then filters the composite through a leaky DDM.",
+     (("Fusion", "FVO \u00d7 Swayam"),
+      ("Weights", "Learned online, causal"),
+      ("Filter", "Leaky drift-diffusion"))),
+)
+
+
 def _render_landing_page() -> None:
-    """Render the landing page with three system cards."""
+    """Cold start \u2014 what to do, then what the machine does.
+
+    The action comes FIRST. This screen used to open with three descriptive
+    cards and put "pick a target and press Run" underneath them, which is the
+    wrong way round for a screen whose entire job is to get one click out of
+    the reader: the instruction sat below three paragraphs of method they
+    have no reason to read yet.
+    """
+    render_empty_state(
+        "No session loaded",
+        "Choose an <strong>asset class</strong> and a <strong>target</strong> in the control rail "
+        "\u2014 commodities, FX, India &amp; US indices, sector ETFs, or any listed stock \u2014 then "
+        "run the analysis. One fetch pulls ~9 years of the global macro universe; both engines "
+        "and the convergence layer fit on it.",
+        eyebrow="Session",
+        action_label="Control rail \u2192 Instrument \u2192 Run Analysis",
+    )
     section_gap()
-    col1, col2, col3 = st.columns(3, gap="small")
-    with col1:
-        st.markdown("""
-        <div class='system-card fvo'>
-            <h3>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
-                FVO
-            </h3>
-            <p>Walk-forward ensemble regression on the selected target (commodities, FX, indices & ETFs) vs the macro/FX universe, with robust quantile z-scores and DDM filtering.</p>
-            <div class='spec'>
-                <span>Ensemble:</span> PCA-OLS + Huber<br>
-                <span>Validation:</span> Walk-forward OOS<br>
-                <span>Bounds:</span> Rolling robust quantiles
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-    with col2:
-        st.markdown("""
-        <div class='system-card swayam'>
-            <h3>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-                SWAYAM
-            </h3>
-            <p>Per-instrument MSF + MMR analysis across a basket of related ETFs & miners, with HMM/GARCH/CUSUM regime intelligence aggregation.</p>
-            <div class='spec'>
-                <span>Signal:</span> MSF + MMR oscillator<br>
-                <span>Breadth:</span> Oversold / Overbought %<br>
-                <span>Regime:</span> HMM · GARCH · CUSUM
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-    with col3:
-        st.markdown("""
-        <div class='system-card convergence'>
-            <h3>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
-                CONVERGENCE
-            </h3>
-            <p>Adaptive-weighted composite of 4 dimensions: Direction, Breadth, Magnitude, Regime — with DDM.</p>
-            <div class='spec'>
-                <span>Fusion:</span> FVO + Swayam<br>
-                <span>Smoothing:</span> Leaky DDM<br>
-                <span>Range:</span> Soft \u00b1100 limit
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-    section_gap()
-    st.markdown("""
-    <div class='landing-prompt'>
-        <h4>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg>
-            AWAITING DATA
-        </h4>
-        <p>Pick an <strong>Asset Class → Target</strong> (Commodities · FX · India &amp; US Indices · Sector ETFs) in the <strong>Sidebar</strong>,<br>
-           then execute <strong>Run Analysis</strong> to fetch the live yfinance data and initialize both engines.</p>
-    </div>
-    """, unsafe_allow_html=True)
+    render_section_header(
+        "Method",
+        "Two systems reach a conclusion independently; a third scores how far they agree "
+        "and how much that agreement has historically been worth.",
+        icon="layers",
+    )
+    cols = st.columns(3, gap="small")
+    for col, (cls, eyebrow, name, kicker, body, specs) in zip(cols, _SYSTEM_PANELS):
+        spec_rows = "".join(
+            f'<div class="spec-row"><span class="spec-label">{k}</span>'
+            f'<span class="spec-value">{v}</span></div>'
+            for k, v in specs
+        )
+        with col:
+            st.markdown(
+                f"<div class='system-card {cls}'>"
+                f"<div class='sc-eyebrow'>{eyebrow}</div>"
+                f"<h3>{name}</h3>"
+                f"<div class='sc-kicker'>{kicker}</div>"
+                f"<p>{body}</p>"
+                f"<div class='system-spec'>{spec_rows}</div>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
 
 
-def _render_primary_signal(nishkarsh_norm, agreement, fvo_signal) -> None:
-    """Render the hero card.
+def _compute_hero_verdict(nishkarsh_norm, agreement, fvo_signal) -> dict:
+    """Gather session-state inputs and build the hero conviction-chain verdict.
 
     All interpretation lives in ``ui.components.build_hero_verdict`` (a pure,
     unit-testable function — see research/test_hero_verdict.py); this wrapper
-    only gathers session-state inputs and hands the verdict to
-    ``render_hero_card``.
+    only gathers session-state inputs and returns the verdict. Rendering
+    (``render_hero_card``) is the caller's job — the Overview page renders
+    the full card; every other page can read the same verdict object for its
+    top-bar status chip / KPI strip without disagreeing with what Overview
+    shows, since both read the identical dict computed once per rerun.
 
     The card is a CONVICTION CHAIN: direction from FVO, then six gates whose
     product is the conviction, with the smallest gate named as the binding
@@ -403,8 +423,7 @@ def _render_primary_signal(nishkarsh_norm, agreement, fvo_signal) -> None:
         horizon_days=FWD_HORIZON,
         div_window=DIV_LOOKBACK,
     )
-    render_hero_card(verdict)
-    section_gap()
+    return verdict
 
 
 def _render_model_passport_sidebar(current_universe: str, current_index: str | None = None) -> None:
@@ -422,8 +441,7 @@ def _render_model_passport_sidebar(current_universe: str, current_index: str | N
     mismatch to warn about, and nothing to reset to. What remains worth showing
     is the state the run actually reached.
     """
-    st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
-    st.markdown('<div class="sidebar-title">Model Passport</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sidebar-title">Model</div>', unsafe_allow_html=True)
 
     w = st.session_state.get("intelligence_active_weights") or {}
     wf = st.session_state.get("wf_results") or []
@@ -432,26 +450,45 @@ def _render_model_passport_sidebar(current_universe: str, current_index: str | N
         render_control_hint("Run an analysis to populate.")
         return
 
-    _top = sorted(w.items(), key=lambda kv: -kv[1])
-    st.markdown(
-        '<div style="font-family:var(--data);font-size:0.72rem;color:var(--ink-secondary);'
-        'line-height:1.7;padding:0.2rem 0 0.4rem 0;">'
-        + "".join(
-            f'<div style="display:flex;justify-content:space-between;">'
-            f'<span>{k}</span><span style="color:var(--amber);font-weight:700;">{v:.3f}</span></div>'
-            for k, v in _top)
-        + '</div>',
-        unsafe_allow_html=True,
-    )
-    render_control_hint("Dimension weights · learned forward from resolved outcomes")
-
+    # Dimension weights, heaviest first, then the walk-forward read — one
+    # key/value block rather than two differently-styled fragments, so the
+    # rail's status area has a single visual grammar.
+    rows = [(k, f"{v:.3f}", "accent") for k, v in sorted(w.items(), key=lambda kv: -kv[1])]
     if wf:
         _ics = [r["ic"] for r in wf if np.isfinite(r.get("ic", float("nan")))]
         if _ics:
             _mean = float(np.mean(_ics))
             _pos = sum(1 for v in _ics if v > 0)
-            render_control_hint(
-                f"Walk-forward IC {_mean:+.3f} · {_pos}/{len(_ics)} windows positive")
+            rows.append(("WF IC", f"{_mean:+.3f}", "long" if _mean > 0 else "short"))
+            rows.append(("Windows +", f"{_pos}/{len(_ics)}", ""))
+    render_rail_readout(rows)
+
+
+def _render_appearance_control() -> None:
+    """The theme switch — LAST control in the rail, deliberately.
+
+    It was previously the first control under the brand mark, which gave the
+    least consequential switch in the application the most valuable position
+    in it. Terminal (dark) is the working theme; Paper (light) is for reading
+    a result and for print.
+
+    Called from exactly one of the two rail passes per rerun — the cold-start
+    branch returns before the second pass exists, so the key is instantiated
+    once either way.
+    """
+    st.markdown('<div class="sidebar-title">Appearance</div>', unsafe_allow_html=True)
+    _mode = st.segmented_control(
+        "Appearance", ["Terminal", "Paper"], key="theme_mode",
+        default="Terminal", label_visibility="collapsed",
+        help="Terminal — dark, for working. Paper — light, for reading and print.",
+    )
+    # The derived `theme` key is set at the TOP of main() from this widget's
+    # own key, so the whole script agrees on one value for the whole run.
+    # Nothing is written here: doing so would apply the change half-way down
+    # the page, which is the bug that made Paper mode render as a mix of both
+    # themes. A deselect (segmented controls allow one) leaves `theme_mode`
+    # None, which the top-of-main resolver reads as Terminal.
+    _ = _mode
 
 
 def _render_footer() -> None:
@@ -474,10 +511,30 @@ def _render_footer() -> None:
 def main():
     st.set_page_config(
         page_title="TATTVA | Unified Convergence",
-        page_icon="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PGNpcmNsZSBjeD0iMTIiIGN5PSIxMiIgcj0iMTAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI0Q0QTg1MyIgc3Ryb2tlLXdpZHRoPSIyIi8+PHBhdGggZD0iTTggMTRsMy01IDIgMyAzLTQiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI0Q0QTg1MyIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz48L3N2Zz4=",
+        page_icon="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PGNpcmNsZSBjeD0iMTIiIGN5PSIxMiIgcj0iMTAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzNENkZFOCIgc3Ryb2tlLXdpZHRoPSIyIi8+PHBhdGggZD0iTTggMTRsMy01IDIgMyAzLTQiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzNENkZFOCIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz48L3N2Zz4=",
         layout="wide", initial_sidebar_state="expanded",
     )
-    inject_css()
+    # ─── Resolve the theme BEFORE anything is styled ──────────────────────
+    # This must read the appearance control's WIDGET key, not the derived
+    # `theme` key, and it must run here — first.
+    #
+    # The bug it fixes: `theme` is written by _render_appearance_control(),
+    # which runs deep in the sidebar, i.e. AFTER this line. On the rerun that
+    # followed a click, inject_css() therefore still saw the PREVIOUS theme
+    # while every chart — which resolves its palette at render time, further
+    # down the script — already saw the new one. The result was a page whose
+    # chrome and whose plots disagreed about which theme was active: exactly
+    # "some elements show up, some do not". The theme was always one rerun
+    # behind, and within that rerun it was applied inconsistently.
+    #
+    # Streamlit restores widget state before the script body runs, so
+    # `theme_mode` is already correct here on the very first rerun after a
+    # click. Deriving `theme` from it at the top makes the whole script —
+    # CSS, charts, tables, iframes — agree on one value for the whole run.
+    st.session_state["theme"] = (
+        "light" if st.session_state.get("theme_mode") == "Paper" else "dark"
+    )
+    inject_css(theme=st.session_state["theme"])
 
     # Replay dynamic stock-target registration on every rerun. register_stock_target
     # mutates module-level core.config dicts (ALL_TARGETS etc.) which survive
@@ -496,18 +553,31 @@ def main():
     # Empty (invisible) until the first progress_bar() call; cleared when a run ends.
     progress_container = st.empty()
 
-    # ─── Sidebar ──────────────────────────────────────────────────────────
+    # ─── The control rail ──────────────────────────────────────────────────
+    # Everything GLOBAL lives here — which instrument, what to do with the
+    # session, how the model is behaving, how the app looks. Everything LOCAL
+    # to a page (the chart window) lives in that page's toolbar strip. A
+    # control's position is the only reliable statement of its scope, so the
+    # two are never mixed.
+    #
+    # Rail order is by frequency of use: Instrument (every visit) → Session
+    # (occasionally) → Model (read-only status) → Appearance (almost never).
+    # The theme switch used to be first, directly under the brand.
+    #
+    # st.navigation (called once the pipeline below has run) pins its page-nav
+    # rail to the TOP of the sidebar by design — that's Streamlit's own
+    # behavior, not call order — so this content renders below it.
+    # ──────────────────────────────────────────────────────────────────────
     with st.sidebar:
-        st.markdown(
-            """
-        <div style="text-align:center;padding:0.5rem 0 0.75rem 0;">
-            <div style="font-family:var(--display);font-size:1.35rem;font-weight:700;color:var(--amber);letter-spacing:0.04em;">TATTVA</div>
-            <div style="font-family:var(--data);color:var(--ink-tertiary);font-size:0.6rem;margin-top:0.1rem;letter-spacing:0.06em;text-transform:uppercase;">तत्त्व | Unified Convergence</div>
-        </div>
-        <hr style="margin: 0.5rem 0; opacity: 0.1;">
-        """,
-            unsafe_allow_html=True,
-        )
+        # NO brand block here. Streamlit pins its page-nav to the top of the
+        # sidebar, so a mark rendered from Python lands BELOW the nav and
+        # above the controls — wedged between two dense stacks, which is
+        # exactly where it was. The mark already sits at the top-left of the
+        # command bar on every page, and on the cold-start screen the
+        # masthead carries it; a third copy, cramped, was the worst of the
+        # three. `render_nav_brand` stays in ui.components for the rail
+        # header on any future non-Streamlit-nav layout.
+        st.markdown('<div class="sidebar-title">Instrument</div>', unsafe_allow_html=True)
 
         # Two-level selection: Asset Class → Target. Keeps the growing target
         # roster (commodities, FX, India & US indices, sector-ETF universe)
@@ -543,12 +613,12 @@ def main():
         if st.session_state["target_category"] not in _categories:
             st.session_state["target_category"] = prev_cat
 
-        st.markdown('<div class="sidebar-title">Asset Class</div>', unsafe_allow_html=True)
-        sel_cat = st.selectbox(
-            "Asset Class", _categories,
-            label_visibility="collapsed", key="target_category",
-            help="Choose an asset class, then a target within it.",
-        )
+        # Widget labels are the real <label> elements now, not markdown
+        # pretending to be one: the rail's group headers (INSTRUMENT /
+        # SESSION / MODEL) name the SECTION, and each control names itself.
+        # Screen readers get a proper accessible name out of it for free —
+        # a collapsed label plus a floating div above it gives them nothing.
+        sel_cat = st.selectbox("Asset Class", _categories, key="target_category")
 
         if sel_cat in FREEFORM_STOCK_CATEGORIES:
             # India Stocks / US Stocks: no constituent basket to browse — enter
@@ -556,13 +626,9 @@ def main():
             # (data.universe.resolve_stock_symbol): India tries SYMBOL.NS
             # first, then SYMBOL.BO; US uses the bare symbol.
             _market = FREEFORM_STOCK_CATEGORIES[sel_cat]
-            st.markdown('<div class="sidebar-title" style="margin-top:0.5rem;">Symbol</div>', unsafe_allow_html=True)
             _raw_symbol = st.text_input(
                 "Symbol", key=f"stock_symbol_{_market}",
-                label_visibility="collapsed",
-                placeholder="e.g. RELIANCE, TATASTEEL" if _market == "india" else "e.g. AAPL, BRK.B",
-                help="Swayam runs in Swayam self-mode on this instrument's own OHLCV "
-                     "(no constituent basket exists for a single stock).",
+                placeholder="RELIANCE" if _market == "india" else "AAPL",
             )
             selected_commodity = None
             if _raw_symbol and _raw_symbol.strip():
@@ -578,10 +644,7 @@ def main():
                     _dyn[selected_commodity] = {"ticker": _ticker, "market": _market}
                     render_control_hint(f"{_raw_symbol.strip().upper()} → {_ticker} · {_exch_or_err}")
             else:
-                render_control_hint(
-                    "NSE (.NS) checked first, then BSE (.BO)" if _market == "india"
-                    else "US listing · symbol as typed"
-                )
+                render_control_hint(".NS then .BO" if _market == "india" else "US listing")
         else:
             cat_targets = TARGET_CATEGORIES.get(sel_cat, all_names)
 
@@ -590,21 +653,14 @@ def main():
                 st.session_state["target_select"] = (
                     prev_commodity if prev_commodity in cat_targets else cat_targets[0]
                 )
-            st.markdown('<div class="sidebar-title" style="margin-top:0.5rem;">Target</div>', unsafe_allow_html=True)
-            selected_commodity = st.selectbox(
-                "Target", cat_targets,
-                label_visibility="collapsed", key="target_select",
-                help="FVO forecasts this target's forward return; Swayam reads "
-                     "bottom-up breadth — across its constituent basket (index members, "
-                     "producers, sector ETFs), or as a Swayam self-ensemble on the "
-                     "instrument's own price (commodities & stocks).",
-            )
-        # Breadth source hint. Every target now reads the same way, so this is
-        # a statement of method rather than a routing label. Suppressed for a
-        # FREEFORM stock, where the resolution hint just above already states
-        # the ticker/exchange and the Symbol help text explains Swayam.
-        if selected_commodity and sel_cat not in FREEFORM_STOCK_CATEGORIES:
-            render_control_hint("Swayam · self-referential view bank (own OHLCV)")
+            selected_commodity = st.selectbox("Target", cat_targets, key="target_select")
+        # (Two wrapped prose hints used to sit here — "Swayam · self-referential
+        # view bank (own OHLCV)" and, further down, "231 macro instruments ·
+        # full cross-section (1 excluded as self-replicating)". Between them
+        # they put five lines of grey sentence fragments directly under the
+        # control they described, which is what made the rail read as texty.
+        # The same facts are now key/value rows in the Source readout below —
+        # scannable, aligned, and a third of the height.)
 
         df = None
         has_data = "data" in st.session_state and "run_analysis" in st.session_state
@@ -620,7 +676,7 @@ def main():
             # Initial load. The fetch pulls the entire macro universe once and
             # is target-agnostic — the chosen commodity only selects FVO's
             # target column and Swayam's basket.
-            if st.button("Run Analysis", type="primary"):
+            if st.button("Run Analysis", type="primary", width="stretch"):
                 # No spinner — drive the main-area progress bar from the very first
                 # click. The fetch is one blocking call, so we show the stage before it
                 # (3%) and after it (15%); the analysis picks the bar up from there on
@@ -651,7 +707,8 @@ def main():
             # Post-load target switch — re-runs the engines on the already
             # fetched universe (no re-fetch; only the Swayam basket re-pulls).
             if selected_commodity != st.session_state.get("active_target"):
-                if st.button(f"Switch target → {selected_commodity}", type="primary"):
+                if st.button(f"Switch → {selected_commodity}", type="primary",
+                             width="stretch"):
                     st.session_state["selected_commodity"] = selected_commodity
                     st.session_state["active_target"] = selected_commodity
                     st.session_state["nishkarsh_index"] = selected_commodity
@@ -660,10 +717,10 @@ def main():
                     st.session_state.pop("engine_cache", None)
                     st.rerun()
 
-        st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
-
     # ─── Landing page if no data loaded ──────────────────────────────────
     if df is None:
+        with st.sidebar:
+            _render_appearance_control()
         _render_header()
         _render_landing_page()
         _render_footer()
@@ -685,10 +742,8 @@ def main():
         return
 
     with st.sidebar:
-        st.markdown('<div class="sidebar-title">Model Configuration</div>', unsafe_allow_html=True)
-
-        # Target is chosen once in the sidebar "Target Commodity" selector;
-        # resolve it here for predictor configuration.
+        # Target is chosen once in the rail's Instrument group above; resolve
+        # it here for predictor configuration.
         commodity_options = [c for c in ALL_TARGETS if c in numeric_cols] or numeric_cols
         target_col = st.session_state.get("active_target", commodity_options[0])
         if target_col not in numeric_cols:
@@ -698,16 +753,9 @@ def main():
         date_candidates = [c for c in all_cols if "date" in c.lower()]
         date_col = date_candidates[0] if date_candidates else "None"
 
-        # Read-only target chip (set via the Target Commodity selector above).
-        st.markdown(
-            '<div style="display:flex;align-items:baseline;gap:0.5rem;'
-            'padding:0.35rem 0 0.55rem 0;font-family:var(--data);">'
-            '<span style="color:var(--ink-tertiary);text-transform:uppercase;'
-            'letter-spacing:0.1em;font-size:0.58rem;">Target</span>'
-            f'<span style="color:var(--amber);font-weight:700;font-size:0.92rem;">{target_col}</span>'
-            '</div>',
-            unsafe_allow_html=True,
-        )
+        # (A read-only "Target: <name>" chip used to render here. It restated
+        # the selector directly above it and the command bar's own instrument
+        # block — three copies of one string, none of which could disagree.)
 
         # The valuation panel is the WHOLE macro cross-section, minus this
         # target's self-replicating near-duplicates (e.g. GLTR for a precious
@@ -722,14 +770,33 @@ def main():
         available = [c for c in numeric_cols if c != target_col and c not in _excluded]
         st.session_state["active_features"] = tuple(available)
         st.session_state["active_date_col"] = date_col
-        render_control_hint(
-            f"{len(available)} macro instruments · full cross-section"
-            + (f" ({len(_excluded)} excluded as self-replicating)" if _excluded else ""))
 
-        st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+        # Source readout — what the run is actually reading, as data. This was
+        # two wrapped sentences of grey prose; the facts are identical and the
+        # rows are scannable against each other, which sentences never are.
+        st.markdown('<div class="sidebar-title">Source</div>', unsafe_allow_html=True)
+        _src_rows = [("Panel", f"{len(available)}", "accent")]
+        if _excluded:
+            _src_rows.append(("Excluded", f"{len(_excluded)}", ""))
+        _src_rows.append(("Breadth", "Self-ref bank", ""))
+        render_rail_readout(_src_rows)
 
         if "run_analysis" in st.session_state and st.session_state.get("run_analysis"):
-            if st.button("Reset Analysis", type="secondary", use_container_width=True):
+            st.markdown('<div class="sidebar-title">Session</div>', unsafe_allow_html=True)
+            _act_l, _act_r = st.columns(2, gap="small")
+            # Reset and Refresh are the same KIND of action (throw work away and
+            # redo it) differing only in whether the network is involved, so
+            # they sit side by side rather than stacked — stacked, the second
+            # read as a consequence of the first.
+            with _act_l:
+                _do_reset = st.button("Reset", type="secondary", width="stretch",
+                                      help="Re-run both engines on the data already in "
+                                           "session — no network fetch. Fast.")
+            with _act_r:
+                _do_refresh = st.button("Refresh", type="secondary", width="stretch",
+                                        help="Force-fetch the live universe, then recompute. "
+                                             "Slower; use when the data is stale or partial.")
+            if _do_reset:
                 st.session_state.pop("data", None)
                 st.session_state.pop("engine", None)
                 st.session_state.pop("engine_cache", None)
@@ -746,7 +813,7 @@ def main():
             # re-run on cached data (fast); Refresh = re-fetch live + re-run (slower).
             # Snapshot-preserving: if the live pull fails (rate-limit / circuit open),
             # the cache's stale fallback keeps the app working on last-good data.
-            if st.button("Refresh Data", type="secondary", use_container_width=True):
+            if _do_refresh:
                 from data.cache import begin_force_refresh
                 begin_force_refresh()   # next fetches bypass TTL; disk snapshot kept
                 # Same main-area progress bar as Run Analysis (no spinner) — the recompute
@@ -781,9 +848,8 @@ def main():
                     for _k in [k for k in list(st.session_state) if str(k).startswith(_prefix)]:
                         st.session_state.pop(_k, None)
                 st.rerun()
-            render_control_hint("Force-fetch live data · recompute · slower than Reset")
 
-        # ── Model Passport (Sanket-style) ──────────────────────────────
+        # ── Model Passport ─────────────────────────────────────────────
         # Surfaces the learned dimension weights + walk-forward read. (Each
         # target used to key its own persisted profile here — see
         # _intel_index below).
@@ -791,15 +857,7 @@ def main():
         _current_index = st.session_state.get("nishkarsh_index", _current_universe)
         _render_model_passport_sidebar(_current_universe, _current_index)
 
-        st.markdown('<hr style="margin: 1rem 0 0.75rem 0; opacity: 0.05;">', unsafe_allow_html=True)
-        st.markdown(
-            '<div class="system-spec">'
-            f'<div class="spec-row"><span class="spec-label">Version</span><span class="spec-value">{VERSION}</span></div>'
-            '<div class="spec-row"><span class="spec-label">Engine</span><span class="spec-value">Convergence</span></div>'
-            '<div class="spec-row"><span class="spec-label">Data</span><span class="spec-value">yfinance</span></div>'
-            '</div>',
-            unsafe_allow_html=True,
-        )
+        _render_appearance_control()
 
     # ─── Resolve active configuration ──────────────────────────────────────
     active_target = st.session_state.get("active_target", target_col)
@@ -821,7 +879,19 @@ def main():
     active_features = [f for f in active_features if f not in _excluded_feats]
     active_date = st.session_state.get("active_date_col", date_col)
 
-    # ─── Data freshness notice ──────────────────────────────────────────────
+    # ─── Data freshness notices ─────────────────────────────────────────────
+    # QUEUED, not rendered. These used to paint straight onto the top of the
+    # page, above the command bar — so on a lagging source the first thing on
+    # screen was three stacked apology boxes and the instrument was pushed
+    # below the fold, on precisely the days the numbers most needed scrutiny.
+    # They are collected here and rendered by the page shell (render_notice_
+    # rail) directly BENEATH the chrome they qualify. Same notices, same
+    # wording, same triggers — different place, a third of the height.
+    _notices: list[dict] = []
+
+    def _notice(kind: str, title: str, body: str) -> None:
+        _notices.append({"kind": kind, "title": title, "body": body})
+
     # Measured in TRADING days behind (weekends ignored) so Friday data read on a
     # Sunday is "current", not stale. Tiered, design-consistent: a calm info note
     # when 1–2 trading days behind (today's bar often isn't published yet), and a
@@ -853,16 +923,16 @@ def main():
                 behind = trading_days_behind(_tgt_ticker, latest_date.date(), today)
                 ds = latest_date.strftime("%d %b %Y")
                 if behind >= STALENESS_DAYS:
-                    render_warning_box(
-                        title="Latest data unavailable",
-                        content=(f"Newest data is {ds} — {behind} trading days behind. The price source "
-                                 f"(yfinance) hasn't published more recent data, so every signal below "
-                                 f"reflects {ds}, not today. Use Refresh Data in the sidebar to pull the "
-                                 f"latest once the source updates."),
+                    _notice(
+                        "warning", "Latest data unavailable",
+                        (f"Newest data is {ds} — {behind} trading days behind. The price source "
+                         f"(yfinance) hasn't published more recent data, so every signal below "
+                         f"reflects {ds}, not today. Use Refresh in the rail to pull the "
+                         f"latest once the source updates."),
                     )
                 elif behind >= 1:
-                    render_info_box(
-                        "Data freshness",
+                    _notice(
+                        "info", "Data freshness",
                         f"Signals are as of {ds} ({behind} trading day"
                         f"{'s' if behind > 1 else ''} behind — today's bar may not be published yet).",
                     )
@@ -879,8 +949,8 @@ def main():
                     _sb_items = sorted(_stale_backfills.items(), key=lambda kv: kv[1])
                     _sb_preview = ", ".join(f"{k} (as of {v})" for k, v in _sb_items[:5])
                     _sb_more = f" +{len(_sb_items) - 5} more" if len(_sb_items) > 5 else ""
-                    render_info_box(
-                        "Predictors carried from snapshot",
+                    _notice(
+                        "info", "Predictors carried from snapshot",
                         f"{len(_sb_items)} predictor(s) were rate-limited this fetch and refilled "
                         f"from a prior cached snapshot: {_sb_preview}{_sb_more}. Their momentum is "
                         f"flat until the next successful live fetch.",
@@ -913,12 +983,12 @@ def main():
                         # design — that is expected, not a data problem.
                         _session_is_live = (latest_date.date() >= today)
                         if fresh_frac < SESSION_FRESH_FLOOR and not _session_is_live:
-                            render_warning_box(
-                                title="Partial latest session",
-                                content=(f"Only {fresh_frac:.0%} of the markets open on {ds} have posted — the "
-                                         f"rest are forward-filled from the prior session, so the macro predictors "
-                                         f"and bottom-up breadth behind the latest signal are stale. Treat it as "
-                                         f"provisional; use Refresh Data in the sidebar once those markets post."),
+                            _notice(
+                                "warning", "Partial latest session",
+                                (f"Only {fresh_frac:.0%} of the markets open on {ds} have posted — the "
+                                 f"rest are forward-filled from the prior session, so the macro predictors "
+                                 f"and bottom-up breadth behind the latest signal are stale. Treat it as "
+                                 f"provisional; use Refresh in the rail once those markets post."),
                             )
 
                 # Per-source freshness for the ACTIVE target specifically — it can
@@ -951,20 +1021,20 @@ def main():
                                 # most likely yfinance rate-limited this ticker during
                                 # the last fetch and the backfill used a prior snapshot.
                                 # Prompt a manual refresh rather than crying "stale".
-                                render_info_box(
-                                    f"{active_target} price not yet updated",
+                                _notice(
+                                    "info", f"{active_target} price not yet updated",
                                     (f"Today's bar is carried forward from {t_last.strftime('%d %b %Y')} — "
                                      f"the {active_target} market is open but yfinance may have rate-limited "
-                                     f"this ticker during the last fetch. Use Refresh Data in the sidebar "
+                                     f"this ticker during the last fetch. Use Refresh in the rail "
                                      f"to pull the latest price."),
                                 )
                             else:
-                                render_warning_box(
-                                    title=f"{active_target} data is lagging",
-                                    content=(f"This target last updated {t_last.strftime('%d %b %Y')} "
-                                             f"({t_behind} trading day{'s' if t_behind > 1 else ''} behind the macro "
-                                             f"universe) — more recent rows are forward-filled from that value, so "
-                                             f"its latest signal may be stale."),
+                                _notice(
+                                    "warning", f"{active_target} data is lagging",
+                                    (f"This target last updated {t_last.strftime('%d %b %Y')} "
+                                     f"({t_behind} trading day{'s' if t_behind > 1 else ''} behind the macro "
+                                     f"universe) — more recent rows are forward-filled from that value, so "
+                                     f"its latest signal may be stale."),
                                 )
                 except Exception:
                     pass
@@ -1977,43 +2047,34 @@ def main():
         }
         st.session_state["_prec_key"] = _pkey
 
-    # ─── Masthead + tape, then the verdict (above tabs, always visible) ────
-    # The tape reads from `data` — the same panel the valuation engine was fit
-    # on this run — so the ambient context above the card cannot disagree with
-    # the card underneath it.
-    _render_header(frame=data)
-    _render_primary_signal(nishkarsh_norm, agreement, signal)
+    # ─── Hero verdict — computed once. Rendered in full only on Overview;
+    # every page's top-bar/KPIs can read the SAME object, so nothing can ever
+    # disagree with what Overview shows (see _compute_hero_verdict's docstring).
+    verdict = _compute_hero_verdict(nishkarsh_norm, agreement, signal)
 
-    # ─── Sidebar Discovery Hint (passive — the sidebar collapse control lives
-    # in Streamlit's own chrome; this is a directional pointer, not a button) ──
-    st.markdown(
-        """
-        <div class="sidebar-hint">
-            <svg class="sidebar-hint-arrow" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="15 18 9 12 15 6"></polyline>
-            </svg>
-            <span class="sidebar-hint-label">CONFIGURE</span>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    # (A decorative "◄ CONFIGURE" arrow pointing at the sidebar rendered here.
+    # It was the first thing on every page, it was amber — the caution colour,
+    # spent on a signpost — and it pointed at a rail that is open by default
+    # and self-evidently a control rail. Removed rather than restyled.)
 
-    # ─── Timeframe Filter — with robust persistence ───────────────────────
-    if 'tf_selected' not in st.session_state:
-        st.session_state.tf_selected = '6M'
+    # ─── Timeframe — the one LOCAL control, and it lives in the toolbar ─────
+    # Read here (the filtered series below needs it) but RENDERED by the page
+    # shell, docked under the command bar. Reading state up here and drawing
+    # the widget down there is safe and is the standard Streamlit pattern: a
+    # widget interaction reruns the script, so session_state already holds the
+    # new value by the time this line executes.
+    #
+    # It was previously seven full-width st.buttons spanning the page above
+    # the command bar — the single most generic-looking element in the app,
+    # given more visual weight than the instrument itself.
+    #
     # Derived from TIMEFRAME_TRADING_DAYS (core/config.py) rather than a
     # second hard-coded {3M:63, 6M:126, ...} literal — the two used to drift
     # independently with no shared source (audit finding F15).
     TIMEFRAMES = {**TIMEFRAME_TRADING_DAYS, 'ALL': None}
-
-    tf_cols = st.columns(len(TIMEFRAMES), gap="small")
-    for i, tf in enumerate(TIMEFRAMES.keys()):
-        with tf_cols[i]:
-            btn_type = "primary" if st.session_state.tf_selected == tf else "secondary"
-            if st.button(tf, key=f"tf_{tf}", type=btn_type, width='stretch'):
-                st.session_state.tf_selected = tf
-                st.rerun()
-    selected_tf = st.session_state.tf_selected
+    if st.session_state.get("tf_selected") not in TIMEFRAMES:
+        st.session_state["tf_selected"] = "6M"
+    selected_tf = st.session_state["tf_selected"]
 
     # Ensure timeframe survives config changes by always applying it
     ts_filtered = ts.copy()
@@ -2030,19 +2091,79 @@ def main():
     x_axis = ts_filtered["Date"]
     x_title = "Date" if active_date != "None" else "Index"
 
-    # ─── Tabs with Error Boundaries ─────────────────────────────────────────
-    # Streamlit renders every tab's content on each script run (there is no
-    # built-in lazy-loading of inactive tabs) — the CSS just hides the
-    # inactive panels. A `rendered_tabs` session-state set was previously
-    # written here on every render but never read anywhere, under a comment
-    # claiming lazy loading that isn't actually happening (audit finding C5).
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-        "CONVERGENCE", "FVO", "SWAYAM", "PRECEDENT", "DIAGNOSTICS", "DATA",
-    ])
+    # ─── Command-bar status (price / change / freshness chip) — shared by
+    # every page's shell. Deliberately independent of the queued freshness
+    # notices (which keep their own richer explanation, rendered in the rail
+    # below the bar) — this is only the one-glance summary. ────────────────
+    _cb_price = _cb_chg = None
+    if "Price" in ts.columns and len(ts) >= 2:
+        _cb_tail = pd.to_numeric(ts["Price"], errors="coerce").tail(2)
+        if pd.notna(_cb_tail.iloc[-1]):
+            _cb_price = float(_cb_tail.iloc[-1])
+            if pd.notna(_cb_tail.iloc[-2]) and _cb_tail.iloc[-2] != 0:
+                # PERCENT POINTS, not a fraction. This was previously passed
+                # as a fraction (0.0042) into a "%.2f%%" format, so a +0.42%
+                # session printed as "0.00%" in the command bar — the one
+                # number on screen a desk reads before any other, wrong by
+                # two orders of magnitude on every render.
+                _cb_chg = float(_cb_tail.iloc[-1] / _cb_tail.iloc[-2] - 1.0) * 100.0
+    _cb_status_label, _cb_status_tone, _cb_asof = "", "neutral", ""
+    try:
+        if active_date != "None" and active_date in df.columns:
+            _cb_last_dt = pd.to_datetime(ts["Date"], errors="coerce").max()
+            if pd.notna(_cb_last_dt):
+                _cb_today = min(datetime.now(timezone.utc).date(), datetime.now().date())
+                _cb_behind = trading_days_behind(ALL_TARGETS.get(active_target), _cb_last_dt.date(), _cb_today)
+                if _cb_behind >= STALENESS_DAYS:
+                    _cb_status_label, _cb_status_tone = "STALE", "danger"
+                elif _cb_behind >= 1:
+                    _cb_status_label, _cb_status_tone = f"{_cb_behind}D BEHIND", "warning"
+                else:
+                    _cb_status_label, _cb_status_tone = "LIVE", "success"
+                _cb_asof = _cb_last_dt.strftime("%d %b %Y")
+    except Exception:
+        pass
 
-    # Error boundary wrapper
+    def _top_bar(*, toolbar: bool = True) -> None:
+        """The page shell, identical on every page.
+
+        Order is fixed and means something: the TAPE (the world) sits above
+        the COMMAND BAR (this instrument), which sits above the TOOLBAR (the
+        controls that change what you are looking at), which sits above the
+        NOTICE RAIL (the caveats on all of it). Page content follows. Every
+        page opens the same way, so the eye learns one layout instead of
+        seven, and nothing that qualifies a reading can appear above the
+        reading itself.
+        """
+        render_ticker(data)
+        render_top_bar(
+            target=active_target, price=_cb_price, change_pct=_cb_chg,
+            status_label=_cb_status_label, status_tone=_cb_status_tone,
+            meta_items=[
+                ("Window", selected_tf),
+                ("Horizon", f"{FWD_HORIZON}D"),
+                ("As of", _cb_asof),
+            ],
+            open_strip=toolbar,
+        )
+        if toolbar:
+            with st.container(key="toolbar"):
+                _tb_l, _tb_r = st.columns([1, 7], vertical_alignment="center")
+                with _tb_l:
+                    st.markdown('<div class="tb-label">Window</div>', unsafe_allow_html=True)
+                with _tb_r:
+                    st.segmented_control(
+                        "Window", list(TIMEFRAMES), key="tf_selected",
+                        label_visibility="collapsed",
+                        help="Chart window. Applies to every plot on the page; "
+                             "the engines always fit on the full history.",
+                    )
+        render_notice_rail(_notices)
+
+    # Error boundary wrapper — unchanged from the previous per-tab dispatch,
+    # just reused per-page now instead of per-tab.
     def _safe_render(name, render_fn):
-        """Render a tab with graceful error handling."""
+        """Render a page's content with graceful error handling."""
         try:
             render_fn()
         except Exception as e:
@@ -2054,32 +2175,114 @@ def main():
                 unsafe_allow_html=True,
             )
 
-    with tab1:
-        _safe_render("Convergence", lambda: render_convergence_tab(ts_filtered))
-    with tab2:
-        _safe_render("FVO", lambda: render_fvo_tab(engine, ts_filtered, x_axis, x_title, signal, model_stats, regime_stats, ts, active_target))
-    with tab3:
+    # ─── App shell — one real page per analytical surface (st.navigation),
+    # restyled into an institutional nav rail via theme.css. Every page below
+    # is a THIN wrapper: none of them recompute the pipeline above, they only
+    # call the exact same tab-render functions app.py has always called, with
+    # the exact same arguments — this is a presentation-layer restructure,
+    # not a change to what gets computed or when.
+    # ─────────────────────────────────────────────────────────────────────
+    def _page_overview() -> None:
+        """Overview — scan first, then read.
+
+        The KPI strip now leads and the conviction chain follows it. It was
+        the other way round: a ~400px verdict card, then a section header,
+        then the six numbers that summarise it — so the one row a returning
+        user actually needs sat below the fold, under prose they had already
+        read. Six numbers across the top answers "what changed since I last
+        looked" in one saccade; the chain below answers "why", for the reader
+        who wants it. Nothing was removed, and the numbers are the same
+        objects the card is built from, so the two cannot disagree.
+        """
+        _top_bar()
+        _swd = st.session_state.get("swayam_daily")
+        _sw_os = (float(_swd["Oversold_Pct"].iloc[-1])
+                  if _swd is not None and not _swd.empty and "Oversold_Pct" in _swd.columns else None)
+        _cdf = st.session_state.get("convergence_df")
+        _agree = (float(_cdf["agreement_ratio"].iloc[-1])
+                  if _cdf is not None and not _cdf.empty and "agreement_ratio" in _cdf.columns else None)
+        _fvo_val = float(signal.get("fvo", 0.0) or 0.0)
+        render_kpi_strip([
+            {"label": "Signal", "value": verdict["signal"], "subtext": verdict["action"]["prose"],
+             "color_class": ("success" if verdict["signal_class"] == "buy"
+                             else "danger" if verdict["signal_class"] == "sell" else "neutral")},
+            {"label": "Conviction", "value": f"{verdict['conviction']:.2f}",
+             "subtext": verdict["action"]["label"], "color_class": "accent"},
+            {"label": "Walk-Forward Edge",
+             "value": (f"{verdict['trust']['oos_ic']:+.3f}" if verdict["trust"].get("oos_ic") is not None else "—"),
+             "subtext": verdict["trust"]["chip"], "color_class": "info"},
+            {"label": "Mispricing", "value": f"{_fvo_val:+.2f}σ",
+             "subtext": f"{abs(float(signal.get('pct_mispricing', 0.0) or 0.0)) * 100:.1f}% vs fair value",
+             "color_class": "success" if _fvo_val < 0 else "danger" if _fvo_val > 0 else "neutral"},
+            {"label": "Swayam Breadth", "value": (f"{_sw_os:.0f}%" if _sw_os is not None else "—"),
+             "subtext": "oversold share", "color_class": "neutral"},
+            {"label": "Engine Agreement", "value": (f"{_agree:.0%}" if _agree is not None else "—"),
+             "subtext": "FVO vs Swayam", "color_class": "neutral"},
+        ], max_cols=6)
+        section_gap()
+        render_section_header(
+            "Conviction Chain",
+            "One directional claim from FVO, then every condition that can invalidate it. "
+            "Conviction is their product, so the smallest gate is the binding constraint.",
+            icon="target", accent="accent",
+        )
+        render_hero_card(verdict)
+
+    def _page_fvo() -> None:
+        _top_bar()
+        _safe_render("FVO", lambda: render_fvo_tab(
+            engine, ts_filtered, x_axis, x_title, signal, model_stats, regime_stats, ts, active_target))
+
+    def _page_swayam() -> None:
+        _top_bar()
         _safe_render("Swayam", lambda: render_swayam_tab(selected_tf=selected_tf))
-    # Reuse the analog list already computed above (Precedent base-rate for the
-    # hero) instead of having the tab call find_similar_periods a second time
-    # for the same (ts, target, mom_window) — audit finding F18. Guarded on
-    # the pkey matching THIS render's ts/target/horizon; a mismatch (shouldn't
-    # happen since the precompute above always runs first) falls back to None,
-    # and the tab recomputes itself exactly as before.
-    _prec_cache = st.session_state.get("_precedent_analogs_cache")
-    _cached_periods = (
-        _prec_cache["periods"] if _prec_cache and _prec_cache.get("pkey") == _pkey else None
-    )
-    with tab4:
-        # Precedent term structure + momentum/horizon come from this instrument's
-        # own config (precedent_horizons / analog_mom_window / forecast_horizon).
+
+    def _page_convergence() -> None:
+        _top_bar()
+        _safe_render("Convergence", lambda: render_convergence_tab(ts_filtered))
+
+    def _page_precedent() -> None:
+        _top_bar()
+        # Reuse the analog list already computed above (Precedent base-rate for
+        # the hero) instead of having the tab call find_similar_periods a second
+        # time for the same (ts, target, mom_window) — audit finding F18. Guarded
+        # on the pkey matching THIS render's ts/target/horizon; a mismatch
+        # (shouldn't happen since the precompute above always runs first) falls
+        # back to None, and the tab recomputes itself exactly as before.
+        _prec_cache = st.session_state.get("_precedent_analogs_cache")
+        _cached_periods = (
+            _prec_cache["periods"] if _prec_cache and _prec_cache.get("pkey") == _pkey else None
+        )
+        # Precedent term structure + momentum/horizon come from this
+        # instrument's own config (precedent_horizons / analog_mom_window /
+        # forecast_horizon).
         _safe_render("Precedent", lambda: render_precedent_tab(
             ts, active_target, _icfg.precedent_horizons, _icfg.analog_mom_window, _icfg.forecast_horizon,
             precomputed_periods=_cached_periods))
-    with tab5:
-        _safe_render("Diagnostics", lambda: render_diagnostics_tab(engine, ts_filtered, x_axis, x_title, signal, model_stats))
-    with tab6:
+
+    def _page_diagnostics() -> None:
+        _top_bar()
+        _safe_render("Diagnostics", lambda: render_diagnostics_tab(
+            engine, ts_filtered, x_axis, x_title, signal, model_stats))
+
+    def _page_data() -> None:
+        _top_bar()
         _safe_render("Data", lambda: render_data_tab(ts_filtered, ts, active_target))
+
+    pages = {
+        "": [st.Page(_page_overview, title="Overview", icon=":material/dashboard:", default=True)],
+        "Engines": [
+            st.Page(_page_fvo, title="FVO", icon=":material/monitoring:"),
+            st.Page(_page_swayam, title="Swayam", icon=":material/hub:"),
+            st.Page(_page_convergence, title="Convergence", icon=":material/merge_type:"),
+            st.Page(_page_precedent, title="Precedent", icon=":material/history:"),
+        ],
+        "System": [
+            st.Page(_page_diagnostics, title="Diagnostics", icon=":material/monitor_heart:"),
+            st.Page(_page_data, title="Data", icon=":material/table_chart:"),
+        ],
+    }
+    st.navigation(pages, position="sidebar").run()
 
     _render_footer()
 
