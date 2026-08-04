@@ -2,10 +2,10 @@
 Tattva — Configuration constants, thresholds, column mappings, and shared defaults.
 तत्त्व (Tattva) — "Principle / Essence"
 
-CORE — Merged from both Aarambh (correl.py) and Nirnay (nirnay_core.py) monoliths.
+CORE — macro universe, target catalogue, structural knobs and warm-up priors.
 
 The engine-tuning constants below are the DEFAULTS of the per-instrument config
-registry: `InstrumentConfig` (routing + every Aarambh / Nirnay / Swayam / DDM /
+registry: `InstrumentConfig` (routing + every FVO / Swayam / Swayam / DDM /
 convergence knob) → `CLASS_CONFIG_DEFAULTS` (per asset class) → `INSTRUMENT_CONFIGS`
 (one explicit entry per catalogue target). The five catalogue classes (commodity,
 fx, india_index, us_index, etf) are tuned PER INSTRUMENT via `PER_INSTRUMENT_TUNING`
@@ -22,53 +22,66 @@ VERSION = "2.7.0"
 PRODUCT_NAME = "Tattva"
 COMPANY = "@thebullishvalue"
 
-# ─── Aarambh Engine Defaults ─────────────────────────────────────────────────
+# ─── FVO Engine Defaults ─────────────────────────────────────────────────────
+# The FVO (Fair Value Oscillator) engine replaced FVO's walk-forward
+# ensemble regression. It is a RECURSIVE dynamic cointegrating regression of
+# log price on the integrated factors of the macro cross-section — there is no
+# training window, no refit cadence and no ensemble, so the former
+# MIN/MAX_TRAIN_SIZE, REFIT_INTERVAL, RIDGE_ALPHAS, HUBER_* and
+# ENSEMBLE_MODELS knobs (and every per-instrument tuning of them) are gone
+# rather than retained as inert settings.
+#
 # Tuned/anchored values are study-validated; measurements, run dates and report
-# files live in research/TUNING_COVERAGE.md + CHANGELOG, not here. Study keys in
-# the value comments (e.g. `aarambh_full`) name the validating research script.
+# files live in research/TUNING_COVERAGE.md + CHANGELOG, not here.
 
-# Z-score band lengths for the Z_lb/AvgZ/breadth STATE features (not the forecast).
-LOOKBACK_WINDOWS = (3, 5, 10)          # aarambh_full: "ultra-short(3-10)"
-# Expanding walk-forward for FairValueEngine: OOS starts at MIN_TRAIN; window floors
-# at MIN, caps at MAX; refit every REFIT_INTERVAL rows. fit(purge=h) drops training
-# rows within h of the forecast point (forward-label overlap). GUARD: MAX must stay
-# ≥ MIN — the engine uses max(MAX,MIN), so MAX<MIN silently makes MAX inert.
-MIN_TRAIN_SIZE = 100     # aarambh_full 2026-07-21 MIN surface is NOISE (oscillates ±0.08 with no trend: 200=+0.054,
-                         # 252=+0.075, 350=-0.008, 500=-0.029, 625=+0.048 …). Rather than the 252 noise-spike argmax
-                         # (which would reverse the deliberate coverage choice and ~halve OOS points for short-history
-                         # stocks), pinned to the study's own coherence floor _MIN_SANE_WINDOW=100 — the smallest window
-                         # that fits the PCA ensemble. Honours coverage + coherence without chasing a noise peak.
-MAX_TRAIN_SIZE = 350     # aarambh_full 2026-07-21: MAX curve is flat noise ≥350 (+0.004); a stable value ≥ MIN on that
-                         # plateau (≈1.4y of trading rows). MAX≥MIN guard satisfied (engine uses max(MAX,MIN)).
-REFIT_INTERVAL = 63      # aarambh_full 2026-07-21 (near-noise IC; a slower refit cadence, harmless either way)
-RIDGE_ALPHAS = (0.1, 1.0, 10.0)   # aarambh_full: "ultra-narrow(0.1..10)"
-HUBER_EPSILON = 4.0      # aarambh_full 2026-07-20
-HUBER_MAX_ITER = 500
+# Z-score band lengths for the Z_lb/AvgZ/breadth STATE features, applied to the
+# engine's mispricing gap.
+LOOKBACK_WINDOWS = (3, 5, 10)          # fvo_full: "ultra-short(3-10)"
 
-# Ensemble members FairValueEngine fits per window and averages (rank IC; forecast
-# R²≈0 by design). "ols" is always fit (it powers feature-impact attribution).
-# aarambh_full 2026-07-21 → ("ridge", "ols", "elasticnet") (best combined IC +0.007;
-# a multi-member basket also restores the Model Spread dispersion indicator).
-ENSEMBLE_MODELS = ("ridge", "ols", "elasticnet")
+# Observations absorbed before a valuation is published. One year is where an
+# exponentially weighted correlation matrix over ~200 instruments has enough
+# weight for the Marchenko-Pastur edge to be meaningful; publishing earlier
+# would be publishing the prior.
+FVO_BURN_IN = 252
+# Prints an instrument must have accumulated BY TIME t before it may enter the
+# cross-section at t. A second moment is not estimable from less, and the gate
+# is applied forward in time so admission never retroactively changes.
+FVO_MIN_PRINTS = 250
+# Discount grid for the valuation regression — implied coefficient memories of
+# ~4y, ~8y, ~40y and permanent. The restriction to the slow end is a modelling
+# commitment, not a tuned choice: scoring discount factors by one-step
+# predictive likelihood is degenerate for a LEVEL regression (the model that
+# tracks price most closely always wins, and its limit is the useless "fair
+# value = price"). A long-run relation that re-estimates itself in months is
+# not a long-run relation. Within the slow family the data still selects.
+FVO_VALUATION_DELTAS = (0.999, 0.9995, 0.9999, 1.0)
+
 OU_PROJECTION_DAYS = 90
 MIN_DATA_POINTS = 1500
 
-# Single fixed forecast horizon — the trader-facing Signal-Horizon (Tactical/
-# Positional) selector was removed (the edge lives at 1–10d and fades by 15–20d;
-# precedent_univ/precedent_model). Data stays DAILY: weekly bars (9y ≈ 470 rows)
-# would starve the walk-forward below MIN_DATA_POINTS.
-FORECAST_HORIZON = 10       # FWD_HORIZON: forward log-return the engine forecasts (t→t+h)
-FORECAST_MOMENTUM = 20      # FWD_MOM_K: trailing predictor-momentum window (~2× horizon)
+# Evaluation horizons. FORECAST_HORIZON is no longer a label horizon the engine
+# is trained on (nothing is): it is the holding period the convergence layer,
+# the precedent analogs and the Intelligence calibrator score against, and the
+# window the UI projects the current mispricing over. Data stays DAILY.
+FORECAST_HORIZON = 10       # scoring / display horizon (trading days)
 HOLD_HORIZONS = (5, 10)     # Intelligence Val-IC / calibration grid (analog 5d+10d pair)
 
-# Predictors that are RAW YIELD LEVELS (e.g. ^TNX at 4.25), not prices. Their
-# momentum is an arithmetic level-DIFF, not a log-return: yields can print ≤0
-# (zero-rate era) and log(≤0) is NaN, which would poison the whole feature row
-# (audit F4). A basis-point move is also the correct "momentum" for a rate.
+# Trailing window for the PRECEDENT analog matcher's state features (momentum,
+# realized vol, and — at 3x this — the rolling Hurst) in analytics.analogs.
+# Validated by the `precedent_univ` study, which sweeps it against the horizon.
+# This was formerly FORECAST_MOMENTUM and did double duty as the removed
+# forecast engine's predictor-momentum window; the two uses were never the same
+# quantity, they merely shared a value, so it is named for the one that remains.
+ANALOG_MOM_WINDOW = 20
+
+# Predictors that are RAW YIELD LEVELS (e.g. ^TNX at 4.25), not prices. The FVO
+# cross-section is a panel of PRICES: it takes logs and first differences, and
+# a rate series can print ≤0 (zero-rate era), where log(≤0) is NaN. They are
+# excluded from the valuation panel rather than transformed — a yield level is
+# not an instrument whose price the target can be valued against.
 RAW_YIELD_PREDICTORS = frozenset({
     "US 13-Week T-Bill Yield", "US 5-Year Treasury Yield",
-    "US 10-Year Treasury Yield", "US 30-Year Treasury Yield",
-})
+    "US 10-Year Treasury Yield", "US 30-Year Treasury Yield"})
 
 # Precedent-tab analog term-structure horizons (trading days), FIXED and decoupled
 # from HOLD_HORIZONS. 1d is a normal member (weak/noisy edge, disclosed by the
@@ -76,7 +89,7 @@ RAW_YIELD_PREDICTORS = frozenset({
 # ~20d). The hero's precedent second-opinion reads at FORECAST_HORIZON (10d).
 PRECEDENT_HORIZONS = (1, 3, 5, 10, 20, 60)
 
-# ENGINE ConvictionBounded → signal mapping (engines/aarambh.py + the tabs that
+# ENGINE ConvictionBounded → signal mapping (engines/fvo.py + the tabs that
 # display it). Data-anchored to |ConvictionBounded| p50/p75/p90 (study: ui_anchors).
 # NOT used by conviction_model.py (that bins the DDM-smoothed COMPOSITE on
 # COMPOSITE_THRESHOLDS). Stood pending a confirming run (last ui_anchors saw an
@@ -101,40 +114,28 @@ DDM_LEAK_RATE = 0.03
 DDM_DRIFT_SCALE = 0.056
 DDM_LONG_RUN_VAR = 100.0
 
-# ─── Nirnay Engine Defaults ──────────────────────────────────────────────────
-# Defaults for BASKET-mode Nirnay (run_full_analysis) — the InstrumentConfig
-# nirnay_* fields inherit them. Self-mode targets (commodities/stocks) ignore
-# nirnay_msf_length: the Swayam members carry their own lengths (swayam_lengths).
-# Swept structurally by `nirnay` (FX/Jeera + commodity baskets) + `nirnay_index`
-# (India indices): breadth-oscillator OOS IC vs +10d return.
+# ─── Swayam Breadth Defaults ─────────────────────────────────────────────────
+# The per-series kernel's structural knobs. These are shared by every member of
+# the Swayam view bank; the member's own timescale comes from swayam_lengths.
 #
-# These BASKET-mode class defaults applied from the 2026-07-21 suite. India
-# indices and US indices additionally carry their OWN per-instrument MSF via
-# _PER_INSTRUMENT_OVERRIDES (which supersede this default for those targets).
-# NIRNAY_MSF_LENGTH is HELD at 20: the report's three validating universes give
-# contradictory class winners (nirnay 3, nirnay_index 40, per_asset us_index 18 /
-# etf 12) — a flat, sign-flipping surface with no single literal recommendation —
-# and short (=3) actively HURTS the 12 un-overridden India indices (nirnay_index
-# table: |IC| 0.043@3 vs 0.070@20). 20 is the standing cross-universe middle that
-# the per-instrument overrides then specialise. (Revisit if a reconciliation rule
-# is chosen.)
-NIRNAY_MSF_LENGTH = 20           # HELD (cross-universe contradiction — see note above)
-NIRNAY_ROC_LEN = 45              # nirnay 2026-07-21 class-level best (|IC| 0.080 @45 vs 0.068 @60)
-NIRNAY_REGIME_SENSITIVITY = 8.0  # nirnay 2026-07-21 (|IC| 0.073 @8.0; unchanged)
-NIRNAY_BASE_WEIGHT = 0.0        # MSF share of the FIXED half of the MSF/MMR blend
-                                # (engines/nirnay: 0.5*bw + 0.5*adaptive). nirnay
-                                # 2026-07-21 best = 0.0 (unchanged).
-NIRNAY_MMR_NUM_VARS = 4           # nirnay 2026-07-21 class-level best (|IC| 0.076 @4 vs 0.074 @15)
+# SWAYAM_MSF_LENGTH / SWAYAM_ROC_LEN are gone: they parameterised the single
+# basket-mode read, and the Swayam members each carry their own length. Their
+# tuning history is instructive about why this whole layer moved to online
+# estimation — three validating universes returned contradictory class winners
+# (3, 40, 18, 12) on a flat sign-flipping surface, and the standing value was
+# "held at 20" because no reconciliation rule existed. A bank that weights all
+# of those by realised skill needs no such rule.
+SWAYAM_REGIME_SENSITIVITY = 8.0  # swayam 2026-07-21 (|IC| 0.073 @8.0)
+SWAYAM_BASE_WEIGHT = 0.0         # MSF share of the FIXED half of the MSF/MMR
+                                 # blend (kernel: 0.5*bw + 0.5*adaptive).
+SWAYAM_MMR_NUM_VARS = 4          # swayam 2026-07-21 class-level best
 
-# Nirnay condition thresholds (Unified_Osc ±10): classify Oversold/Overbought/
-# Neutral and gate buy/sell + divergence. ±5 = p75–p85 occupancy (study: ui_anchors).
-NIRNAY_OVERSOLD = -5
-NIRNAY_OVERBOUGHT = 5
+# Condition thresholds on Unified_Osc (±10 scale): classify Oversold/Overbought/
+# Neutral and gate buy/sell + divergence. ±5 = p75-p85 occupancy (ui_anchors).
+SWAYAM_OVERSOLD = -5
+SWAYAM_OVERBOUGHT = 5
 
 # ─── Convergence Layer Defaults ──────────────────────────────────────────────
-
-# Optuna TPE trial budget for Intelligence Mode auto-calibration (app.py Phase 4b).
-INTEL_N_TRIALS = 50
 
 # Adaptive weighting base allocation (conv_weights: "direction-heavy .5").
 CONV_WEIGHT_DIRECTION = 0.50
@@ -352,8 +353,7 @@ GLOBAL_MACRO_MAP = {
     "SMI (Switzerland)":                 "^SSMI",
     # ── Real Assets / Thematic ─────────────────────────────────────────────
     "Timber & Forestry (WOOD)":          "WOOD",
-    "Global Infrastructure (IGF)":       "IGF",
-}
+    "Global Infrastructure (IGF)":       "IGF"}
 
 # Yahoo Finance macro symbols — commodities and FX, fetched alongside Global Macro.
 MACRO_SYMBOLS_YF = {
@@ -390,7 +390,7 @@ MACRO_SYMBOLS_YF = {
     "USD/SGD": "USDSGD=X",
     "USD/TRY": "USDTRY=X",
     # EM FX legs — LatAm/Africa coverage (CEW only carries the basket level)
-    # plus the USD/Asia crosses the USD/INR Nirnay basket already uses.
+    # plus the USD/Asia crosses the USD/INR Swayam basket already uses.
     "USD/MXN": "MXN=X",
     "USD/BRL": "BRL=X",
     "USD/ZAR": "ZAR=X",
@@ -429,12 +429,11 @@ MACRO_SYMBOLS_YF = {
     # Cocoa completes the softs; soybean oil carries the edible-oil import
     # complex (India inflation/agri).
     "Cocoa": "CC=F",
-    "Soybean Oil": "ZL=F",
-}
+    "Soybean Oil": "ZL=F"}
 
 # ─── Commodity Targets & Baskets ─────────────────────────────────────────────
-# User-selectable Aarambh targets. Each maps to a yfinance front-month future
-# (already present in MACRO_SYMBOLS_YF). The Aarambh predictor pool is the rest
+# User-selectable FVO targets. Each maps to a yfinance front-month future
+# (already present in MACRO_SYMBOLS_YF). The FVO predictor pool is the rest
 # of MACRO_SYMBOLS_YF (commodities + FX) with the selected target excluded.
 
 COMMODITY_TARGETS = {
@@ -446,125 +445,21 @@ COMMODITY_TARGETS = {
     "USD/INR": "INR=X",
     # Jeera (NCDEX cumin) is NOT a yfinance symbol — its daily price is pulled
     # from a published Google Sheet (data/sheets.py) and injected as a column in
-    # the Aarambh matrix. The value here is a non-yfinance sentinel ticker: it
+    # the FVO matrix. The value here is a non-yfinance sentinel ticker: it
     # documents the source and is deliberately kept OUT of MACRO_SYMBOLS_YF /
     # GLOBAL_MACRO_MAP so it is never sent to yf.download.
-    "Jeera": "JEERA.NCDEX",
-}
+    "Jeera": "JEERA.NCDEX"}
 
-# Per-target basket of related instruments for the Nirnay regime engine — a set of
-# INDEPENDENT bottom-up opinions (cross-sectional breadth). The metals/energy/cotton
-# baskets (Gold/Silver/Copper/Cotton/Brent, now archetype "self") are no longer
-# fetched live but are RETAINED for the research A/B harness (nirnay_swayam_study) —
-# don't delete without updating that study. USD/INR + Jeera stay live basket targets.
-# Curation: pure single-name miners only — NO composite ETFs (GDX/SIL/COPX) or spot
-# proxies (GLD/SLV/CPER); ~15-20 names for breadth granularity.
-COMMODITY_BASKETS = {
-    "Gold": [
-        "NEM", "GOLD", "AEM", "KGC", "AU", "GFI", "HMY", "BTG", "IAG",
-        "EGO", "AGI", "SSRM", "EQX",            # producers (NGD removed — unfetchable on yfinance)
-        "OR", "WPM", "FNV", "RGLD",             # royalty / streamers
-    ],
-    "Silver": [
-        "PAAS", "HL", "AG", "CDE", "FSM",
-        "SVM", "EXK", "ASM",                    # silver producers (MAG removed — unfetchable on yfinance)
-        "AYA.TO", "USAS",                       # correlation-validated adds — pure-play scarcity
-                                                # relief (GATO/SILV delisted via M&A; scarcity is
-                                                # structural)
-        "WPM",                                  # streamer
-    ],
-    "Copper": [
-        "FCX", "SCCO", "TECK", "ERO", "HBM",
-        "IVN.TO", "CS.TO", "TGB", "NEXA",       # copper-pure miners
-        "FM.TO", "LUN.TO",                      # First Quantum + Lundin — correlation-validated
-                                                # adds (major pure-plays; TSX calendar matches
-                                                # existing IVN.TO/CS.TO members)
-    ],
-    # Cotton has no pure-play equities → HYBRID ag-complex basket (processors /
-    # traders / input suppliers + sibling softs futures); reads the ag regime.
-    "Cotton": [
-        "ADM", "BG", "NTR", "MOS", "CF",        # grain traders / fertilizer
-        "CTVA", "FMC", "DE", "AGCO", "ANDE",    # seeds/chem / equipment / grain
-        "ZC=F", "ZS=F", "SB=F",                 # corn / soy / sugar (ag complex)
-        "ZW=F",                                 # wheat — completes the corn/soy acreage-
-                                                # competition triangle (correlation in line with
-                                                # the sibling futures)
-    ],
-    # USD/INR is FX — a CO-DIRECTIONAL dollar-strength complex (long-USD ETFs +
-    # USD/Asia crosses; polarity +1), curated by an 11y correlation study (CHANGELOG).
-    # GUARD — rejected: an inverse India-equity basket reads the equity regime, not
-    # the currency; co-directional wins.
-    "USD/INR": [
-        "UUP", "USDU", "DX-Y.NYB",              # long-USD anchors (UUP/USDU volume-bearing) + Dollar Index
-        "SGD=X", "KRW=X", "IDR=X",              # USD/SGD, USD/KRW, USD/IDR (strongest co-directional)
-        "THB=X", "PHP=X", "TWD=X",              # USD/THB, USD/PHP, USD/TWD
-        "CNY=X", "MYR=X",                       # USD/CNY (China anchor), USD/MYR
-    ],
-    # Brent Crude (BZ=F): co-directional producer cross-section (majors + E&P +
-    # services). GUARD: NO energy ETFs (XLE) / oil proxies (USO) — double-count;
-    # NO refiners (VLO/MPC/PSX) — crack-spread businesses, not cleanly co-directional.
-    "Brent Crude": [
-        "XOM", "CVX", "COP", "BP", "SHEL", "TTE", "EQNR",   # integrated majors
-        "SU", "CNQ",                                        # NYSE-listed Canadian majors
-                                                            # (correlation-validated adds)
-        "EOG", "OXY", "DVN", "FANG", "CTRA",                # E&P producers (HES removed — delisted, Chevron acquisition)
-        "SLB", "HAL", "BKR",                                # oilfield services
-    ],
-    # Jeera (NCDEX cumin): no listed pure-plays → HYBRID Indian agri-complex basket,
-    # all NSE (.NS) for calendar alignment. GUARDS (11y correlation study, CHANGELOG):
-    # NO global ag-soft futures (jeera trades the domestic complex, decoupled from
-    # CBOT/ICE); NO spice/ingredient majors (McCormick/Olam/ADM — cumin BUYERS, so
-    # inverse + async calendars).
-    "Jeera": [
-        # agri-inputs / agrochem / fertilizer — jeera's core monsoon & sowing driver
-        "COROMANDEL.NS", "UPL.NS", "ZUARIIND.NS", "RALLIS.NS", "DHANUKA.NS",
-        # sugar — domestic monsoon-levered soft commodity (best weekly/3y linkage)
-        "DALMIASUG.NS", "DHAMPURSUG.NS", "EIDPARRY.NS",
-        # FMCG / packaged foods — spice & staple demand (Tata Sampann packs jeera)
-        "HINDUNILVR.NS", "MARICO.NS", "HERITGFOOD.NS", "TATACONSUM.NS",
-        # spice-direct ethnic foods — closest listed exposure to cumin itself
-        "ADFFOODS.NS",
-        # farm equipment — rural-income / monsoon levered (Cotton's DE/AGCO analog)
-        "ESCORTS.NS", "VSTTILLERS.NS",
-        # staple grain processor + seed cycle (sowing/acreage link)
-        "LTFOODS.NS", "KSCL.NS",
-    ],
-}
+# ─── Target metadata ─────────────────────────────────────────────────────────
+# What used to live here: TARGET_POLARITY (was the target's proxy basket
+# co-directional with it, or did breadth need flipping?) and TARGET_ARCHETYPE
+# (self / producer / hybrid / proxy / index — which routed each target to
+# Swayam self-mode or to a constituent basket). Both are gone with the basket
+# engine. Every target now reads breadth off its own price through Swayam, so
+# there is no proxy whose orientation could disagree and no routing decision
+# left to encode. See engines/swayam/ensemble.py for why the proxy read went.
 
-# ─── Target metadata: polarity + archetype ───────────────────────────────────
-# Nirnay assumes its basket is POSITIVELY co-directional with the target (miners
-# rise when the metal rises). For inverse baskets (e.g. India-equity proxies vs
-# USD/INR) set polarity = -1 and the aggregate breadth is flipped to the
-# target's orientation before convergence (see engines/nirnay.apply_polarity).
-# Default (missing key) = +1. All current targets use co-directional baskets.
-TARGET_POLARITY = {
-    "Gold": +1,
-    "Silver": +1,
-    "Copper": +1,
-    "Cotton": +1,
-    "Brent Crude": +1,     # oil producers are co-directional with crude
-    "USD/INR": +1,   # dollar-strength complex is co-directional with USD/INR
-    "Jeera": +1,     # Indian agri complex is (loosely) co-directional with jeera
-}
-
-# Target archetype. Mostly UI labeling, EXCEPT ``self`` which is COMPUTATIONAL:
-# get_nirnay_mode returns "self" (Nirnay-Swayam on the target's OWN OHLCV) iff
-# archetype=="self", else "basket". Vocabulary: self (own OHLCV, needs volume) ·
-# producer (single-name equities) · hybrid (agri equities+futures) · proxy
-# (cross-asset ETFs/FX) · index (own constituents) — the last four are basket mode.
-# Commodity FUTURES run self (real volume); Jeera stays hybrid (NCDEX has no
-# yfinance OHLCV/volume) and USD/INR stays proxy (FX, volume-less) by NECESSITY.
-TARGET_ARCHETYPE = {
-    "Gold": "self",
-    "Silver": "self",
-    "Copper": "self",
-    "Cotton": "self",
-    "Brent Crude": "self",
-    "USD/INR": "proxy",
-    "Jeera": "hybrid",   # Indian agribusiness/FMCG cross-section (no yfinance OHLCV → basket)
-}
-
-# Predictors that quasi-replicate a target and must be excluded from Aarambh
+# Predictors that quasi-replicate a target and must be excluded from FVO
 # to avoid contaminating its fair-value residual (the spread the whole system
 # trades). GLTR is a precious-metals basket holding gold + silver, so it lets
 # the regression "explain" the metal with itself.
@@ -591,11 +486,10 @@ TARGET_EXCLUDED_PREDICTORS = {
     # same-barrel logic.
     "Brent Crude": ["Crude Oil", "Broad Commodity Index (DBC)",
               "Commodity Index (GSG)", "US Energy Sector",
-              "RBOB Gasoline", "Heating Oil"],
-}
+              "RBOB Gasoline", "Heating Oil"]}
 
 # ─── Index targets (equity indices: India sectoral/broad, US, sector-ETF) ─────
-# The Aarambh target is the index price; the Nirnay basket is the index's own
+# The FVO target is the index price; the Swayam basket is the index's own
 # constituents (resolved live + cached in data/universe.py). Their price tickers
 # are merged into the fetched universe so the index level is an available column.
 from data.universe import INDEX_TARGETS, INDEX_TARGETS_MAP  # noqa: E402
@@ -608,8 +502,6 @@ _INDIA_INDEX_ETFS = ["India Equity"]
 
 _INDEX_NAMES = list(INDEX_TARGETS.keys())
 for _name, _meta in INDEX_TARGETS.items():
-    TARGET_POLARITY.setdefault(_name, +1)
-    TARGET_ARCHETYPE.setdefault(_name, "index")
     # An index must not be "explained" by sibling equity indices → exclude every
     # other index column, plus the same-market broad ETFs, from its predictors.
     _excl = [n for n in _INDEX_NAMES if n != _name]
@@ -625,8 +517,7 @@ ALL_TARGETS = {**COMMODITY_TARGETS, **INDEX_TARGETS_MAP}
 # Sidebar grouping — ordered category → target names.
 TARGET_CATEGORIES: dict[str, list[str]] = {
     "Commodities": ["Gold", "Silver", "Copper", "Brent Crude", "Cotton", "Jeera"],
-    "Currency (FX)": ["USD/INR"],
-}
+    "Currency (FX)": ["USD/INR"]}
 for _name, _meta in INDEX_TARGETS.items():
     TARGET_CATEGORIES.setdefault(_meta["category"], []).append(_name)
 
@@ -634,35 +525,20 @@ for _name, _meta in INDEX_TARGETS.items():
 # Daily series pulled from a published Google Sheet (data/sheets.py SHEET_SOURCES,
 # keyed by the same name) and injected into the model matrix exactly like Jeera.
 # Registered here so they appear in the sidebar under their chosen category, with a
-# sentinel ticker kept OUT of the yfinance maps. A sheet target may BORROW another
-# index's constituents for its Nirnay basket via NIRNAY_BASKET_ALIAS below (e.g.
-# Nifty 50 PE → the Nifty 50 stocks). (Jeera predates this registry and stays in
-# COMMODITY_TARGETS.)
+# sentinel ticker kept OUT of the yfinance maps.
+# (Jeera predates this registry and stays in COMMODITY_TARGETS.)
 SHEET_TARGETS: dict[str, dict] = {
-    "Nifty 50 - PE": {"ticker": "NIFTY50_PE.SHEET", "category": "India Indices",
-                      "polarity": +1, "archetype": "index"},
-}
+    "Nifty 50 - PE": {"ticker": "NIFTY50_PE.SHEET", "category": "India Indices"}}
 for _sname, _smeta in SHEET_TARGETS.items():
     ALL_TARGETS[_sname] = _smeta["ticker"]
     TARGET_CATEGORIES.setdefault(_smeta["category"], []).append(_sname)
-    TARGET_POLARITY.setdefault(_sname, _smeta.get("polarity", +1))
-    TARGET_ARCHETYPE.setdefault(_sname, _smeta.get("archetype", "index"))
     # Don't let sibling India equity indices / the India ETF "explain" the PE.
     TARGET_EXCLUDED_PREDICTORS.setdefault(_sname, list(_INDEX_NAMES) + _INDIA_INDEX_ETFS)
 
-# Targets that borrow another index's live constituents for their Nirnay basket
-# (the target itself isn't a yfinance index, so it has no constituents of its own).
-# Nifty 50 PE co-moves with the Nifty 50 complex → use the Nifty 50 stocks (the PE
-# rises with constituent strength, so polarity stays +1). Resolved in
-# data.constituents.get_commodity_basket.
-NIRNAY_BASKET_ALIAS: dict[str, str] = {
-    "Nifty 50 - PE": "Nifty 50",
-}
-
-# ─── Stock targets (individual equities; Nirnay runs in SWAYAM self mode) ────
-# The Aarambh target is the stock's own price; there is no constituent basket —
-# Nirnay-Swayam formulates breadth on the stock's own OHLCV
-# (engines/nirnay_self.py) instead.
+# ─── Stock targets (individual equities) ─────────────────────────────────────
+# The FVO target is the stock's own price; breadth is Swayam on that price —
+# Swayam formulates breadth on the stock's own OHLCV
+# (engines/swayam/) instead.
 #
 # STOCK_TARGETS stays EMPTY — individual stocks are entered as free-form symbols
 # (India/US Stocks asset classes), resolved live via resolve_stock_symbol (NSE .NS
@@ -676,50 +552,61 @@ STOCK_TARGETS: dict[str, dict] = {}
 # static members) so the Asset Class selector lists them at all.
 FREEFORM_STOCK_CATEGORIES: dict[str, str] = {
     "India Stocks": "india",
-    "US Stocks": "us",
-}
+    "US Stocks": "us"}
 for _cat in FREEFORM_STOCK_CATEGORIES:
     TARGET_CATEGORIES.setdefault(_cat, [])
 
 
+#: Free-form stock targets registered at runtime, display name -> market.
+#: This is a FACT about where a target's price comes from, not a routing label:
+#: these symbols are deliberately absent from the macro batch fetch (a
+#: per-target ticker set would break that batch's (start, end)-keyed cache), so
+#: their price column is injected separately. It replaced TARGET_ARCHETYPE,
+#: which encoded the same fact but bundled it with the breadth-mode routing
+#: that no longer exists.
+STOCK_TARGET_MARKETS: dict[str, str] = {}
+
+
+def is_stock_target(name: str) -> bool:
+    """Is this target a runtime-registered free-form stock symbol?"""
+    return name in STOCK_TARGET_MARKETS
+
+
 def register_stock_target(display_name: str, ticker: str, market: str) -> None:
-    """Register an individual-stock target (archetype 'self') at runtime.
+    """Register an individual-stock target at runtime.
 
     Idempotent — safe to call on every Streamlit rerun (module-level config
     dicts survive reruns within a process but the registration must be
     replayed from st.session_state on each one; see app.py). Applies the
     same wiring the old static STOCK_TARGETS loop used: ALL_TARGETS,
-    polarity +1, archetype 'self', and the market-based Aarambh predictor
+    and the market-based FVO predictor
     exclusions (own-market index targets + broad ETFs — the same guard that
-    feeds the Nirnay-Swayam MMR leakage filter via TARGET_EXCLUDED_PREDICTORS,
+    feeds the Swayam MMR leakage filter via TARGET_EXCLUDED_PREDICTORS,
     see swayam_macro_columns above). Also installs the instrument's own
     InstrumentConfig, cloned from the market's STOCK_CONFIGS asset-class config
     with its market-based exclusions. Does NOT append to TARGET_CATEGORIES —
     freeform categories render a text input, not a list.
     """
     ALL_TARGETS[display_name] = ticker
-    TARGET_POLARITY.setdefault(display_name, +1)
-    TARGET_ARCHETYPE.setdefault(display_name, "self")
+    STOCK_TARGET_MARKETS[display_name] = market
     excl = list(_INDEX_NAMES)
     excl += _INDIA_INDEX_ETFS if market == "india" else _US_INDEX_ETFS
     TARGET_EXCLUDED_PREDICTORS.setdefault(display_name, excl)
     # Per-instrument config from the asset-class stock config (India / US).
     INSTRUMENT_CONFIGS.setdefault(display_name, _dc_replace(
         STOCK_CONFIGS.get(market, CLASS_CONFIG_DEFAULTS["stock_us"]),
-        archetype="self", polarity=+1, excluded_predictors=tuple(excl),
+        excluded_predictors=tuple(excl),
     ))
 
-# ─── Nirnay-Swayam (self-referential ensemble) ───────────────────────────────
-# Timescale axis (log-spaced around the tuned NIRNAY_MSF_LENGTH=20) + the ROC
-# fraction used to derive each member's roc_len — see engines/nirnay_self.py
+# ─── Swayam (self-referential ensemble) ───────────────────────────────
+# Timescale axis (log-spaced) + the ROC fraction that derives each member's
+# roc_len — see engines/swayam/ensemble.py
 # (default_swayam_members) for how these build the 15-member grid.
-NIRNAY_SWAYAM_LENGTHS = (8, 14, 22, 34, 52)   # swayam 2026-07-21 class-level best (|IC| 0.096 vs default-5)
-NIRNAY_SWAYAM_ROC_FRAC = 0.85                  # swayam 2026-07-21 class-level best (|IC| 0.094 vs 0.7)
+SWAYAM_LENGTHS = (8, 14, 22, 34, 52)   # swayam 2026-07-21 class-level best (|IC| 0.096 vs default-5)
+SWAYAM_ROC_FRAC = 0.85                  # swayam 2026-07-21 class-level best (|IC| 0.094 vs 0.7)
 
-# When True, a target whose basket resolves EMPTY runs Swayam instead of
-# falling back to Aarambh-only. Ship False; flip only after the acceptance
-# gates in NIRNAY_SWAYAM_PLAN.md §7.2 have passed on real data.
-NIRNAY_SWAYAM_FALLBACK = False
+# (The empty-basket fallback flag lived here. With no baskets, there is no
+# empty-basket case to fall back FROM.)
 
 
 def swayam_macro_columns(target: str, macro_cols: list[str]) -> list[str]:
@@ -733,7 +620,7 @@ def swayam_macro_columns(target: str, macro_cols: list[str]) -> list[str]:
     deviation ≈ 0, and the MMR half of every macro-anchored member dies
     silently while mmr_quality reads perfect. This reuses the same
     self-explanation guard TARGET_EXCLUDED_PREDICTORS already applies to
-    Aarambh, applied here to the MMR driver pool instead.
+    FVO, applied here to the MMR driver pool instead.
     """
     drop = {target, *TARGET_EXCLUDED_PREDICTORS.get(target, [])}
     return [c for c in macro_cols if c not in drop]
@@ -742,8 +629,8 @@ def swayam_macro_columns(target: str, macro_cols: list[str]) -> list[str]:
 # ═══════════════════════════════════════════════════════════════════════════
 # Per-instrument configuration registry
 # ═══════════════════════════════════════════════════════════════════════════
-# Every named target has its OWN full config — routing (mode/basket/polarity/
-# excluded) + all tunable engine knobs. app.py reads get_instrument_config(target),
+# Every named target has its OWN full config — structure (leakage exclusions,
+# view bank, horizons), estimability floors, and warm-up priors. app.py reads get_instrument_config(target),
 # so any instrument retunes in isolation. EVERY catalogue target has an explicit
 # INSTRUMENT_CONFIGS entry (no silent fallback — get_instrument_config raises for an
 # unregistered target); free-form stocks are configured per ASSET CLASS
@@ -754,55 +641,77 @@ from dataclasses import dataclass, replace as _dc_replace, fields as _dc_fields 
 
 @dataclass(frozen=True)
 class InstrumentConfig:
-    """Full per-instrument configuration (routing + all engine tuning knobs)."""
+    """Per-instrument configuration.
 
-    # ── Routing / identity ──────────────────────────────────────────────────
-    archetype: str = "index"                       # self | producer | hybrid | proxy | index
-    polarity: int = 1                              # +1 co-directional basket, -1 inverse
-    basket: tuple[str, ...] = ()                   # explicit basket (commodity/FX); () = none
-    basket_alias: str | None = None                # borrow another target's basket
-    excluded_predictors: tuple[str, ...] = ()      # Aarambh + Swayam-MMR leakage guard
+    Read the three sections below as three different KINDS of thing, because
+    they are:
 
-    # ── Nirnay engine ───────────────────────────────────────────────────────
-    nirnay_msf_length: int = NIRNAY_MSF_LENGTH
-    nirnay_roc_len: int = NIRNAY_ROC_LEN
-    nirnay_regime_sensitivity: float = NIRNAY_REGIME_SENSITIVITY
-    nirnay_base_weight: float = NIRNAY_BASE_WEIGHT
-    nirnay_mmr_num_vars: int = NIRNAY_MMR_NUM_VARS
-    nirnay_oversold: float = NIRNAY_OVERSOLD
-    nirnay_overbought: float = NIRNAY_OVERBOUGHT
+    **Structure** — what question to ask. Horizons (what you intend to hold),
+    the Swayam view bank and the FVO discount grid (the hypothesis space to
+    average over), the leakage exclusions (which predictors would let a target
+    explain itself). These are declared because no amount of data tells you
+    what you are trying to do.
 
-    # ── Nirnay-Swayam ensemble grid ─────────────────────────────────────────
-    swayam_lengths: tuple[int, ...] = NIRNAY_SWAYAM_LENGTHS
-    swayam_roc_frac: float = NIRNAY_SWAYAM_ROC_FRAC
+    **Estimability floors** — how much evidence before publishing anything.
+    The FVO burn-in and print floor. Argued from first principles, not swept.
 
-    # ── Aarambh forecast ────────────────────────────────────────────────────
+    **Warm-up priors** — the ``*_strong`` / ``*_moderate`` / ``ui_*`` numbers.
+    These used to BE the thresholds, anchored by full-history studies. They are
+    now only the value used until an instrument has accumulated enough of its
+    own history for :mod:`analytics.adaptive` to estimate the cut-point from
+    the causal empirical distribution of the signal itself. After that the
+    prior is superseded. Keeping them means an instrument's first year behaves
+    exactly as it always did rather than flapping on a quantile of forty
+    points; it does not mean they are still tuned.
+
+    What is NO LONGER here: routing (``archetype`` / ``polarity`` / ``basket``
+    / ``basket_alias``) died with the basket breadth engine, and the Swayam
+    basket knobs (``swayam_msf_length`` / ``swayam_roc_len``) with it. The
+    Swayam kernel knobs kept their values but are named for the engine that
+    now owns them.
+    """
+
+    # ── Structure: leakage guard ────────────────────────────────────────────
+    excluded_predictors: tuple[str, ...] = ()      # FVO + Swayam-MMR leakage guard
+
+    # ── Structure: Swayam breadth ───────────────────────────────────────────
+    # `swayam_lengths` is a SPAN to weight, not a length to pick — members are
+    # weighted by their own online skill (analytics.adaptive.OnlineSkillWeights).
+    swayam_lengths: tuple[int, ...] = SWAYAM_LENGTHS
+    swayam_roc_frac: float = SWAYAM_ROC_FRAC
+    swayam_regime_sensitivity: float = SWAYAM_REGIME_SENSITIVITY
+    swayam_base_weight: float = SWAYAM_BASE_WEIGHT
+    swayam_mmr_num_vars: int = SWAYAM_MMR_NUM_VARS
+    swayam_oversold: float = SWAYAM_OVERSOLD
+    swayam_overbought: float = SWAYAM_OVERBOUGHT
+
+    # ── Scoring / display horizons ──────────────────────────────────────────
     forecast_horizon: int = FORECAST_HORIZON
-    forecast_momentum: int = FORECAST_MOMENTUM
     hold_horizons: tuple[int, ...] = HOLD_HORIZONS
-    pca_components: int = 20                         # aarambh_full 2026-07-21 PCA surface is NOISE (whole column within
-                                                     # ±0.03 of 0; argmax flipped 20→100 across runs while its IC fell
-                                                     # 0.053→0.023). Kept at the DENOISING default 20 — the causal-PCA
-                                                     # layer exists to reduce ~112 collinear inputs to ~20 orthogonal
-                                                     # components; pca=100 barely denoises AND exceeds the MIN=100 window.
+    analog_mom_window: int = ANALOG_MOM_WINDOW   # precedent state-feature window
 
-    # ── Aarambh training loop (per-instrument tunable, like nirnay/swayam) ──
+    # ── Estimability floors: FVO valuation engine ──────────────────────────
     # Default to the global constants; a per-instrument / asset-class override
-    # (via _PER_INSTRUMENT_OVERRIDES / STOCK_CONFIGS) retunes them for one target.
-    aarambh_refit_interval: int = REFIT_INTERVAL
-    aarambh_min_train_size: int = MIN_TRAIN_SIZE
-    aarambh_max_train_size: int = MAX_TRAIN_SIZE
-    aarambh_ensemble_models: tuple[str, ...] = ENSEMBLE_MODELS
-    aarambh_ridge_alphas: tuple[float, ...] = RIDGE_ALPHAS
-    aarambh_huber_epsilon: float = HUBER_EPSILON
-    aarambh_lookback_windows: tuple[int, ...] = LOOKBACK_WINDOWS
+    # (via _PER_INSTRUMENT_OVERRIDES / STOCK_CONFIGS) retunes them for one
+    # target. Note what is NOT here: the engine is recursive, so it has no
+    # training window, refit cadence, ensemble roster or regularisation path
+    # to tune. What remains are estimability floors (how much history before
+    # publishing, how many prints before an instrument may join the
+    # cross-section) and the coefficient-memory grid.
+    fvo_burn_in: int = FVO_BURN_IN
+    fvo_min_prints: int = FVO_MIN_PRINTS
+    fvo_valuation_deltas: tuple[float, ...] = FVO_VALUATION_DELTAS
+    fvo_lookback_windows: tuple[int, ...] = LOOKBACK_WINDOWS
 
     # ── Convergence DDM (consensus filter) ──────────────────────────────────
     ddm_leak: float = CONV_DDM_LEAK_RATE
     ddm_drift: float = CONV_DDM_DRIFT_SCALE
     ddm_lrv: float = CONV_DDM_LONG_RUN_VAR
 
-    # ── Convergence dimension weights (calibration SEED / no-profile fallback) ─
+    # ── Convergence dimension weights: PRIOR for the online learner ────────
+    # These seed analytics.adaptive.OnlineSkillWeights, which then moves them
+    # by each dimension's own discounted directional skill. They are a starting
+    # belief, not a fitted answer.
     conv_weight_direction: float = CONV_WEIGHT_DIRECTION
     conv_weight_breadth: float = CONV_WEIGHT_BREADTH
     conv_weight_magnitude: float = CONV_WEIGHT_MAGNITUDE
@@ -812,15 +721,18 @@ class InstrumentConfig:
     precedent_horizons: tuple[int, ...] = PRECEDENT_HORIZONS
 
     # ── Analog matcher blend (analytics.analogs) ────────────────────────────
-    analog_w_maha: float = 1.0     # Mahalanobis (covariance-aware state match)
-    analog_w_traj: float = 0.0     # trajectory cosine (dropped default)
-    analog_w_recv: float = 0.0     # recency decay (dropped default)
+    # (The analog blend weights lived here. They selected between Mahalanobis,
+    # trajectory-cosine and recency scoring, and had shipped at 1/0/0 since the
+    # analog re-tune — two of the three terms multiplied by zero on every call.
+    # The matcher is now kernel-weighted Mahalanobis with no blend to choose.)
 
-    # ── Interpretation / display tiers (data-anchored, per-instrument) ──────
-    # Defaults mirror the pooled house-convention module globals (below). An
-    # override retunes how THIS target's signal is CLASSIFIED/marked, not computed.
-    # Structural tiers (R²/ADF/KPSS/HMM/dims) stay global. Thresholds are consumed
-    # as dicts via consensus_thresholds()/composite_thresholds().
+    # ── Warm-up priors for the adaptive thresholds ─────────────────────────
+    # Each is the p90 ("strong") / p75 ("moderate") / p50 ("weak") of its own
+    # signal's distribution, measured once by a pooled study. analytics.adaptive
+    # now re-derives exactly those quantiles from the signal's OWN causal past,
+    # per instrument; these values hold only until it has enough history.
+    # Structural cut-points (R²/ADF/KPSS/HMM) stay fixed — they are properties
+    # of a statistical test, not of an instrument's distribution.
     consensus_strong: float = 0.404      # normalized-consensus [-1,1] p90
     consensus_moderate: float = 0.279    # p75
     composite_strong: float = 0.159       # directional composite [-1,1] p90
@@ -832,20 +744,20 @@ class InstrumentConfig:
     conviction_strong: float = 15.13
     conviction_moderate: float = 10.89
     conviction_weak: float = 6.56
-    # Unified-Signal plot markers (per row: consensus / ConvictionRaw / Nirnay avg).
+    # Unified-Signal plot markers (per row: consensus / ConvictionRaw / Swayam avg).
     ui_consensus_strong: float = 0.41
     ui_consensus_moderate: float = 0.28
     ui_convraw_strong: float = 66.67
     ui_convraw_moderate: float = 33.33
-    ui_nirnay_avg_threshold: float = 2.87
+    ui_swayam_avg_threshold: float = 2.87
     # Other UI display tiers.
     ui_agreement_strong: float = 0.89
     ui_agreement_moderate: float = 0.799
     ui_breadth_high: float = 60.0
     ui_model_spread_low: float = 15.82
     ui_model_spread_high: float = 29.92
-    ui_nirnay_bullish: float = -2.9
-    ui_nirnay_bearish: float = 2.9
+    ui_swayam_bullish: float = -2.9
+    ui_swayam_bearish: float = 2.9
 
     def weights_seed(self) -> dict[str, float]:
         """Convergence dimension weights as the CrossValidator/Intelligence seed."""
@@ -853,24 +765,21 @@ class InstrumentConfig:
             "w_direction": self.conv_weight_direction,
             "w_breadth": self.conv_weight_breadth,
             "w_magnitude": self.conv_weight_magnitude,
-            "w_regime": self.conv_weight_regime,
-        }
+            "w_regime": self.conv_weight_regime}
 
     def consensus_thresholds(self) -> dict[str, float]:
         """Normalized-CONSENSUS classification cut-points (classify_normalized_signal
         `thresholds=` seed). Symmetric ±strong / ±moderate."""
         return {
             "buy_strong": -self.consensus_strong, "buy_moderate": -self.consensus_moderate,
-            "sell_moderate": self.consensus_moderate, "sell_strong": self.consensus_strong,
-        }
+            "sell_moderate": self.consensus_moderate, "sell_strong": self.consensus_strong}
 
     def composite_thresholds(self) -> dict[str, float]:
         """Directional-COMPOSITE classification cut-points (classify_convergence_score
         `thresholds=` seed / Intelligence calibration seed)."""
         return {
             "buy_strong": -self.composite_strong, "buy_moderate": -self.composite_moderate,
-            "sell_moderate": self.composite_moderate, "sell_strong": self.composite_strong,
-        }
+            "sell_moderate": self.composite_moderate, "sell_strong": self.composite_strong}
 
 
 # Per-asset-class DEFAULT tuning. Each class is a NAMED constant so an entire class
@@ -880,7 +789,7 @@ class InstrumentConfig:
 # 2026-07-21 class-level bests for the classes it owns (us_index/etf MSF, stock Swayam
 # grids). commodity/fx inherit the global defaults; the self-mode STOCK grids are
 # PINNED to per_asset's stock recommendation so they do NOT drift with the global
-# NIRNAY_SWAYAM_* (which the `swayam` study tunes on self-mode COMMODITIES).
+# SWAYAM_* globals (which the `swayam` study tunes on commodities).
 CLASS_CONFIG_DEFAULTS: dict[str, InstrumentConfig] = {
     "commodity":   InstrumentConfig(),
     "fx":          InstrumentConfig(),
@@ -889,25 +798,22 @@ CLASS_CONFIG_DEFAULTS: dict[str, InstrumentConfig] = {
     "etf":         InstrumentConfig(),   # credible; etf (12) was n=1. Both inert (members carry their own MSF), so
                                          # kept at the global default rather than pinning a degenerate class-level best.
     # per_asset 2026-07-21 (asset-level, pooled Nifty100 / Nasdaq100 universes):
-    "stock_india": InstrumentConfig(archetype="self", swayam_lengths=(10, 14, 20, 28, 40), swayam_roc_frac=0.7),
-    "stock_us":    InstrumentConfig(archetype="self", swayam_lengths=(10, 14, 20, 28, 40), swayam_roc_frac=0.55),
-}
+    "stock_india": InstrumentConfig(swayam_lengths=(10, 14, 20, 28, 40), swayam_roc_frac=0.7),
+    "stock_us":    InstrumentConfig(swayam_lengths=(10, 14, 20, 28, 40), swayam_roc_frac=0.55)}
 
 # Free-form stock ASSET-CLASS configs — one per market, applied to any symbol
 # entered under India Stocks / US Stocks (register_stock_target clones the
 # right one per resolved symbol, filling in its market-based exclusions).
 STOCK_CONFIGS: dict[str, InstrumentConfig] = {
     "india": CLASS_CONFIG_DEFAULTS["stock_india"],
-    "us":    CLASS_CONFIG_DEFAULTS["stock_us"],
-}
+    "us":    CLASS_CONFIG_DEFAULTS["stock_us"]}
 
 _CATEGORY_TO_CLASS: dict[str, str] = {
     "Commodities":   "commodity",
     "Currency (FX)": "fx",
     "India Indices": "india_index",
     "US Indices":    "us_index",
-    "ETF Universe":  "etf",
-}
+    "ETF Universe":  "etf"}
 
 # ── PER-INSTRUMENT vs ASSET-LEVEL tuning ─────────────────────────────────────
 # The 5 catalogue classes are tuned PER INSTRUMENT (each target carries its own
@@ -920,8 +826,7 @@ assert set(PER_INSTRUMENT_CLASSES).isdisjoint(ASSET_LEVEL_CLASSES)
 
 # Fields that MAY be set per instrument = every InstrumentConfig knob EXCEPT the
 # routing/identity fields (those come from the routing maps, not the tuner).
-_ROUTING_FIELDS: frozenset[str] = frozenset(
-    {"archetype", "polarity", "basket", "basket_alias", "excluded_predictors"})
+_ROUTING_FIELDS: frozenset[str] = frozenset({"excluded_predictors"})
 _TUNABLE_FIELDS: frozenset[str] = frozenset(f.name for f in _dc_fields(InstrumentConfig)) - _ROUTING_FIELDS
 
 # Explicit per-instrument tuning SLOT per catalogue target (auto-seeded, so it
@@ -934,43 +839,38 @@ PER_INSTRUMENT_TUNING: dict[str, dict] = {
 }
 
 # Per-instrument overrides, PRUNED to only those that clear a REAL statistical bar
-# (2026-07-21 suite). The studies' own gates (aarambh joint Δ>=0.02; breadth margin>=0.03)
-# are a fraction of one IC standard error (SE ~= 1/sqrt(n-3) ~= 0.09 at n~130), so they
-# rubber-stamp noise. Re-gated here at ~1 SE, everything dropped inheriting the (coherent)
+# (2026-07-21 suite). The studies' own gates (breadth margin>=0.03) are a fraction
+# of one IC standard error (SE ~= 1/sqrt(n-3) ~= 0.09 at n~130), so they rubber-stamp
+# noise. Re-gated here at ~1 SE, everything dropped inheriting the (coherent)
 # class default:
-#   - aarambh config: kept iff joint IC>0 AND (joint-default) >= 1/sqrt(n-3) AND n>=50
-#     (10 of 19 survive; the rest revert to the class-default forecast).
-#   - nirnay_msf_length: kept iff best|IC| >= 0.10 AND (best-default)|IC| >= 0.06
-#     (nan-default us_index/etf: |IC| >= 0.14). 7 survive.
 #   - swayam_lengths: both candidate spans beat their default by only ~0.03 (< bar) -> revert
 #     to the class Swayam grid (the target keeps its breadth signal, just not a bespoke span).
 #   - analog_w_*: dropped (the analog study's own verdict is that the class default 1/0/0 stands).
-#   - ui_nirnay_avg_threshold: KEPT (Gold/Jeera) — a data-anchored DISPLAY calibration
+#   - ui_swayam_avg_threshold: KEPT (Gold/Jeera) — a data-anchored DISPLAY calibration
 #     (the target's own p75, gated >=25% divergence + n>=250), not an edge claim.
-# Result: 16 targets (was 25).
+#
+# The per-instrument ENGINE tunings that used to live here were all FVO
+# walk-forward knobs (refit cadence / train window / ensemble roster / ridge
+# alphas / huber epsilon / PCA components). The FVO engine that replaced
+# FVO has none of them — it is recursive, so there is no window to size and
+# no ensemble to select — and a tuning measured on a retired model is not
+# evidence about the current one, so they were removed rather than remapped.
+# The FVO knobs (fvo_burn_in / fvo_min_prints / fvo_valuation_deltas) are
+# estimability floors and a memory grid, not free parameters, and stay at their
+# class defaults until a study measures otherwise.
 _PER_INSTRUMENT_OVERRIDES: dict[str, dict] = {
     # -- Commodities --
-    'Gold': {'ui_nirnay_avg_threshold': 3.6887},
-    'Jeera': {'nirnay_msf_length': 5, 'ui_nirnay_avg_threshold': 2.1131},
+    'Gold': {'ui_swayam_avg_threshold': 3.6887},
+    'Jeera': {'ui_swayam_avg_threshold': 2.1131},
     # -- Currency (FX) --
-    'USD/INR': {'aarambh_refit_interval': 30, 'aarambh_max_train_size': 1250, 'aarambh_min_train_size': 1000, 'pca_components': 15, 'aarambh_ensemble_models': ('elasticnet',), 'aarambh_ridge_alphas': (0.001, 0.01, 0.1, 1.0, 10.0, 100.0, 1000.0, 10000.0), 'nirnay_msf_length': 10},
+    'USD/INR': {},
     # -- India Indices --
-    'Nifty Next 50': {'aarambh_refit_interval': 30, 'aarambh_max_train_size': 750, 'aarambh_min_train_size': 625, 'pca_components': 100, 'aarambh_ensemble_models': ('ridge', 'huber'), 'aarambh_ridge_alphas': (1.0, 3.0, 10.0, 30.0, 100.0, 300.0, 1000.0)},
-    'Nifty IT': {'aarambh_refit_interval': 8, 'aarambh_max_train_size': 252, 'aarambh_min_train_size': 100, 'pca_components': 8, 'aarambh_huber_epsilon': 1.35, 'aarambh_ensemble_models': ('elasticnet',), 'aarambh_ridge_alphas': (0.01, 0.1, 1.0, 10.0, 100.0, 1000.0)},
-    'Nifty Pharma': {'nirnay_msf_length': 10},
-    'Nifty 100': {'aarambh_refit_interval': 63, 'aarambh_max_train_size': 500, 'aarambh_min_train_size': 252, 'pca_components': 75, 'aarambh_ensemble_models': ('ridge', 'elasticnet'), 'aarambh_ridge_alphas': (0.001, 0.003, 0.01, 0.03, 0.1, 0.3, 1.0)},
-    'Nifty Midcap 50': {'aarambh_refit_interval': 63, 'aarambh_max_train_size': 625, 'aarambh_min_train_size': 252, 'pca_components': 8, 'aarambh_huber_epsilon': 1.5, 'aarambh_ensemble_models': ('ridge',), 'aarambh_ridge_alphas': (1.0, 3.0, 10.0, 30.0, 100.0, 300.0, 1000.0)},
-    'Nifty Pvt Bank': {'aarambh_refit_interval': 63, 'aarambh_max_train_size': 500, 'aarambh_min_train_size': 252, 'aarambh_ensemble_models': ('ols',), 'aarambh_ridge_alphas': (0.001, 0.003, 0.01, 0.03, 0.1, 0.3, 1.0)},
-    'Nifty PSU Bank': {'aarambh_refit_interval': 63, 'aarambh_max_train_size': 750, 'aarambh_min_train_size': 625, 'pca_components': 60, 'aarambh_huber_epsilon': 2.5, 'aarambh_ensemble_models': ('elasticnet',), 'nirnay_msf_length': 3},
-    'Nifty Realty': {'nirnay_msf_length': 10},
-    'Nifty Media': {'aarambh_refit_interval': 63, 'aarambh_max_train_size': 252, 'aarambh_min_train_size': 200, 'pca_components': 8, 'aarambh_huber_epsilon': 1.35, 'aarambh_ensemble_models': ('ridge',)},
-    'Nifty PSE': {'aarambh_refit_interval': 18, 'aarambh_max_train_size': 750, 'aarambh_min_train_size': 625, 'pca_components': 8, 'aarambh_huber_epsilon': 3.0, 'aarambh_ensemble_models': ('ridge', 'elasticnet'), 'aarambh_ridge_alphas': (0.01, 0.1, 1.0, 10.0, 100.0)},
+    'Nifty Pharma': {},
+    'Nifty PSU Bank': {},
+    'Nifty Realty': {},
     # -- US Indices --
-    'S&P 500': {'nirnay_msf_length': 40},
-    'Nasdaq 100': {'nirnay_msf_length': 18},
-    # -- ETF Universe --
-    'India Sector ETFs': {'aarambh_refit_interval': 63, 'aarambh_max_train_size': 350, 'aarambh_min_train_size': 252, 'pca_components': 5, 'aarambh_ensemble_models': ('ridge', 'elasticnet')},
-}
+    'S&P 500': {},
+    'Nasdaq 100': {}}
 _bad_fields = {k for _ov in _PER_INSTRUMENT_OVERRIDES.values() for k in _ov if k not in _TUNABLE_FIELDS}
 assert not _bad_fields, (
     f"_PER_INSTRUMENT_OVERRIDES sets non-tunable/unknown fields {sorted(_bad_fields)} "
@@ -983,7 +883,7 @@ for _nm, _ov in _PER_INSTRUMENT_OVERRIDES.items():
     PER_INSTRUMENT_TUNING[_nm].update(_ov)
 
 # Build one explicit InstrumentConfig per named target: class-default tuning +
-# that instrument's own routing (archetype/polarity/basket/alias/excluded from
+# that instrument's own leakage exclusions (from
 # the maps above) + its per-instrument tuning overrides (empty until wired).
 # Every India index gets its own entry copying the Nifty 50 baseline; Nifty 50
 # and Nifty 50 - PE differ only where their routing/tuning differ.
@@ -996,10 +896,6 @@ for _cat, _names in TARGET_CATEGORIES.items():
     for _nm in _names:
         INSTRUMENT_CONFIGS[_nm] = _dc_replace(
             _base,
-            archetype=TARGET_ARCHETYPE.get(_nm, _base.archetype),
-            polarity=TARGET_POLARITY.get(_nm, _base.polarity),
-            basket=tuple(COMMODITY_BASKETS.get(_nm, ())),
-            basket_alias=NIRNAY_BASKET_ALIAS.get(_nm),
             excluded_predictors=tuple(TARGET_EXCLUDED_PREDICTORS.get(_nm, ())),
             **PER_INSTRUMENT_TUNING.get(_nm, {}),   # per-instrument knob overrides
         )
@@ -1032,20 +928,28 @@ def get_instrument_config(target: str) -> "InstrumentConfig":
 CHART_BG = "rgba(0,0,0,0)"
 CHART_GRID = "rgba(255,255,255,0.03)"
 CHART_ZEROLINE = "rgba(255,255,255,0.08)"
-CHART_FONT_COLOR = "#94A3B8"
+CHART_FONT_COLOR = "#728097"   # == --ink-tertiary
 
-# ── Chart palette — SINGLE SOURCE OF TRUTH (Obsidian Quant) ──────────────────
-# Every chart color derives from these RGB triples (COLOR_* + inline rgba() via the
-# rgba() helper) — change a chart hue in ONE place here. NOTE: charts use the
-# brighter Tailwind-400 family; CSS surfaces (theme.css :root) use a -500 family
-# (only amber-gold #D4A853 is shared); reconciling to one palette shifts chart hues.
+# ── Chart palette — SINGLE SOURCE OF TRUTH ───────────────────────────────────
+# Every chart colour derives from these RGB triples (COLOR_* + inline rgba() via
+# the rgba() helper), and each one now EQUALS its CSS token in ui/theme.css.
+#
+# They used to differ: charts ran a brighter Tailwind-400 family while the
+# chrome ran -500, sharing only the amber. The consequence was subtle and
+# constant — a green line in a plot was not the same green as the value in the
+# card beside it, so the eye read them as two different kinds of "positive"
+# when they were the same claim about the same number. A design system that
+# stops at the edge of the chart is not a design system.
+#
+# Every hue below clears WCAG AA (>= 4.5:1) on the chart surface, which matters
+# more here than in most apps: these are thin 1.5px lines, not filled shapes.
 _PALETTE_RGB: dict[str, tuple[int, int, int]] = {
-    "emerald": (52, 211, 153),   # #34D399 — bullish
-    "rose":    (251, 113, 133),  # #FB7185 — bearish
-    "cyan":    (34, 211, 238),   # #22D3EE — system / Nirnay
-    "amber":   (212, 168, 83),   # #D4A853 — primary accent (shared with CSS --amber)
-    "violet":  (167, 139, 250),  # #A78BFA
-    "slate":   (148, 163, 184),  # #94A3B8 — muted line/marker
+    "emerald": (16, 185, 129),   # #10B981 - Long / Bullish
+    "rose":    (239, 68, 68),    # #EF4444 - Short / Bearish
+    "cyan":    (6, 182, 212),    # #06B6D4 - System / Active
+    "amber":   (245, 158, 11),   # #F59E0B - Caution / Warning
+    "violet":  (139, 92, 246),   # #8B5CF6 - Secondary / Attribution
+    "slate":   (100, 116, 139),  # #64748B - Neutral / Muted
 }
 
 
@@ -1088,11 +992,11 @@ UI_BREADTH_HIGH = 60
 UI_AGREEMENT_STRONG = 0.89    # = p90
 UI_AGREEMENT_MODERATE = 0.799  # = p75
 
-# Nirnay avg-signal lean tier (metric-card coloring). Data-anchored at p75 of
-# pooled |Avg_Signal|, matching UI_NIRNAY_AVG_THRESHOLD — one anchor for the
+# Swayam avg-signal lean tier (metric-card coloring). Data-anchored at p75 of
+# pooled |Avg_Signal|, matching UI_SWAYAM_AVG_THRESHOLD — one anchor for the
 # same series everywhere (study: `ui_anchors`).
-UI_NIRNAY_BULLISH = -2.9
-UI_NIRNAY_BEARISH = 2.9
+UI_SWAYAM_BULLISH = -2.9
+UI_SWAYAM_BEARISH = 2.9
 
 # ── Unified-Signal plot marker thresholds (data-anchored) ────────────────────
 # The 3-row Unified Signal plot's reference lines + marker-color tiers, set to
@@ -1101,13 +1005,13 @@ UI_NIRNAY_BEARISH = 2.9
 # extremeness on every row. EXTREMENESS markers, not actionable edges.
 UI_CONSENSUS_STRONG = 0.41      # Row 1 · norm_avg (consensus, [-1,1]) = p90 (markers 2026-07-20)
 UI_CONSENSUS_MODERATE = 0.28    #                                       = p75 (markers 2026-07-20)
-UI_CONVRAW_STRONG = 66.67       # Row 2 · ConvictionRaw (Aarambh, ~[-100,100]) = p90 (markers 2026-07-20)
+UI_CONVRAW_STRONG = 66.67       # Row 2 · ConvictionRaw (FVO, ~[-100,100]) = p90 (markers 2026-07-20)
 UI_CONVRAW_MODERATE = 33.33     #                                              = p75 (markers 2026-07-20)
-UI_NIRNAY_AVG_THRESHOLD = 2.87   # Row 3 · Avg_Signal (Nirnay, [-10,10]) —
+UI_SWAYAM_AVG_THRESHOLD = 2.87   # Row 3 · Avg_Signal (Swayam, [-10,10]) —
                                 # single tier at p75, matching the other rows'
                                 # moderate tier
 
-# Model spread tiers — BASIS POINTS (tab_aarambh converts the raw
+# Model spread tiers — BASIS POINTS (tab_fvo converts the raw
 # log-return-std column ×1e4 before comparing). Data-anchored at ~p75/p90.
 # GUARD: anchor these only from the LIVE ols+huber basket — the fast
 # ridge+ols research basket's spread is ~2× tighter and would mis-anchor.
