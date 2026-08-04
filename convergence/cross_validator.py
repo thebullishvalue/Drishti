@@ -1,5 +1,5 @@
 """
-Tattva — CrossValidator: Cross-referencing Aarambha and Nirnay outputs.
+Tattva — CrossValidator: Cross-referencing FVOa and Swayam outputs.
 तत्त्व (Tattva) — "Principle / Essence"
 
 CONVERGENCE — Adaptive-weighted composite of 4 dimensions: Direction, Breadth, Magnitude, Regime — with DDM.
@@ -70,7 +70,7 @@ class ConvergenceSignal:
 
 
 class CrossValidator:
-    """Cross-references Aarambh and Nirnay outputs per trading date.
+    """Cross-references FVO and Swayam outputs per trading date.
 
     Computes an adaptive-weighted composite of four convergence dimensions:
 
@@ -91,11 +91,11 @@ class CrossValidator:
         """Args:
             active_weights: Optional override for the base dimension weights.
                 Must be a dict with keys ``direction``, ``breadth``,
-                ``magnitude``, ``regime``. Used by Intelligence Mode to
+                ``magnitude``, ``regime``. Used by the online learner to
                 inject calibrated weights from a persisted profile. When
                 ``None``, falls back to the static CONV_WEIGHT_* defaults
                 with the heuristic ±10% adaptive shift.
-            expected_constituents: Full size of the Nirnay basket for the
+            expected_constituents: Full size of the Swayam basket for the
                 active universe. Confidence is down-weighted only when a day
                 has *fewer* analyzed instruments than this (a data-coverage
                 penalty), rather than against a hardcoded Nifty-50 count.
@@ -107,71 +107,71 @@ class CrossValidator:
 
     def compute_convergence(
         self,
-        aarambh_signal: dict[str, object],
-        nirnay_day_stats: dict[str, object],
+        fvo_signal: dict[str, object],
+        swayam_day_stats: dict[str, object],
         date: str,
     ) -> ConvergenceSignal:
         """Compute convergence score for a single date.
 
         Parameters
         ----------
-        aarambh_signal : dict
+        fvo_signal : dict
             Output from ``FairValueEngine.get_current_signal()``.
-        nirnay_day_stats : dict
-            Aggregated Nirnay stats for the date.
+        swayam_day_stats : dict
+            Aggregated Swayam stats for the date.
         date : str
             Date string for this observation.
         """
         # ── Dimension 1: Direction Agreement ────────────────────────────
-        # Aarambh: conviction < 0 = bullish (oversold), > 0 = bearish
-        # Nirnay: oversold_pct > overbought_pct = bullish bias
-        aarambh_direction = -np.sign(float(aarambh_signal.get("conviction_score", 0)))
-        nirnay_os = float(nirnay_day_stats.get("oversold_pct", 50))
-        nirnay_ob = float(nirnay_day_stats.get("overbought_pct", 50))
-        nirnay_direction = np.sign(nirnay_os - nirnay_ob)
+        # FVO: conviction < 0 = bullish (oversold), > 0 = bearish
+        # Swayam: oversold_pct > overbought_pct = bullish bias
+        fvo_direction = -np.sign(float(fvo_signal.get("conviction_score", 0)))
+        swayam_os = float(swayam_day_stats.get("oversold_pct", 50))
+        swayam_ob = float(swayam_day_stats.get("overbought_pct", 50))
+        swayam_direction = np.sign(swayam_os - swayam_ob)
 
-        if aarambh_direction == nirnay_direction and aarambh_direction != 0:
+        if fvo_direction == swayam_direction and fvo_direction != 0:
             direction_score = 1.0
-        elif aarambh_direction == 0 or nirnay_direction == 0:
+        elif fvo_direction == 0 or swayam_direction == 0:
             direction_score = 0.5
         else:
             direction_score = 0.0
 
         # ── Dimension 2: Breadth Confirmation ───────────────────────────
-        aarambh_os_breadth = float(aarambh_signal.get("oversold_breadth", 50))
-        breadth_agreement = 1.0 - abs(aarambh_os_breadth - nirnay_os) / 100.0
+        fvo_os_breadth = float(fvo_signal.get("oversold_breadth", 50))
+        breadth_agreement = 1.0 - abs(fvo_os_breadth - swayam_os) / 100.0
         breadth_score = max(0.0, min(1.0, breadth_agreement))
 
         # ── Dimension 3: Magnitude Alignment ────────────────────────────
-        aarambh_mag = abs(float(aarambh_signal.get("conviction_score", 0)))
-        nirnay_mag = abs(float(nirnay_day_stats.get("avg_unified_osc", 0)))
-        aarambh_mag_norm = min(aarambh_mag / 100.0, 1.0)
-        nirnay_mag_norm = min(nirnay_mag / 10.0, 1.0)
-        magnitude_alignment = 1.0 - abs(aarambh_mag_norm - nirnay_mag_norm)
+        fvo_mag = abs(float(fvo_signal.get("conviction_score", 0)))
+        swayam_mag = abs(float(swayam_day_stats.get("avg_unified_osc", 0)))
+        fvo_mag_norm = min(fvo_mag / 100.0, 1.0)
+        swayam_mag_norm = min(swayam_mag / 10.0, 1.0)
+        magnitude_alignment = 1.0 - abs(fvo_mag_norm - swayam_mag_norm)
         magnitude_score = max(0.0, min(1.0, magnitude_alignment))
 
         # ── Dimension 4: Regime Consistency ─────────────────────────────
-        aarambh_regime = str(aarambh_signal.get("regime", "NEUTRAL"))
-        nirnay_bull_pct = float(nirnay_day_stats.get("regime_bull_pct", 0))
-        nirnay_bear_pct = float(nirnay_day_stats.get("regime_bear_pct", 0))
+        fvo_regime = str(fvo_signal.get("regime", "NEUTRAL"))
+        swayam_bull_pct = float(swayam_day_stats.get("regime_bull_pct", 0))
+        swayam_bear_pct = float(swayam_day_stats.get("regime_bear_pct", 0))
 
-        aarambh_bullish = "OVERSOLD" in aarambh_regime
-        aarambh_bearish = "OVERBOUGHT" in aarambh_regime
-        nirnay_bullish = nirnay_bull_pct > nirnay_bear_pct
-        nirnay_bearish = nirnay_bear_pct > nirnay_bull_pct
+        fvo_bullish = "OVERSOLD" in fvo_regime
+        fvo_bearish = "OVERBOUGHT" in fvo_regime
+        swayam_bullish = swayam_bull_pct > swayam_bear_pct
+        swayam_bearish = swayam_bear_pct > swayam_bull_pct
 
-        if aarambh_bullish and nirnay_bullish:
+        if fvo_bullish and swayam_bullish:
             regime_score = 1.0
-        elif aarambh_bearish and nirnay_bearish:
+        elif fvo_bearish and swayam_bearish:
             regime_score = 1.0
-        elif aarambh_regime == "NEUTRAL" and abs(nirnay_bull_pct - nirnay_bear_pct) < 20:
+        elif fvo_regime == "NEUTRAL" and abs(swayam_bull_pct - swayam_bear_pct) < 20:
             regime_score = 0.8
         else:
             regime_score = 0.2
 
         # ── Weighting ───────────────────────────────────────────────────
         # Two paths:
-        #   (a) Intelligence Mode active → use calibrated weights from the
+        #   (a) learned weights supplied → use them verbatim (from the
         #       persisted profile verbatim. Skip the adaptive shift heuristic
         #       (the calibration already learned the optimum from data).
         #   (b) Factory defaults → apply the ±10% adaptive shift heuristic
@@ -195,10 +195,10 @@ class CrossValidator:
                 "regime": CONV_WEIGHT_REGIME,
             }
             clarities = {
-                "direction": abs(float(aarambh_direction)) * 0.5 + abs(float(nirnay_direction)) * 0.5 + 0.001,
-                "breadth": abs(aarambh_os_breadth - 50) / 50.0 + abs(nirnay_os - 50) / 50.0 + 0.001,
-                "magnitude": (aarambh_mag_norm + nirnay_mag_norm) / 2.0 + 0.001,
-                "regime": abs(nirnay_bull_pct - nirnay_bear_pct) / 100.0 + 0.001,
+                "direction": abs(float(fvo_direction)) * 0.5 + abs(float(swayam_direction)) * 0.5 + 0.001,
+                "breadth": abs(fvo_os_breadth - 50) / 50.0 + abs(swayam_os - 50) / 50.0 + 0.001,
+                "magnitude": (fvo_mag_norm + swayam_mag_norm) / 2.0 + 0.001,
+                "regime": abs(swayam_bull_pct - swayam_bear_pct) / 100.0 + 0.001,
             }
             avg_clarity = np.mean(list(clarities.values()))
             adaptive_weights = {}
@@ -221,34 +221,34 @@ class CrossValidator:
         # scores, not bull/bear), so on its own it has no direction — a high
         # value could be agreement on a top or a bottom. Direction comes from
         # the engines' own SIGNED strengths, combined continuously:
-        #   aarambh_bull = -conviction/100          (DDM-bounded, ∈ [-1, +1])
-        #   nirnay_bull  = (oversold% − overbought%)/100  (breadth spread)
+        #   fvo_bull = -conviction/100          (DDM-bounded, ∈ [-1, +1])
+        #   swayam_bull  = (oversold% − overbought%)/100  (breadth spread)
         #   consensus_direction = their mean, ∈ [-1, +1] (bullish-positive)
         #
-        # A previous revision used a HARD gate here: consensus = sign(aarambh)
-        # only when sign(aarambh) == sign(nirnay) != 0, else EXACTLY 0 — and
-        # nirnay's sign is 0 on every breadth tie (0% oversold vs 0%
+        # A previous revision used a HARD gate here: consensus = sign(fvo)
+        # only when sign(fvo) == sign(swayam) != 0, else EXACTLY 0 — and
+        # swayam's sign is 0 on every breadth tie (0% oversold vs 0%
         # overbought is a common day). Measured on real data (Gold, 810 scored
         # days, 2026-07 diagnosis) that gate hard-zeroed the ENTIRE composite
         # on 60.7% of days, and the surviving days jumped to |composite| ≈
         # 0.84 median — an on/off spike train, not a conviction signal: the
         # product signal read exactly 0.00 most days, its DDM trend
-        # flatlined, and the Optuna calibration objective was ranking
+        # flatlined, and the calibration objective of the day was ranking
         # mostly-tied zeros. The continuous form degrades gracefully instead:
         # disagreement PARTIALLY CANCELS (small |score| — the DIVERGENT
         # zone's actual meaning) rather than snapping to 0, ties contribute 0
         # from that engine without silencing the other, and full alignment
         # still produces the strongest readings. Sign convention preserved:
         # negative convergence_score = bullish.
-        aarambh_bull = float(np.clip(
-            -float(aarambh_signal.get("conviction_score", 0)) / 100.0, -1.0, 1.0))
-        nirnay_bull = float(np.clip((nirnay_os - nirnay_ob) / 100.0, -1.0, 1.0))
-        consensus_direction = (aarambh_bull + nirnay_bull) / 2.0
+        fvo_bull = float(np.clip(
+            -float(fvo_signal.get("conviction_score", 0)) / 100.0, -1.0, 1.0))
+        swayam_bull = float(np.clip((swayam_os - swayam_ob) / 100.0, -1.0, 1.0))
+        consensus_direction = (fvo_bull + swayam_bull) / 2.0
         agreement_strength = (composite + 1.0) / 2.0  # [-1,1] agreement → [0,1]
         convergence_score = -consensus_direction * agreement_strength * 100.0
 
         # Agreement ratio
-        # When Intelligence Mode injected calibrated weights, the agreement
+        # When learned weights are supplied, the agreement
         # metric uses those weights too — so the user-visible AGREEMENT
         # percentage stays semantically consistent with the calibrated
         # convergence score. When no calibration is active, fall back to
@@ -263,28 +263,28 @@ class CrossValidator:
         else:
             agreement_ratio = (direction_score + breadth_score + magnitude_score + regime_score) / 4.0
 
-        # Lead-lag indicator. NOTE: aarambh_direction/nirnay_direction are
+        # Lead-lag indicator. NOTE: fvo_direction/swayam_direction are
         # np.sign(...) outputs, i.e. always in {-1, 0, +1} — comparing their
         # absolute values (both in {0, 1}) against a 1.5x margin is
         # degenerate: "abs(x) > abs(y)*1.5" can only ever be true when
-        # abs(y)==0 and abs(x)==1, so AARAMBH_LEADS previously could only
-        # fire when Nirnay's breadth was EXACTLY split 50/50 (never in
-        # practice), never from Aarambh's conviction genuinely dominating
-        # Nirnay's (audit finding E5). Compare the actual normalized
-        # MAGNITUDES instead (aarambh_mag_norm/nirnay_mag_norm, both in
+        # abs(y)==0 and abs(x)==1, so FVO_LEADS previously could only
+        # fire when Swayam's breadth was EXACTLY split 50/50 (never in
+        # practice), never from FVO's conviction genuinely dominating
+        # Swayam's (audit finding E5). Compare the actual normalized
+        # MAGNITUDES instead (fvo_mag_norm/swayam_mag_norm, both in
         # [0, 1], already computed for the magnitude dimension above).
-        if aarambh_direction != nirnay_direction and aarambh_mag_norm > nirnay_mag_norm * 1.5:
-            lead_lag = "AARAMBH_LEADS"
-        elif aarambh_direction != nirnay_direction and nirnay_mag_norm > aarambh_mag_norm * 1.5:
-            lead_lag = "NIRNAY_LEADS"
-        elif aarambh_direction == nirnay_direction:
+        if fvo_direction != swayam_direction and fvo_mag_norm > swayam_mag_norm * 1.5:
+            lead_lag = "FVO_LEADS"
+        elif fvo_direction != swayam_direction and swayam_mag_norm > fvo_mag_norm * 1.5:
+            lead_lag = "SWAYAM_LEADS"
+        elif fvo_direction == swayam_direction:
             lead_lag = "ALIGNED"
         else:
             lead_lag = "CONTRADICTION"
 
         # Confidence — agreement scaled by data coverage (analyzed vs full
         # basket). With no expected size, apply no coverage penalty.
-        n_analyzed = float(nirnay_day_stats.get("num_constituents", 0))
+        n_analyzed = float(swayam_day_stats.get("num_constituents", 0))
         if self.expected_constituents and self.expected_constituents > 0:
             coverage = min(1.0, n_analyzed / float(self.expected_constituents))
         else:

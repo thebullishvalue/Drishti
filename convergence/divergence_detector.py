@@ -1,14 +1,14 @@
 """
-Tattva — CrossSystemDivergenceDetector: Detects when Aarambh and Nirnay disagree.
+Tattva — CrossSystemDivergenceDetector: Detects when FVO and Swayam disagree.
 तत्त्व (Tattva) — "Principle / Essence"
 
 CONVERGENCE — Adaptive-weighted composite of 4 dimensions: Direction, Breadth, Magnitude, Regime — with DDM.
 
 Divergence types
 ----------------
-- ``AARAMBH_LEADS``: Valuation extreme but bottom-up breadth hasn't turned
+- ``FVO_LEADS``: Valuation extreme but bottom-up breadth hasn't turned
   (early warning).
-- ``NIRNAY_LEADS``: Bottom-up breadth turning but valuation not yet extreme
+- ``SWAYAM_LEADS``: Bottom-up breadth turning but valuation not yet extreme
   (momentum-first move).
 - ``CONTRADICTION``: Persistent disagreement (uncertain environment).
 """
@@ -31,11 +31,11 @@ class DivergenceEvent:
     date : str
         Date of the divergence.
     divergence_type : str
-        One of ``AARAMBH_LEADS``, ``NIRNAY_LEADS``, ``CONTRADICTION``.
-    aarambh_signal : str
-        Aarambh stance classification at this date.
-    nirnay_signal : str
-        Nirnay stance classification at this date.
+        One of ``FVO_LEADS``, ``SWAYAM_LEADS``, ``CONTRADICTION``.
+    fvo_signal : str
+        FVO stance classification at this date.
+    swayam_signal : str
+        Swayam stance classification at this date.
     severity : float
         Severity score [0, 1].
     description : str
@@ -44,8 +44,8 @@ class DivergenceEvent:
 
     date: str
     divergence_type: str
-    aarambh_signal: str
-    nirnay_signal: str
+    fvo_signal: str
+    swayam_signal: str
     severity: float
     description: str
 
@@ -81,18 +81,18 @@ class CrossSystemDivergenceDetector:
 
     def detect(
         self,
-        aarambh_signal: dict[str, object],
-        nirnay_day_stats: dict[str, object],
+        fvo_signal: dict[str, object],
+        swayam_day_stats: dict[str, object],
         date: str,
     ) -> DivergenceEvent | None:
         """Detect divergence for a single date.
 
         Parameters
         ----------
-        aarambh_signal : dict
+        fvo_signal : dict
             Output from ``FairValueEngine.get_current_signal()``.
-        nirnay_day_stats : dict
-            Aggregated Nirnay stats for the date.
+        swayam_day_stats : dict
+            Aggregated Swayam stats for the date.
         date : str
             Date string.
 
@@ -101,64 +101,64 @@ class CrossSystemDivergenceDetector:
         DivergenceEvent | None
             Event if a divergence is detected, ``None`` otherwise.
         """
-        conviction = float(aarambh_signal.get("conviction_score", 0))
-        oversold_breadth = float(aarambh_signal.get("oversold_breadth", 50))
-        nirnay_os_pct = float(nirnay_day_stats.get("oversold_pct", 50))
-        nirnay_ob_pct = float(nirnay_day_stats.get("overbought_pct", 50))
-        nirnay_avg_osc = float(nirnay_day_stats.get("avg_unified_osc", 0))
+        conviction = float(fvo_signal.get("conviction_score", 0))
+        oversold_breadth = float(fvo_signal.get("oversold_breadth", 50))
+        swayam_os_pct = float(swayam_day_stats.get("oversold_pct", 50))
+        swayam_ob_pct = float(swayam_day_stats.get("overbought_pct", 50))
+        swayam_avg_osc = float(swayam_day_stats.get("avg_unified_osc", 0))
 
-        aarambh_stance = self._classify_aarambh_stance(conviction, oversold_breadth)
-        nirnay_stance = self._classify_nirnay_stance(nirnay_os_pct, nirnay_ob_pct, nirnay_avg_osc)
+        fvo_stance = self._classify_fvo_stance(conviction, oversold_breadth)
+        swayam_stance = self._classify_swayam_stance(swayam_os_pct, swayam_ob_pct, swayam_avg_osc)
 
         div_type: str | None = None
         severity = 0.0
         description = ""
 
-        if aarambh_stance == "EXTREME_BULLISH" and nirnay_stance != "BULLISH":
-            div_type = "AARAMBH_LEADS"
+        if fvo_stance == "EXTREME_BULLISH" and swayam_stance != "BULLISH":
+            div_type = "FVO_LEADS"
             severity = min(1.0, abs(conviction) / 100.0)
             description = (
-                f"Aarambh shows extreme oversold (conviction={conviction:.0f}) "
-                f"but Nirnay breadth hasn't turned ({nirnay_os_pct:.0f}% oversold). "
+                f"FVO shows extreme oversold (conviction={conviction:.0f}) "
+                f"but Swayam breadth hasn't turned ({swayam_os_pct:.0f}% oversold). "
                 f"Early warning: valuation dislocation not yet reflected in price structure."
             )
-        elif aarambh_stance == "EXTREME_BEARISH" and nirnay_stance != "BEARISH":
-            div_type = "AARAMBH_LEADS"
+        elif fvo_stance == "EXTREME_BEARISH" and swayam_stance != "BEARISH":
+            div_type = "FVO_LEADS"
             severity = min(1.0, abs(conviction) / 100.0)
             description = (
-                f"Aarambh shows extreme overbought (conviction={conviction:.0f}) "
-                f"but Nirnay breadth hasn't turned. "
+                f"FVO shows extreme overbought (conviction={conviction:.0f}) "
+                f"but Swayam breadth hasn't turned. "
                 f"Early warning: valuation risk not yet reflected in price structure."
             )
-        elif nirnay_stance == "BULLISH" and aarambh_stance not in ("BULLISH", "EXTREME_BULLISH"):
-            div_type = "NIRNAY_LEADS"
-            severity = min(1.0, abs(nirnay_avg_osc) / 10.0)
+        elif swayam_stance == "BULLISH" and fvo_stance not in ("BULLISH", "EXTREME_BULLISH"):
+            div_type = "SWAYAM_LEADS"
+            severity = min(1.0, abs(swayam_avg_osc) / 10.0)
             description = (
-                f"Nirnay breadth turning bullish ({nirnay_os_pct:.0f}% oversold, "
-                f"avg osc={nirnay_avg_osc:.1f}) but Aarambh valuation not yet extreme "
+                f"Swayam breadth turning bullish ({swayam_os_pct:.0f}% oversold, "
+                f"avg osc={swayam_avg_osc:.1f}) but FVO valuation not yet extreme "
                 f"(conviction={conviction:.0f}). Momentum-first move."
             )
-        elif nirnay_stance == "BEARISH" and aarambh_stance not in ("BEARISH", "EXTREME_BEARISH"):
-            div_type = "NIRNAY_LEADS"
-            severity = min(1.0, abs(nirnay_avg_osc) / 10.0)
+        elif swayam_stance == "BEARISH" and fvo_stance not in ("BEARISH", "EXTREME_BEARISH"):
+            div_type = "SWAYAM_LEADS"
+            severity = min(1.0, abs(swayam_avg_osc) / 10.0)
             description = (
-                "Nirnay breadth turning bearish but Aarambh valuation not yet "
+                "Swayam breadth turning bearish but FVO valuation not yet "
                 "extreme. Momentum-first move to the downside."
             )
-        elif aarambh_stance == "BULLISH" and nirnay_stance == "BEARISH":
+        elif fvo_stance == "BULLISH" and swayam_stance == "BEARISH":
             div_type = "CONTRADICTION"
             severity = 0.7
             description = (
-                f"Aarambh says bullish (conviction={conviction:.0f}) but Nirnay says "
-                f"bearish ({nirnay_ob_pct:.0f}% overbought). Contradictory signals — "
+                f"FVO says bullish (conviction={conviction:.0f}) but Swayam says "
+                f"bearish ({swayam_ob_pct:.0f}% overbought). Contradictory signals — "
                 f"uncertain environment."
             )
-        elif aarambh_stance == "BEARISH" and nirnay_stance == "BULLISH":
+        elif fvo_stance == "BEARISH" and swayam_stance == "BULLISH":
             div_type = "CONTRADICTION"
             severity = 0.7
             description = (
-                f"Aarambh says bearish (conviction={conviction:.0f}) but Nirnay says "
-                f"bullish ({nirnay_os_pct:.0f}% oversold). Contradictory signals."
+                f"FVO says bearish (conviction={conviction:.0f}) but Swayam says "
+                f"bullish ({swayam_os_pct:.0f}% oversold). Contradictory signals."
             )
 
         if div_type is None:
@@ -183,8 +183,8 @@ class CrossSystemDivergenceDetector:
         event = DivergenceEvent(
             date=date,
             divergence_type=div_type,
-            aarambh_signal=aarambh_stance,
-            nirnay_signal=nirnay_stance,
+            fvo_signal=fvo_stance,
+            swayam_signal=swayam_stance,
             severity=round(severity, 3),
             description=description + (" [PERSISTENT]" if persistent else ""),
         )
@@ -201,8 +201,8 @@ class CrossSystemDivergenceDetector:
                 {
                     "date": e.date,
                     "divergence_type": e.divergence_type,
-                    "aarambh_signal": e.aarambh_signal,
-                    "nirnay_signal": e.nirnay_signal,
+                    "fvo_signal": e.fvo_signal,
+                    "swayam_signal": e.swayam_signal,
                     "severity": e.severity,
                     "description": e.description,
                 }
@@ -210,8 +210,8 @@ class CrossSystemDivergenceDetector:
         return pd.DataFrame(rows).set_index("date")
 
     @staticmethod
-    def _classify_aarambh_stance(conviction: float, oversold_breadth: float) -> str:
-        """Classify Aarambh's directional stance."""
+    def _classify_fvo_stance(conviction: float, oversold_breadth: float) -> str:
+        """Classify FVO's directional stance."""
         if conviction < -60 and oversold_breadth > 70:
             return "EXTREME_BULLISH"
         if conviction < -20 and oversold_breadth > 60:
@@ -223,8 +223,8 @@ class CrossSystemDivergenceDetector:
         return "NEUTRAL"
 
     @staticmethod
-    def _classify_nirnay_stance(os_pct: float, ob_pct: float, avg_osc: float) -> str:
-        """Classify Nirnay's directional stance."""
+    def _classify_swayam_stance(os_pct: float, ob_pct: float, avg_osc: float) -> str:
+        """Classify Swayam's directional stance."""
         if os_pct > 60 and avg_osc < -3:
             return "BULLISH"
         if ob_pct > 60 and avg_osc > 3:

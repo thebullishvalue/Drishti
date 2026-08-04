@@ -5,7 +5,7 @@ Tattva — UnifiedConvictionModel: DDM filtering on convergence scores.
 CONVERGENCE — Adaptive-weighted composite of 4 dimensions: Direction, Breadth, Magnitude, Regime — with DDM.
 
 Applies the same Drift-Diffusion Model (DDM) primitive used by the
-Aarambh engine on raw conviction, but operates on the cross-system
+FVO engine on raw conviction, but operates on the cross-system
 convergence score time-series. The result is a bounded, smoothed
 signal with confidence bands reflecting agreement between both
 analytical engines.
