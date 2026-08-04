@@ -926,9 +926,9 @@ def get_instrument_config(target: str) -> "InstrumentConfig":
 # ─── Chart Theme ─────────────────────────────────────────────────────────────
 
 CHART_BG = "rgba(0,0,0,0)"
-CHART_GRID = "rgba(255,255,255,0.03)"
-CHART_ZEROLINE = "rgba(255,255,255,0.08)"
-CHART_FONT_COLOR = "#728097"   # == --ink-tertiary
+CHART_GRID = "rgba(255,255,255,0.05)"
+CHART_ZEROLINE = "rgba(255,255,255,0.10)"
+CHART_FONT_COLOR = "#8B95A6"   # == --ink-tertiary
 
 # ── Chart palette — SINGLE SOURCE OF TRUTH ───────────────────────────────────
 # Every chart colour derives from these RGB triples (COLOR_* + inline rgba() via
@@ -944,12 +944,13 @@ CHART_FONT_COLOR = "#728097"   # == --ink-tertiary
 # Every hue below clears WCAG AA (>= 4.5:1) on the chart surface, which matters
 # more here than in most apps: these are thin 1.5px lines, not filled shapes.
 _PALETTE_RGB: dict[str, tuple[int, int, int]] = {
-    "emerald": (16, 185, 129),   # #10B981 - Long / Bullish
-    "rose":    (239, 68, 68),    # #EF4444 - Short / Bearish
-    "cyan":    (6, 182, 212),    # #06B6D4 - System / Active
-    "amber":   (245, 158, 11),   # #F59E0B - Caution / Warning
-    "violet":  (139, 92, 246),   # #8B5CF6 - Secondary / Attribution
-    "slate":   (100, 116, 139),  # #64748B - Neutral / Muted
+    "emerald": (44, 163, 107),   # #2CA36B - Long / Bullish
+    "rose":    (221, 90, 90),    # #DD5A5A - Short / Bearish
+    "accent":  (76, 125, 240),   # #4C7DF0 - Primary / Interactive (brand, active nav, primary CTA)
+    "cyan":    (78, 159, 196),   # #4E9FC4 - Info (distinct from Accent — informational tone only)
+    "amber":   (215, 154, 60),   # #D79A3C - Caution / Warning (warning semantics ONLY, not brand)
+    "violet":  (155, 143, 212),  # #9B8FD4 - Secondary / Attribution
+    "slate":   (126, 135, 151),  # #7E8797 - Neutral / Muted
 }
 
 
@@ -966,12 +967,14 @@ def rgba(name: str, alpha) -> str:
     return f"rgba({r},{g},{b},{alpha})"
 
 
-COLOR_GREEN = _palette_hex("emerald")   # #34D399
-COLOR_RED = _palette_hex("rose")        # #FB7185
-COLOR_GOLD = _palette_hex("amber")      # #D4A853
-COLOR_CYAN = _palette_hex("cyan")       # #22D3EE
-COLOR_AMBER = _palette_hex("amber")     # #D4A853
-COLOR_PURPLE = _palette_hex("violet")   # #A78BFA (NOT the CSS --violet #8B5CF6 — see divergence note)
+COLOR_GREEN = _palette_hex("emerald")   # #2CA36B
+COLOR_RED = _palette_hex("rose")        # #DD5A5A
+COLOR_GOLD = _palette_hex("amber")      # #D79A3C
+COLOR_CYAN = _palette_hex("cyan")       # #4E9FC4
+COLOR_AMBER = _palette_hex("amber")     # #D79A3C
+COLOR_ACCENT = _palette_hex("accent")   # #4C7DF0 — primary/interactive; use for featured
+                                         # series & emphasis, never for warning semantics.
+COLOR_PURPLE = _palette_hex("violet")   # #9B8FD4
 COLOR_MUTED = rgba("slate", 0.4)        # rgba(148,163,184,0.4)
 
 # ─── UI Thresholds (centralized magic numbers) ──────────────────────────────
