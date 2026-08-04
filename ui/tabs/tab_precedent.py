@@ -1,15 +1,29 @@
 """
-Tattva — Precedent view (historical analog matching + forward returns + backtest).
+Tattva — Precedent tab: what happened last time the state looked like this.
 
-Ports Arthagati's Similar-Periods view: covariance-aware Mahalanobis analog cards,
-a forward-return base-rate summary, and a descriptive state→forward-return
-backtest. Inputs are Tattva's engine.ts_data state features; forward-return
-horizons are a fixed term structure (core.config.PRECEDENT_HORIZONS).
+Covariance-aware Mahalanobis analog matching over the state the SYSTEM
+measures — momentum, realised volatility, Swayam breadth, the FVO valuation
+oscillator, market stress and valuation confidence — under a Theiler exclusion
+window so the returned analogs are distinct episodes rather than adjacent days
+of one episode. The output is an empirical base rate, independent of the model:
+it is the one read on the app that does not depend on the engines being right.
+
+Reading order — the house convention every analysis tab follows:
+
+  1 TRUST     can this reading be believed?      Analog skill term structure
+  2 ANCHOR    what is the underlying claim?      Forward-return base rate
+  3 SIGNAL    what does it say to do?            Predicted vs realised history
+  4 STATE     how does that sit historically?    The analog cards themselves
+  5 DETAIL    the evidence behind it             State → forward-return backtest
 """
 
 from __future__ import annotations
 
 import html as html_mod
+
+#: Analog cards rendered. The base rate is computed over every returned
+#: episode, not just these — see the section description.
+MAX_ANALOG_CARDS = 10
 
 import numpy as np
 import pandas as pd
@@ -20,9 +34,6 @@ from analytics.analogs import (
     find_similar_periods, summarize_forward, analog_prediction_series,
     analog_skill_by_horizon,
 )
-from core.config import (
-    COLOR_GREEN, COLOR_RED, COLOR_GOLD, COLOR_CYAN, COLOR_MUTED,
-)
 from ui.components import (
     render_section_header,
     render_metric_card,
@@ -30,21 +41,33 @@ from ui.components import (
     section_gap,
 )
 from ui.theme import chart_layout, style_axes
+from core.config import (
+    COLOR_GREEN, COLOR_RED, COLOR_GOLD, COLOR_CYAN, COLOR_MUTED,
+)
 
 
-def _classify_state(avgz: float) -> tuple[str, str, str, str]:
-    """Map the robust-quantile extension (AvgZ) to (tier, badge, label, fill) classes.
+def _classify_state(fvo: float) -> tuple[str, str, str, str]:
+    """Map the valuation oscillator to (tier, badge, label, fill) classes.
 
-    Descriptive of WHERE the target sat (oversold↔overbought), not a forecast —
-    the forward tiles carry the realized outcome colouring.
+    Describes WHERE the target sat versus its macro-implied level — cheap or
+    rich — not what happened next; the forward tiles carry the realised outcome.
+
+    Keyed on FVO because that is what the analogs are MATCHED on. It previously
+    keyed on AvgZ, which the tuning study had already removed from the matching
+    feature set, so the badge described a dimension the similarity score
+    ignored: two cards labelled "Deep Oversold" could have been selected for
+    reasons unrelated to being oversold. Thresholds are in units of the
+    engine's own predictive SD, so +/-1 and +/-2 read as the usual sigma bands.
     """
-    if avgz <= -2.0:
-        return "tier-strong-buy", "badge-strong-buy", "Deep Oversold", "fill-strong-buy"
-    if avgz <= -1.0:
-        return "tier-buy", "badge-buy", "Oversold", "fill-buy"
-    if avgz >= 1.0:
-        return "tier-caution", "badge-caution", "Overbought", "fill-caution"
-    return "tier-hold", "badge-hold", "Neutral", "fill-hold"
+    if fvo <= -2.0:
+        return "tier-strong-buy", "badge-strong-buy", "Deep Value", "fill-strong-buy"
+    if fvo <= -1.0:
+        return "tier-buy", "badge-buy", "Cheap", "fill-buy"
+    if fvo >= 2.0:
+        return "tier-caution", "badge-caution", "Very Rich", "fill-caution"
+    if fvo >= 1.0:
+        return "tier-caution", "badge-caution", "Rich", "fill-caution"
+    return "tier-hold", "badge-hold", "Fair", "fill-hold"
 
 
 def _render_fwd_tile(horizon: int, val: float | None) -> str:
@@ -67,18 +90,19 @@ def _render_fwd_tile(horizon: int, val: float | None) -> str:
 
 def _render_period_card(period: dict, target: str, hold_horizons: tuple[int, ...]) -> None:
     """Render one analog-period card — Obsidian Quant fidelity (ported)."""
-    avgz = period["avgz"]
+    fvo = period.get("fvo", 0.0)
+    stress = period.get("stress", 0.5)
     similarity_pct = period["similarity"] * 100
     price_val = period["price"]
-    tier_cls, badge_cls, badge_label, bar_cls = _classify_state(avgz)
-
+    tier_cls, badge_cls, badge_label, bar_cls = _classify_state(fvo)
     fwd = period["fwd"]
     fwd_tiles = "".join(_render_fwd_tile(int(h), fwd.get(int(h))) for h in hold_horizons)
     # Grid adapts to the horizon count (6 for PRECEDENT_HORIZONS) so tiles fill
     # the row instead of left-packing into the legacy 4-column track.
     grid_style = f"grid-template-columns:repeat({max(1, len(hold_horizons))},1fr);"
 
-    z_color = "pos" if avgz < 0 else "neg" if avgz > 0 else "neutral"
+    # Cheap (negative FVO) is the bullish pole, so it takes the positive colour.
+    z_color = "pos" if fvo < 0 else "neg" if fvo > 0 else "neutral"
 
     # NOTE: the f-string below must stay flush-left with NO blank lines — Streamlit
     # feeds it to a CommonMark parser; a blank line closes the HTML block and the
@@ -99,8 +123,12 @@ def _render_period_card(period: dict, target: str, hold_horizons: tuple[int, ...
       <span class="analog-stat-value amber">{similarity_pct:.1f}%</span>
     </div>
     <div class="analog-stat">
-      <span class="analog-stat-label">Extension (Z)</span>
-      <span class="analog-stat-value {z_color}">{avgz:+.2f}</span>
+      <span class="analog-stat-label">Valuation (FVO)</span>
+      <span class="analog-stat-value {z_color}">{fvo:+.2f}&sigma;</span>
+    </div>
+    <div class="analog-stat">
+      <span class="analog-stat-label">Market Stress</span>
+      <span class="analog-stat-value">{stress:.0%}</span>
     </div>
     <div class="analog-stat">
       <span class="analog-stat-label">{html_mod.escape(target)} at T</span>
@@ -141,7 +169,7 @@ def render_precedent_tab(
     card's precedent read and passes it here too — the tab used to call
     ``find_similar_periods`` a second time for the identical
     (ts, target, mom_window), redoing the expensive feature-frame build
-    (incl. rolling Hurst) and Mahalanobis distance/Theiler selection work
+    and Mahalanobis distance/Theiler selection work
     (audit finding F18). ``None`` (e.g. a cache-key mismatch) falls back to
     computing it here exactly as before.
     """
@@ -193,7 +221,7 @@ def render_precedent_tab(
             f"{html_mod.escape(active_target)} actually did after the most "
             "statistically-similar historical states (covariance-aware Mahalanobis "
             "on Tattva's own state features). Read it <strong>alongside</strong> the "
-            "Aarambh forecast: agreement strengthens conviction, disagreement is a "
+            "FVO forecast: agreement strengthens conviction, disagreement is a "
             "divergence worth respecting."
         ),
         color="info",
@@ -357,12 +385,15 @@ def render_precedent_tab(
     # ── Analog period cards (2-column grid) ─────────────────────────────────
     render_section_header(
         title="Top Analog Periods",
-        description=f"Top {len(periods)} historical matches by similarity score",
+        description=(f"The {min(len(periods), MAX_ANALOG_CARDS)} closest of "
+                     f"{len(periods)} distinct episodes behind the base rate above"),
         icon="layers",
     )
 
+    # Cards show the closest few; the base rate above is computed over ALL
+    # returned episodes (see analytics.analogs.find_similar_periods).
     analog_cols = st.columns(2, gap="medium")
-    for i, period in enumerate(periods):
+    for i, period in enumerate(periods[:MAX_ANALOG_CARDS]):
         with analog_cols[i % 2]:
             _render_period_card(period, active_target, display_hold)
             st.markdown('<div style="height: var(--sp-3);"></div>', unsafe_allow_html=True)
