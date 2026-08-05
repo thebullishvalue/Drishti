@@ -6,6 +6,7 @@
 # st.dataframe, an argument introduced in 1.42 — on older versions (e.g. 1.37.1)
 # the app crashes at first render with TypeError: unexpected keyword 'width'.
 streamlit>=1.42.0
+starlette<=0.45.0
 pandas>=2.1.0
 numpy>=1.24.0
 plotly>=5.18.0
