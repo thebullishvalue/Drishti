@@ -31,7 +31,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from analytics.analogs import (
-    find_similar_periods, summarize_forward, analog_prediction_series,
+    find_similar_periods, summarize_forward,
     analog_skill_by_horizon,
 )
 from ui.components import (
@@ -44,7 +44,7 @@ from ui.components import (
     section_gap,
 )
 from ui.theme import (chart_layout, style_axes,
-                      chart_color, chart_rgba, panel_bg)
+                      chart_color, chart_rgba)
 
 
 def _classify_state(fvo: float) -> tuple[str, str, str, str]:
@@ -299,7 +299,7 @@ def render_precedent_tab(
         _layout_ts = chart_layout(height=300, show_legend=False)
         _fig_ts.update_layout(**_layout_ts)
         style_axes(_fig_ts, y_title="Walk-forward IC (Spearman)", x_title="Holding horizon")
-        render_chart_panel(_fig_ts, "analog_skill_term_structure", units="Spearman IC")
+        render_chart_panel(_fig_ts, "analog_skill_term_structure", units="Spearman IC", window=True)
 
         # Plain-language read: best horizon + whether the forecast horizon is
         # where the edge actually lives.
@@ -317,89 +317,10 @@ def render_precedent_tab(
         )
         section_gap()
 
-    # ── Analog prediction history: predicted vs realized over time ──────────
-    # The term structure above is the SUMMARY; this is the DETAIL for the active
-    # forecast horizon — what the matcher would have predicted at each PAST as-of
-    # date, using only information available then (candidate outcomes completed
-    # by the as-of date, warm-up excluded, pool-only median cleaning — see
-    # analytics.analogs.analog_prediction_series). Strided every `fwd_horizon`
-    # rows so consecutive points are non-overlapping (the honest sampling for
-    # smooth multi-day returns). Cached per config — Streamlit renders every tab
-    # each rerun, and this is an O(n·grid) computation worth doing once.
-    # Reuse the walk-forward the term structure already ran for this horizon
-    # (identical parameters) instead of recomputing it; only fall back to a
-    # standalone compute if the forecast horizon wasn't in the skill grid.
-    _pred_df = None
-    if fwd_horizon in _skill:
-        _pred_df = _skill[fwd_horizon].get("df")
-    if _pred_df is None:
-        _apk = (f"analog_pred::{active_target}|{fwd_horizon}|{mom_window}|{len(ts)}|"
-                f"{float(pd.to_numeric(ts['Price'], errors='coerce').iloc[-1]):.6g}")
-        _apc = st.session_state.get("_analog_pred_cache")
-        if _apc is None or _apc.get("key") != _apk:
-            try:
-                _pred_df = analog_prediction_series(
-                    ts, active_target, fwd_horizon, mom_window=mom_window,
-                )
-            except Exception:
-                _pred_df = pd.DataFrame(columns=["Date", "Predicted", "Realized"])
-            _apc = {"key": _apk, "df": _pred_df}
-            st.session_state["_analog_pred_cache"] = _apc
-        _pred_df = _apc["df"]
-
-    if len(_pred_df) >= 5:
-        render_section_header(
-            title=f"Analog Predictions Over Time · +{fwd_horizon}d",
-            description=(f"What the matcher predicted at each past as-of date (using only "
-                         f"data available then) vs what {active_target} actually did — "
-                         f"non-overlapping every {fwd_horizon} sessions"),
-            icon="activity",
-            accent="cyan",
-        )
-        _pd_pred = _pred_df["Predicted"].to_numpy(dtype=float)
-        _pd_real = _pred_df["Realized"].to_numpy(dtype=float)
-        _pd_dates = _pred_df["Date"]
-        # Hit coloring: prediction direction vs realized direction; amber =
-        # window not yet complete (the live predictions at the right edge).
-        _mk_colors = []
-        for p, r in zip(_pd_pred, _pd_real):
-            if not np.isfinite(r):
-                _mk_colors.append(chart_color("amber"))
-            elif (p > 0) == (r > 0):
-                _mk_colors.append(chart_color("emerald"))
-            else:
-                _mk_colors.append(chart_color("rose"))
-
-        _fig_ap = go.Figure()
-        _fig_ap.add_trace(go.Scatter(
-            x=_pd_dates, y=_pd_real, mode="lines", name="Realized",
-            line=dict(color=chart_rgba("slate", 0.4), width=1.3),
-            connectgaps=False,
-        ))
-        _fig_ap.add_trace(go.Scatter(
-            x=_pd_dates, y=_pd_pred, mode="lines+markers", name="Analog prediction",
-            line=dict(color=chart_color("accent"), width=1.6),
-            marker=dict(size=6, color=_mk_colors,
-                        line=dict(color=panel_bg(), width=1)),
-        ))
-        _fig_ap.add_hline(y=0, line_color=chart_rgba("slate", 0.25), line_width=0.8,
-                          line_dash="dot")
-        _layout_ap = chart_layout(height=340, show_legend=True)
-        _fig_ap.update_layout(**_layout_ap)
-        style_axes(_fig_ap, y_title=f"+{fwd_horizon}d return (%)")
-        render_chart_panel(_fig_ap, "analog_pred_history", units="% return")
-
-        _done = np.isfinite(_pd_real)
-        _cap = (f"{len(_pred_df)} as-of dates · marker green = predicted direction was "
-                f"right, red = wrong, gold = window still open (live prediction).")
-        if _done.sum() >= 10:
-            from scipy.stats import spearmanr as _sp
-            _ic, _pv = _sp(_pd_pred[_done], _pd_real[_done])
-            _hit = float(np.mean(np.sign(_pd_pred[_done]) == np.sign(_pd_real[_done]))) * 100
-            _cap += (f" Completed windows: IC {_ic:+.2f} (p={_pv:.3f}), directional hit "
-                     f"{_hit:.0f}% over {int(_done.sum())} non-overlapping windows.")
-        render_note(_cap)
-        section_gap()
+    # (The 'Analog Predictions Over Time' section stood here: a per-as-of-date
+    # predicted-vs-realised scatter for the active horizon. It restated, at
+    # much greater length, what the term-structure chart above already says
+    # — and its own summary line was the term structure's headline number.)
 
     # ── Analog period cards (2-column grid) ─────────────────────────────────
     render_section_header(
@@ -496,7 +417,7 @@ def render_precedent_tab(
         z1 = np.polyfit(tr_x, tr_y, 1)
         fig.add_trace(go.Scatter(
             x=xr, y=z1[0] * xr + z1[1], mode="lines",
-            line=dict(color=chart_color("amber"), width=2, dash="dash"),
+            line=dict(color=chart_color("amber"), width=1.2, dash="dash"),
             name=f"Linear (train ρ={tr_p:.2f}, test ρ={oos_p:.2f})",
         ))
     # Quadratic curve needs more points than the linear fit to avoid a 2nd-degree
@@ -507,7 +428,7 @@ def render_precedent_tab(
         z2 = np.polyfit(tr_x, tr_y, 2)
         fig.add_trace(go.Scatter(
             x=xr, y=z2[0] * xr ** 2 + z2[1] * xr + z2[2], mode="lines",
-            line=dict(color=chart_color("cyan"), width=2, dash="dot"),
+            line=dict(color=chart_color("cyan"), width=1.2, dash="dot"),
             name=f"Quadratic (train ρ_s={tr_s:.2f}, test ρ_s={oos_s:.2f})",
         ))
 

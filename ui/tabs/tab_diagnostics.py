@@ -34,10 +34,12 @@ from core.config import (
 from data.cache import all_caches
 from data.circuit_breaker import all_circuits, CircuitState
 
-# ── Alias colors for tab-local use ────────────────────────────────────────
-EMERALD = chart_color("emerald")
-ROSE = chart_color("rose")
-SLATE = chart_rgba("slate", 0.4)
+# (Tab-local colour aliases stood here as module-level constants. They were
+# evaluated ONCE at import, when there is no session to read a theme from,
+# so every chart drawn through them was frozen to whichever theme happened
+# to be active at first import — the same import-time binding that made the
+# original COLOR_* constants unable to follow Paper mode. Colours are
+# resolved at the call site now, per render.
 
 # ── Tooltip definitions ────────────────────────────────────────────────────
 TOOLTIPS = {
@@ -164,13 +166,16 @@ def render_diagnostics_tab(engine, ts_filtered, x_axis, x_title, signal, model_s
                 marker=dict(color=colors),
             ))
             fig_imp.update_layout(**chart_layout(height=max(240, len(labels) * 26), show_legend=False))
-            fig_imp.update_xaxes(
-                showgrid=True, gridcolor=grid_rgba(0.035), gridwidth=0.5,
-                title_text="Contribution %", zeroline=True,
-                zerolinecolor=grid_rgba(0.06), zerolinewidth=0.5,
-            )
+            # Axis type comes from the shared grammar, not from a bespoke
+            # pair of update_*axes calls — those set grid and title text but
+            # never a tick font, so the block labels and the axis title fell
+            # back to Plotly's default ink and were invisible on both grounds.
+            style_axes(fig_imp, x_title="Contribution %")
+            fig_imp.update_xaxes(gridcolor=grid_rgba(0.035), gridwidth=0.5,
+                                 zeroline=True, zerolinecolor=grid_rgba(0.06),
+                                 zerolinewidth=0.5)
             fig_imp.update_yaxes(showgrid=False)
-            render_chart_panel(fig_imp, "diagnostics_feature_impact", units="contribution")
+            render_chart_panel(fig_imp, "diagnostics_feature_impact", units="contribution", window=True)
             render_note(f"{len(labels)} of {_total_feats} asset-class blocks by current contribution.")
 
         if not feature_history.empty and len(feature_history) > 0:
@@ -257,12 +262,12 @@ def render_diagnostics_tab(engine, ts_filtered, x_axis, x_title, signal, model_s
         fig_hmm = go.Figure()
         fig_hmm.add_trace(go.Scatter(
             x=swayam_df.index, y=swayam_df["avg_hmm_bull"],
-            name="P(Bull)", line=dict(color=EMERALD, width=1.5),
+            name="P(Bull)", line=dict(color=chart_color("emerald"), width=1.5),
             fill="tozeroy", fillcolor=chart_rgba("emerald", 0.08),
         ))
         fig_hmm.add_trace(go.Scatter(
             x=swayam_df.index, y=swayam_df["avg_hmm_bear"],
-            name="P(Bear)", line=dict(color=ROSE, width=1.5),
+            name="P(Bear)", line=dict(color=chart_color("rose"), width=1.5),
             fill="tozeroy", fillcolor=chart_rgba("rose", 0.08),
         ))
         fig_hmm.add_hline(y=0.5, line_dash="dot", line_color=grid_rgba(0.08), line_width=0.5)
@@ -458,7 +463,7 @@ def _render_intelligence_center() -> None:
     fig_wf = go.Figure(go.Bar(
         x=[str(r["test_start"])[:10] for r in wf],
         y=[r["ic"] for r in wf],
-        marker=dict(color=[EMERALD if r["ic"] > 0 else ROSE for r in wf]),
+        marker=dict(color=[chart_color("emerald") if r["ic"] > 0 else chart_color("rose") for r in wf]),
     ))
     fig_wf.add_hline(y=0, line_color=grid_rgba(0.10), line_width=0.6)
     fig_wf.update_layout(**chart_layout(height=UI_CHART_HEIGHT_MEDIUM, show_legend=False))

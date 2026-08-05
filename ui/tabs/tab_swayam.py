@@ -29,7 +29,7 @@ from analytics.adaptive import tier_now
 
 from ui.theme import (chart_layout, style_axes,
                       chart_color, chart_rgba, grid_rgba)
-from ui.components import (render_metric_card, render_section_header, render_control_hint,
+from ui.components import (render_metric_card, render_section_header,
                            section_gap, render_empty_state,
                            render_chart_panel, render_table_panel)
 from core.config import (
@@ -38,10 +38,12 @@ from core.config import (
     UI_CHART_HEIGHT_LARGE,
 )
 
-# ── Alias colors for tab-local use ────────────────────────────────────────
-EMERALD = chart_color("emerald")
-ROSE = chart_color("rose")
-SLATE = chart_rgba("slate", 0.4)
+# (Tab-local colour aliases stood here as module-level constants. They were
+# evaluated ONCE at import, when there is no session to read a theme from,
+# so every chart drawn through them was frozen to whichever theme happened
+# to be active at first import — the same import-time binding that made the
+# original COLOR_* constants unable to follow Paper mode. Colours are
+# resolved at the call site now, per render.
 
 # ── Tooltip definitions ────────────────────────────────────────────────────
 # Tooltips describe the view bank: every reading here counts Swayam views
@@ -109,7 +111,7 @@ def _render_hmm_regime_chart(df_n, dates):
 
     fig_hmm.update_layout(**chart_layout(height=300))
     style_axes(fig_hmm, y_title="Probability", y_range=[0, 1])
-    render_chart_panel(fig_hmm, "swayam_hmm_regime", units="probability")
+    render_chart_panel(fig_hmm, "swayam_hmm_regime", units="probability", window=True)
 
 
 def _render_zone_distribution_chart(df_n, dates):
@@ -279,16 +281,6 @@ def render_swayam_tab(selected_tf: str | None = None) -> None:
     # honest correlation caveat — self-ensemble views share one price
     # series, so this reads breadth across independent CAUSAL ANGLES on the
     # target, not independent cross-sectional names.
-    _n_eff = st.session_state.get("swayam_n_eff")
-    _n_members = len(swayam_view_dfs)
-    _eff_txt = f" · ~{_n_eff:.1f} effective" if _n_eff is not None else ""
-    render_control_hint(
-        f"SWAYAM · SWAYAM — {_n_members} views{_eff_txt} — self-referential "
-        "ensemble (timescale × information-set × mechanism reads of the "
-        "target's own OHLCV). Views share one price series; breadth here "
-        "is multi-scale agreement, not cross-sectional independence."
-    )
-
     # ── Normalize columns ───────────────────────────────────────────────
     df_n = swayam_daily[~swayam_daily.index.duplicated(keep="last")].copy()
     col_map = {}

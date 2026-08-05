@@ -88,7 +88,7 @@ def render_data_tab(ts_filtered, ts, active_target):
     render_table_panel(
         filtered_df, "data-timeseries",
         units=f"{len(filtered_df):,} rows × {len(filtered_df.columns)} cols",
-        max_rows=_CAP, max_height=560, footer=_cap_note,
+        max_rows=_CAP, max_height=560, footer=_cap_note, window=True,
     )
 
     # ── Export ──────────────────────────────────────────────────────────

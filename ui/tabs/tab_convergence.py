@@ -28,7 +28,7 @@ from ui.theme import (chart_layout, style_axes,
                       chart_color, chart_rgba, grid_rgba)
 from ui.components import (render_metric_card, render_section_header, section_gap,
                            render_info_box, render_empty_state,
-                           render_chart_panel, render_table_panel, render_note)
+                           render_chart_panel, render_note)
 from convergence.normalization import (
     align_fvo_swayam,
     causal_normalize,
@@ -40,11 +40,12 @@ from core.config import (
     UI_CHART_HEIGHT_STACKED,
 )
 
-# ── Alias colors for tab-local use ────────────────────────────────────────
-EMERALD = chart_color("emerald")
-ROSE = chart_color("rose")
-CYAN = chart_color("cyan")
-SLATE = chart_rgba("slate", 0.4)
+# (Tab-local colour aliases stood here as module-level constants. They were
+# evaluated ONCE at import, when there is no session to read a theme from,
+# so every chart drawn through them was frozen to whichever theme happened
+# to be active at first import — the same import-time binding that made the
+# original COLOR_* constants unable to follow Paper mode. Colours are
+# resolved at the call site now, per render.
 
 # ── Tooltip definitions ────────────────────────────────────────────────────
 TOOLTIPS = {
@@ -365,15 +366,15 @@ def render_convergence_tab(ts_filtered=None):
     avg_colors, avg_sizes = [], []
     for v in norm_avg:
         if v < -UI_CONSENSUS_STRONG:
-            avg_colors.append(chart_color("emerald")); avg_sizes.append(8)
+            avg_colors.append(chart_color("emerald")); avg_sizes.append(7)
         elif v <= -UI_CONSENSUS_MODERATE:
-            avg_colors.append(chart_rgba("emerald", 1.0)); avg_sizes.append(6)
+            avg_colors.append(chart_rgba("emerald", 0.55)); avg_sizes.append(5)
         elif v > UI_CONSENSUS_STRONG:
-            avg_colors.append(chart_color("rose")); avg_sizes.append(8)
+            avg_colors.append(chart_color("rose")); avg_sizes.append(7)
         elif v >= UI_CONSENSUS_MODERATE:
-            avg_colors.append(chart_rgba("rose", 1.0)); avg_sizes.append(6)
+            avg_colors.append(chart_rgba("rose", 0.55)); avg_sizes.append(5)
         else:
-            avg_colors.append(chart_rgba("slate", 0.95)); avg_sizes.append(5)
+            avg_colors.append(chart_rgba("slate", 0.45)); avg_sizes.append(4)
 
     # ── Row 1: Unified normalized ─────────────────────────────────────
     fig.add_trace(go.Scatter(
@@ -396,23 +397,13 @@ def render_convergence_tab(ts_filtered=None):
     ), row=1, col=1)
     fig.add_trace(go.Scatter(
         x=aligned_dates, y=norm_avg, mode="lines+markers", name="Consensus (50/50)",
-        line=dict(color=chart_rgba("slate", 0.4), width=2),
+        line=dict(color=chart_rgba("slate", 0.55), width=1.2),
         marker=dict(size=avg_sizes, color=avg_colors),
     ), row=1, col=1)
-    # Calibrated-model overlay — the DDM-filtered smoothed trend of the SAME
-    # calibrated product signal the hero card headlines (audit findings
-    # F1/F2/F6: calibrated_conv_series was computed every run but never
-    # plotted). Aligned onto aligned_dates (same reindex the consensus/raw
-    # traces use) so it's directly comparable to the diagnostic consensus
-    # line, not a second unrelated read.
-    _calib_series = st.session_state.get("calibrated_conv_series")
-    if _calib_series is not None and len(_calib_series):
-        _calib_aligned = _calib_series.reindex(pd.DatetimeIndex(aligned_dates)).to_numpy()
-        fig.add_trace(go.Scatter(
-            x=aligned_dates, y=_calib_aligned, mode="lines", name="Calibrated Model",
-            line=dict(color=chart_color("accent"), width=1.5, dash="dash"),
-            connectgaps=True,
-        ), row=1, col=1)
+    # (A dashed accent 'Calibrated Model' overlay was drawn here. It plotted
+    # a second smoothed read of the same signal on top of the consensus
+    # line, in the ONE colour this system reserves for interaction —
+    # two lines making the same claim, the louder of which meant nothing.)
     fig.add_hline(y=UI_CONSENSUS_STRONG, line_dash="dot", line_color=chart_rgba("rose", 0.15), line_width=0.5, row=1, col=1)
     fig.add_hline(y=-UI_CONSENSUS_STRONG, line_dash="dot", line_color=chart_rgba("emerald", 0.15), line_width=0.5, row=1, col=1)
     fig.add_hline(y=0, line_color=grid_rgba(0.06), line_width=0.5, row=1, col=1)
@@ -422,17 +413,17 @@ def render_convergence_tab(ts_filtered=None):
     conv_colors, conv_sizes = [], []
     for v in aligned_conv_raw:
         if v is None:
-            conv_colors.append(chart_rgba("slate", 0.90)); conv_sizes.append(5)
+            conv_colors.append(chart_rgba("slate", 0.45)); conv_sizes.append(4)
         elif v > UI_CONVRAW_STRONG:
             conv_colors.append(chart_color("rose")); conv_sizes.append(7)
         elif v >= UI_CONVRAW_MODERATE:
-            conv_colors.append(chart_rgba("rose", 1.0)); conv_sizes.append(6)
+            conv_colors.append(chart_rgba("rose", 0.55)); conv_sizes.append(5)
         elif v < -UI_CONVRAW_STRONG:
             conv_colors.append(chart_color("emerald")); conv_sizes.append(7)
         elif v <= -UI_CONVRAW_MODERATE:
-            conv_colors.append(chart_rgba("emerald", 1.0)); conv_sizes.append(6)
+            conv_colors.append(chart_rgba("emerald", 0.55)); conv_sizes.append(5)
         else:
-            conv_colors.append(chart_rgba("slate", 0.95)); conv_sizes.append(5)
+            conv_colors.append(chart_rgba("slate", 0.45)); conv_sizes.append(4)
 
     fig.add_trace(go.Scatter(
         x=aligned_dates, y=np.clip(conv_vals, 0, None),
@@ -444,7 +435,7 @@ def render_convergence_tab(ts_filtered=None):
     ), row=2, col=1)
     fig.add_trace(go.Scatter(
         x=aligned_dates, y=conv_vals, mode="lines+markers", name="Base Conviction",
-        line=dict(color=chart_rgba("slate", 0.4), width=1.5),
+        line=dict(color=chart_rgba("slate", 0.55), width=1.2),
         marker=dict(size=conv_sizes, color=conv_colors),
     ), row=2, col=1)
     fig.add_hline(y=0, line_color=grid_rgba(0.06), line_width=0.5, row=2, col=1)
@@ -452,7 +443,11 @@ def render_convergence_tab(ts_filtered=None):
     fig.add_hline(y=-UI_CONVRAW_STRONG, line_dash="dot", line_color=chart_rgba("emerald", 0.12), line_width=0.5, row=2, col=1)
 
     # ── Row 3: Swayam Avg Signal ──────────────────────────────────────
-    swayam_colors = [chart_color("emerald") if v < -UI_SWAYAM_AVG_THRESHOLD else chart_color("rose") if v > UI_SWAYAM_AVG_THRESHOLD else chart_rgba("slate", 0.95) for v in aligned_swayam_raw]
+    # Same three tiers, same colours, same sizes as the two rows above.
+    swayam_colors = [chart_color("emerald") if v < -UI_SWAYAM_AVG_THRESHOLD
+                     else chart_color("rose") if v > UI_SWAYAM_AVG_THRESHOLD
+                     else chart_rgba("slate", 0.45) for v in aligned_swayam_raw]
+    swayam_sizes = [7 if abs(v) > UI_SWAYAM_AVG_THRESHOLD else 4 for v in aligned_swayam_raw]
 
     fig.add_trace(go.Scatter(
         x=aligned_dates, y=np.clip(aligned_swayam_raw, 0, None),
@@ -464,8 +459,8 @@ def render_convergence_tab(ts_filtered=None):
     ), row=3, col=1)
     fig.add_trace(go.Scatter(
         x=aligned_dates, y=aligned_swayam_raw, mode="lines+markers", name="Avg Signal",
-        line=dict(color=chart_rgba("slate", 0.4), width=1.2),
-        marker=dict(size=5, color=swayam_colors),
+        line=dict(color=chart_rgba("slate", 0.55), width=1.2),
+        marker=dict(size=swayam_sizes, color=swayam_colors),
     ), row=3, col=1)
     fig.add_hline(y=UI_SWAYAM_AVG_THRESHOLD, line_dash="dot", line_color=chart_rgba("rose", 0.15), line_width=0.5, row=3, col=1)
     fig.add_hline(y=-UI_SWAYAM_AVG_THRESHOLD, line_dash="dot", line_color=chart_rgba("emerald", 0.15), line_width=0.5, row=3, col=1)
@@ -477,34 +472,5 @@ def render_convergence_tab(ts_filtered=None):
     style_axes(fig, y_title="Conviction", y_range=conv_y, row=2, col=1)
     style_axes(fig, y_title="Avg Signal", y_range=swayam_y, row=3, col=1)
 
-    render_chart_panel(fig, "convergence_overlay", units="normalized · conviction · signal")
+    render_chart_panel(fig, "convergence_overlay", units="normalized · conviction · signal", window=True)
     render_note(f"{len(aligned_dates)} overlapping trading days")
-
-    # ═══════════════════════════════════════════════════════════════════════
-    # RECENT DIVERGENCES — the section the hero card's RISK row points at.
-    # The hero previously said "see the Convergence tab" while NO tab actually
-    # rendered the divergence events (a pointer to nowhere — hero-rigor pass).
-    # Shows the most recent events with dates so the reader can judge whether
-    # the flagged disagreement is current or already resolved; the hero's own
-    # count is windowed to ~DIV_LOOKBACK trading days (audit finding F7).
-    # ═══════════════════════════════════════════════════════════════════════
-    div_events = st.session_state.get("divergence_events")
-    if div_events is not None and hasattr(div_events, "empty") and not div_events.empty:
-        section_gap()
-        render_section_header(
-            "Recent Divergences",
-            "Latest cross-system disagreement events (FVO vs Swayam), most recent first. "
-            "The hero card's RISK row counts only the last ~20 trading days of these.",
-            icon="zap",
-            accent="rose",
-        )
-        _recent = div_events.tail(10).iloc[::-1].copy()
-        _cols = [c for c in ("divergence_type", "fvo_signal", "swayam_signal",
-                             "severity", "description") if c in _recent.columns]
-        render_table_panel(
-            _recent[_cols] if _cols else _recent, "conv-divergences",
-            units=f"{len(_recent)} most recent",
-            index_label="Date", max_height=360,
-            footer=f"{len(div_events)} divergence events across the full history — "
-                   f"showing the {len(_recent)} most recent.",
-        )

@@ -48,11 +48,12 @@ from core.config import (
     UI_CHART_HEIGHT_SMALL,
 )
 
-# ── Alias colors for tab-local use ────────────────────────────────────────
-EMERALD = chart_color("emerald")
-ROSE = chart_color("rose")
-VIOLET = chart_color("violet")
-SLATE = chart_rgba("slate", 0.4)
+# (Tab-local colour aliases stood here as module-level constants. They were
+# evaluated ONCE at import, when there is no session to read a theme from,
+# so every chart drawn through them was frozen to whichever theme happened
+# to be active at first import — the same import-time binding that made the
+# original COLOR_* constants unable to follow Paper mode. Colours are
+# resolved at the call site now, per render.
 
 # ── Tooltip definitions ────────────────────────────────────────────────────
 TOOLTIPS = {
@@ -203,7 +204,7 @@ def _render_ddm_conviction_chart(ts_filtered, x_axis, signal):
     ))
     fig_conv.add_trace(go.Scatter(
         x=x_axis, y=ts_filtered["ConvictionBounded"], mode="lines", name="DDM Conviction",
-        line=dict(color=SLATE, width=2),
+        line=dict(color=chart_rgba("slate", 0.4), width=1.5),
     ))
     fig_conv.add_hline(y=0, line_color=grid_rgba(0.06), line_width=0.5)
 
@@ -269,12 +270,12 @@ def _render_market_breadth_chart(ts_filtered, x_axis):
     fig_zones.add_trace(go.Scatter(
         x=x_axis, y=ts_filtered["OversoldBreadth"],
         fill="tozeroy", fillcolor=chart_rgba("emerald", 0.1),
-        line=dict(color=EMERALD, width=1.5), name="Oversold",
+        line=dict(color=chart_color("emerald"), width=1.5), name="Oversold",
     ))
     fig_zones.add_trace(go.Scatter(
         x=x_axis, y=ts_filtered["OverboughtBreadth"],
         fill="tozeroy", fillcolor=chart_rgba("rose", 0.1),
-        line=dict(color=ROSE, width=1.5), name="Overbought",
+        line=dict(color=chart_color("rose"), width=1.5), name="Overbought",
     ))
     fig_zones.add_hline(y=UI_BREADTH_HIGH, line_dash="dot", line_color=chart_rgba("amber", 0.18), line_width=0.5)
 
@@ -487,14 +488,14 @@ def _render_fair_value_chart(engine, ts_filtered, x_axis, ts, active_target):
 
     fig.add_trace(go.Scatter(
         x=x_axis, y=ts_filtered["FairValue"], mode="lines", name="Fair Value",
-        line=dict(color=VIOLET, width=1.4, dash="dot"),
+        line=dict(color=chart_color("violet"), width=1.2, dash="dot"),
         hovertemplate="%{y:.2f}<extra>Fair value</extra>",
     ), row=1, col=1)
 
     top_series = ts_filtered["Price"] if has_price else ts_filtered["Actual"]
     fig.add_trace(go.Scatter(
         x=x_axis, y=top_series, mode="lines", name=f"{active_target} Price",
-        line=dict(color=SLATE, width=1.6),
+        line=dict(color=chart_rgba("slate", 0.4), width=1.5),
     ), row=1, col=1)
 
     # ── Bottom: the mispricing gap ──
@@ -530,7 +531,7 @@ def _render_fair_value_chart(engine, ts_filtered, x_axis, ts, active_target):
         proj_dates = bdate_range(start=last_date, periods=OU_PROJECTION_DAYS + 1)[1:]
         fig.add_trace(go.Scatter(
             x=proj_dates, y=engine.ou_projection, mode="lines", name="OU Projection",
-            line=dict(color=SLATE, width=1, dash="dot"), opacity=0.5,
+            line=dict(color=chart_rgba("slate", 0.4), width=1, dash="dot"), opacity=0.5,
         ), row=2, col=1)
         if len(engine.ou_projection_upper) > 0:
             fig.add_trace(go.Scatter(x=proj_dates, y=engine.ou_projection_upper, mode="lines", line=dict(width=0), showlegend=False, hoverinfo="skip"), row=2, col=1)
@@ -540,7 +541,7 @@ def _render_fair_value_chart(engine, ts_filtered, x_axis, ts, active_target):
     style_axes(fig, y_title=f"{active_target} Price", row=1, col=1)
     style_axes(fig, y_title=bottom_title, row=2, col=1)
 
-    render_chart_panel(fig, "fvo_fairvalue", units="price · gap")
+    render_chart_panel(fig, "fvo_fairvalue", units="price · gap", window=True)
 
 
 def _render_signal_frequency_chart(ts_filtered, x_axis):
@@ -548,11 +549,11 @@ def _render_signal_frequency_chart(ts_filtered, x_axis):
     fig_signals = go.Figure()
     fig_signals.add_trace(go.Bar(
         x=x_axis, y=ts_filtered["BuySignalBreadth"], name="Buy",
-        marker=dict(color=EMERALD, opacity=0.85),
+        marker=dict(color=chart_color("emerald"), opacity=0.85),
     ))
     fig_signals.add_trace(go.Bar(
         x=x_axis, y=-ts_filtered["SellSignalBreadth"], name="Sell",
-        marker=dict(color=ROSE, opacity=0.85),
+        marker=dict(color=chart_color("rose"), opacity=0.85),
     ))
 
     fig_signals.update_layout(**chart_layout(height=UI_CHART_HEIGHT_SMALL, show_legend=False), barmode="relative")
@@ -563,7 +564,7 @@ def _render_signal_frequency_chart(ts_filtered, x_axis):
 def _render_avg_zscore_chart(ts_filtered, x_axis):
     """Section: Average Z-Score — statistical extremes across windows."""
     fig_z = go.Figure()
-    bar_colors = [EMERALD if z < -1 else ROSE if z > 1 else chart_rgba("slate", 0.75) for z in ts_filtered["AvgZ"]]
+    bar_colors = [chart_color("emerald") if z < -1 else chart_color("rose") if z > 1 else chart_rgba("slate", 0.75) for z in ts_filtered["AvgZ"]]
     fig_z.add_trace(go.Bar(x=x_axis, y=ts_filtered["AvgZ"], marker_color=bar_colors, opacity=0.85, showlegend=False))
     fig_z.add_hline(y=0, line_color=grid_rgba(0.06), line_width=0.5)
     fig_z.add_hline(y=2, line_dash="dot", line_color=chart_rgba("rose", 0.18), line_width=0.5)
@@ -678,26 +679,6 @@ def render_fvo_tab(engine, ts_filtered, x_axis, x_title, signal, model_stats, re
         accent="emerald",
     )
     _render_market_breadth_chart(ts_filtered, x_axis)
-
-    section_gap()
-
-    # ── Phase 4: STATE ─────────────────────────────────────────────────
-    render_section_header(
-        "Market State",
-        "How many windows see the market as cheap vs expensive, plus the mean-reversion regime.",
-        icon="crosshair",
-        accent="emerald",
-    )
-    _render_market_state_cards(signal, regime_stats, ts)
-
-    section_gap()
-
-    render_section_header(
-        "Current Lookback States",
-        "Per-window z-score and zone. Uniform zones = high conviction. Mixed = low conviction.",
-        icon="layers",
-    )
-    _render_lookback_states(ts_filtered)
 
     section_gap()
 
