@@ -143,11 +143,43 @@ LIGHT_TOKENS = """
     background: var(--accent) !important; color: #FFFFFF !important;
 }
 
-/* Inputs, their text, and — the easiest one to miss — their placeholders. */
+/* Inputs, their text, and — the easiest one to miss — their placeholders.
+   The select's own FACE needs claiming too: BaseWeb paints it from
+   Streamlit's dark base, so on Paper the dropdown stayed a dark well with
+   dark text while the rail around it went white. */
 .stTextInput input, .stNumberInput input, .stTextArea textarea,
 .stSelectbox [data-baseweb="select"] span,
 .stSelectbox [data-baseweb="select"] div { color: var(--ink) !important; }
 input::placeholder, textarea::placeholder { color: var(--ink-quaternary) !important; opacity: 1; }
+.stSelectbox [data-baseweb="select"] > div,
+.stTextInput input, .stNumberInput input, .stTextArea textarea {
+    background: var(--surface-1) !important;
+    border-color: var(--line-strong) !important;
+}
+.stSelectbox [data-baseweb="select"] svg { color: var(--ink-quaternary) !important; }
+/* The open menu is a portal at the document root — it inherits nothing from
+   the app, so it needs the light surface named explicitly. Selectors match
+   the RENDERED markup: the popover shell and a bare `ul` (the listbox role
+   lives on the option, not the list). */
+[data-baseweb="popover"] > div,
+[data-baseweb="popover"] ul,
+[data-baseweb="popover"] [data-baseweb="menu"] {
+    background: var(--surface-1) !important;
+    color: var(--ink) !important;
+    border-color: var(--line-strong) !important;
+}
+[data-baseweb="popover"] [role="option"] { color: var(--ink-secondary) !important; }
+[data-baseweb="popover"] [role="option"]:hover { background: var(--surface-2) !important; }
+[data-baseweb="popover"] [role="option"][aria-selected="true"] { color: var(--ink) !important; }
+/* Tooltips are portalled to the document root like the menus, and Streamlit
+   paints them from its static dark base — a black slab with white text on a
+   white page. The inner div carries the background, so both are named. */
+[data-baseweb="tooltip"], [data-baseweb="tooltip"] > div,
+[role="tooltip"], [role="tooltip"] > div {
+    background: var(--surface-3) !important;
+    color: var(--ink) !important;
+    border-color: var(--line-strong) !important;
+}
 
 /* Segmented controls and body copy. */
 [data-testid="stButtonGroup"] button { color: var(--ink-tertiary) !important; }
@@ -170,7 +202,7 @@ _CHART_THEME = {
         grid_zero="rgba(255,255,255,0.11)",
         axis_line="rgba(255,255,255,0.09)",
         tick="#737D8E",
-        spike="rgba(139,149,166,0.30)",
+        spike="rgba(139,149,166,0.22)",
     ),
     "light": dict(
         font_color="#5E6979",
@@ -181,7 +213,7 @@ _CHART_THEME = {
         grid_zero="rgba(15,23,42,0.16)",
         axis_line="rgba(15,23,42,0.12)",
         tick="#5E6979",
-        spike="rgba(15,23,42,0.24)",
+        spike="rgba(15,23,42,0.20)",
     ),
 }
 
@@ -281,14 +313,24 @@ def grid_rgba(alpha: float = 1.0) -> str:
 # have done, had a caller appeared, is reintroduce the old theme. The
 # theme-aware _chart_theme() is the single source; these are removed.)
 
+#: Legend. Two things were wrong with it.
+#: (1) Anchored at y=1.02, top-right — exactly where Plotly puts the modebar,
+#:     so the toolbar sat on top of the series names on every hover.
+#: (2) Its font dict named a size and family but NO colour, which makes Plotly
+#:     fall back to its own default ink rather than inheriting the layout font
+#:     — invisible on Paper. The colour is now supplied per theme in
+#:     chart_layout(), which is the only place that knows which theme is on.
+#: It now sits BELOW the plot, right-aligned: clear of the toolbar, clear of
+#: the y-axis, and reading as a caption to the chart rather than a header.
 PLOTLY_LEGEND = dict(
     orientation="h",
-    yanchor="bottom",
-    y=1.02,
+    yanchor="top",
+    y=-0.16,
     xanchor="right",
     x=1,
     font=dict(size=10, family="JetBrains Mono, monospace"),
     bgcolor="rgba(0,0,0,0)",
+    itemsizing="constant",
 )
 #: Plot margins. `t` is set per-figure by ``chart_layout`` — a legend anchored
 #: at y=1.02 needs room ABOVE the plot area to sit in, and the single fixed
@@ -345,12 +387,16 @@ def chart_layout(
     # Legended charts need headroom for the legend anchored above the plot
     # area; unlegended ones should not pay for it.
     _margin = dict(PLOTLY_MARGIN)
-    if not show_legend:
+    if show_legend:
+        _margin["b"] = 58        # the legend now sits under the x-axis
+    else:
         _margin["t"] = 12
     base = dict(
         height=height,
         showlegend=show_legend,
-        legend=PLOTLY_LEGEND if show_legend else None,
+        legend=({**PLOTLY_LEGEND,
+                 "font": {**PLOTLY_LEGEND["font"], "color": ct["font_color"]}}
+                if show_legend else None),
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
         font=dict(family="JetBrains Mono, monospace", color=ct["font_color"], size=10),
@@ -410,12 +456,15 @@ def style_axes(fig, y_title: str = "", x_title: str = "", y_range=None, row=None
         title_text=x_title,
         title_font=dict(**_AXIS_TITLE_FONT, color=ct["tick"]),
         tickfont=dict(**_AXIS_TICK_FONT, color=ct["tick"]),
-        # Crosshair: a hairline that spans the plot and snaps to the cursor.
+        # Crosshair. It was rendering as a hard white rule across the plot,
+        # which is the loudest mark on the panel and belongs to no part of the
+        # design system. A crosshair is a pointer, not a series: sub-pixel
+        # weight, dotted, and at the theme's own low-alpha spike colour.
         showspikes=True,
         spikemode="across",
         spikesnap="cursor",
         spikethickness=1,
-        spikedash="dot",
+        spikedash="dash",
         spikecolor=ct["spike"],
         **kw,
     )
@@ -432,17 +481,33 @@ def style_axes(fig, y_title: str = "", x_title: str = "", y_range=None, row=None
         range=y_range,
         tickfont=dict(**_AXIS_TICK_FONT, color=ct["tick"]),
         hoverformat=".2f",
-        # Horizontal crosshair too — a financial chart is read against BOTH
-        # axes, and giving only the x-axis a spike meant the y-value under the
-        # cursor had to be estimated by eye against the gridlines.
-        showspikes=True,
-        spikemode="across",
-        spikesnap="cursor",
-        spikethickness=1,
-        spikedash="dot",
-        spikecolor=ct["spike"],
+        # NO horizontal spike. A second crosshair arm doubles the ink for a
+        # reading the gridlines already give, and in `x unified` hover mode
+        # Plotly draws it as a hard opaque rule regardless of the alpha asked
+        # for — the solid white line across the plot. One dashed vertical
+        # crosshair is the whole crosshair now.
+        showspikes=False,
+        # (6) A FIXED standoff between the axis title and its tick labels.
+        # Plotly otherwise sets it from each subplot's widest tick label, so a
+        # stacked figure whose rows carry different magnitudes ("0.5" vs
+        # "-100") puts each row's y-title at a different x — the small
+        # misalignment down the left edge of the convergence chart.
+        title_standoff=14,
         **kw,
     )
+    # ── Crosshair, enforced on EVERY x-axis ──────────────────────────────
+    # This is why the white line survived three attempts to style it. The
+    # spike settings above are applied with `row=`/`col=`, which addresses one
+    # subplot's axis. On a stacked figure with `shared_xaxes=True` the visible
+    # spike is drawn from a DIFFERENT axis object than the ones being updated,
+    # so it kept Plotly's default — an opaque white rule — no matter what the
+    # per-row call said. A row-less update writes every x-axis in the figure.
+    fig.update_xaxes(
+        showspikes=True, spikemode="across", spikesnap="cursor",
+        spikethickness=1, spikedash="dot", spikecolor=ct["spike"],
+    )
+    fig.update_yaxes(showspikes=False)
+
     # Backfill a 2-decimal hover on every visible trace. style_axes runs after
     # all traces are added and right before st.plotly_chart on every chart, so
     # this is the one place that fixes hover precision for ALL plots at once.

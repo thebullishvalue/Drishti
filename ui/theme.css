@@ -266,9 +266,12 @@
     to   { transform: translate3d(-50%, 0, 0); }
 }
 
+/* Centre, not baseline: the symbol, price and change are set at different
+   sizes, so a shared baseline pushed the smaller glyphs visibly high in the
+   30px tape. */
 .tt-item {
-    display: inline-flex; align-items: baseline; gap: var(--s2);
-    font-family: var(--mono); font-size: var(--fs-xs);
+    display: inline-flex; align-items: center; gap: var(--s2);
+    font-family: var(--mono); font-size: var(--fs-xs); line-height: 1;
 }
 .tt-sym {
     color: var(--ink-secondary); font-weight: 600;
@@ -323,9 +326,10 @@
     border: 1px solid var(--line);
     border-radius: var(--r-lg);
 }
-/* `.open` = a toolbar strip is docked underneath; square off the join so the
-   two read as one chrome block rather than two stacked panels. */
-.command-bar.open { border-radius: var(--r-lg) var(--r-lg) 0 0; margin-bottom: 0; }
+/* `.open` was for a toolbar strip docked underneath. The strip is gone — the
+   window control moved into the chart panels — so the bar is always a closed
+   block. Kept as a no-op guard in case a future strip returns. */
+.command-bar.open { border-radius: var(--r-lg); margin-bottom: var(--s4); }
 .command-bar .cb-left {
     display: flex; align-items: center; gap: var(--s4);
     min-width: 0; flex-wrap: wrap;
@@ -403,6 +407,58 @@
    holds the page's LOCAL controls (timeframe, view switches). Global
    controls — instrument, data actions — stay in the rail. Keeping the two
    apart is the whole point: a control's position tells you its scope. */
+/* ── Window control, in the panel header ───────────────────────
+   The chart-window selector used to dock under the command bar as its own
+   strip. It now sits in the header of the page's primary chart, opposite the
+   context line — a control that reframes a chart, ON that chart.
+
+   The header and the control are plain SIBLINGS in this container, not
+   columns, and the container's own element IS the row — `st.container(key=…)`
+   puts the key class directly on the `stVerticalBlock`, so this is one
+   selector, not a descendant one. Both facts were learned the hard way: as
+   columns the header sat 8px below the control's centre because `stColumn`
+   computes to zero height, and the first de-columned attempt targeted a
+   descendant vertical block that does not exist, so the row never became a
+   row at all. */
+[class*="st-key-panelrow-"] {
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: var(--s4) !important;
+    padding: var(--s2) var(--s4) !important;
+    border-bottom: 1px solid var(--line);
+}
+/* The row supplies the padding and the rule, so the header inside it must
+   drop both — carrying its own 12px padding and 1px border made its content
+   41px tall inside a 25px box, and that 16px overflow IS the misalignment. */
+[class*="st-key-panelrow-"] .panel-hdr {
+    padding: 0 !important; border-bottom: none !important;
+}
+/* Neither sibling grows into the other's space horizontally: the header takes
+   what its text needs, the control stays its natural size at the right edge.
+
+   Vertically they must STRETCH, and that is the last piece of this puzzle.
+   The header's element container measures ZERO high — its 16px of text
+   overflows it — so centring the container centred nothing: the container's
+   midline landed exactly on the control's, and the text hung half its own
+   height (8px) below. Stretching both containers to the row's height and
+   centring inside them aligns the text itself, not an empty box. */
+[class*="st-key-panelrow-"] [data-testid="stElementContainer"] {
+    margin: 0 !important; width: auto !important; flex: 0 0 auto !important;
+    align-self: stretch !important; height: auto !important;
+    display: flex !important; align-items: center !important;
+}
+[class*="st-key-panelrow-"] [data-testid="stButtonGroup"] { width: fit-content; }
+/* Streamlit wraps markdown in two more boxes, and one of them collapses to
+   zero height no matter what the container above it does — stretch the
+   container and the collapse simply moves down a level. `display: contents`
+   deletes those boxes from layout so `.panel-hdr` itself becomes the flex
+   item that gets centred, and there is no intermediate box left to collapse. */
+[class*="st-key-panelrow-"] [data-testid="stMarkdown"],
+[class*="st-key-panelrow-"] [data-testid="stMarkdownContainer"] {
+    display: contents !important;
+}
+
 .toolbar-strip, .st-key-toolbar {
     padding: var(--s2) var(--s4) !important;
     background: var(--surface-1);
@@ -540,6 +596,35 @@
    a ROW of cards can be scanned for red without reading any of them.
    Flat surface + border — no blur, no stacked shadow.
    ───────────────────────────────────────────────────────────────────────── */
+/* Cards sitting side by side are the SAME height, whatever their copy runs
+   to. Streamlit columns do not stretch their children, and every level
+   between the column and the card is a plain block that shrinks to content —
+   so a card with four lines of note stood taller than one with two and the
+   row read as ragged rather than as a set.
+   Stretching only the outer column is not enough: the chain
+   column → block → elementContainer → stMarkdown → card each has to pass the
+   height down, which is why the earlier `:has()` attempt changed nothing. */
+[data-testid="stHorizontalBlock"] { align-items: stretch !important; }
+[data-testid="stColumn"] { display: flex; flex-direction: column; }
+[data-testid="stColumn"] > div,
+[data-testid="stColumn"] > div > [data-testid="stVerticalBlock"],
+[data-testid="stColumn"] [data-testid="stVerticalBlockBorderWrapper"] {
+    display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0;
+}
+/* The element container holding a card, and the markdown wrapper inside it,
+   both grow — then the card itself fills what they hand it. */
+[data-testid="stColumn"] [data-testid="stElementContainer"]:has(.metric-card),
+[data-testid="stColumn"] [data-testid="stElementContainer"]:has(.system-card) {
+    flex: 1 1 auto; display: flex; flex-direction: column;
+}
+[data-testid="stColumn"] .stMarkdown:has(.metric-card),
+[data-testid="stColumn"] .stMarkdown:has(.system-card),
+[data-testid="stColumn"] [data-testid="stMarkdownContainer"]:has(.metric-card),
+[data-testid="stColumn"] [data-testid="stMarkdownContainer"]:has(.system-card) {
+    flex: 1 1 auto; display: flex; flex-direction: column;
+}
+.metric-card, .system-card { flex: 1 1 auto; }
+
 .metric-card {
     position: relative;
     display: flex; flex-direction: column;
@@ -590,6 +675,16 @@
 
 /* Tooltip — keyboard reachable, not hover-only. The one place a shadow is
    earned: this genuinely floats above the page. */
+/* The "?" belongs in the card's top-right corner, not trailing the last
+   line of the note — inline it wrapped onto its own line and read as a stray
+   glyph in the copy. */
+.metric-card { position: relative; }
+.metric-card .metric-tooltip {
+    position: absolute; top: var(--s3); right: var(--s3);
+    color: var(--ink-quaternary);
+    transition: color var(--motion-fast) var(--ease-standard);
+}
+.metric-card .metric-tooltip:hover { color: var(--ink-tertiary); }
 .metric-tooltip { position: relative; display: inline-flex; }
 .metric-tooltip-text {
     position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 60;
@@ -722,6 +817,18 @@
 /* ─────────────────────────────────────────────────────────────────────────
    8 · INTERPRETATION & SYSTEM CARDS
    ───────────────────────────────────────────────────────────────────────── */
+/* Informative cards carry their state in the title colour and a faint tint —
+   NOT a left rule. The 2px accent bar is reserved for things that are ranked
+   or actionable (the hero's verdict, an analog's tier). On a static readout
+   it was decoration standing in for a claim. */
+.interp-card, .info-box,
+.interp-card.success, .interp-card.danger, .interp-card.warning,
+.interp-card.info, .interp-card.accent, .interp-card.neutral,
+.info-box.cyan, .info-box.amber, .info-box.emerald,
+.info-box.rose, .info-box.violet, .info-box.accent {
+    border-left-width: 1px !important;
+    border-left-color: var(--line) !important;
+}
 .interp-card, .warning-box, .info-box {
     background: var(--surface-1);
     border: 1px solid var(--line-strong);
@@ -1010,6 +1117,75 @@
    fold without scrolling. */
 [data-testid="stSidebar"] [data-testid="stVerticalBlock"] { gap: var(--s2); }
 
+/* The rail's mark, hoisted ABOVE Streamlit's page-nav.
+   Streamlit pins [data-testid="stSidebarNav"] to the top of the sidebar and
+   renders all Python content after it, so the mark cannot precede the nav in
+   the DOM. It is therefore taken out of flow and pinned to the top of the
+   sidebar's content box, which reserves the room with a padding-top. The
+   result is the intended reading order — mark, then navigation, then
+   controls — without fighting Streamlit for DOM position. */
+/* The rail's header row: mark on the left, Streamlit's collapse control on
+   the right, sharing one band. Previously the mark was pinned at top:0 and
+   Streamlit's own header (which owns the « button) sat under it, so the
+   arrow appeared stranded in empty space below the mark with no relationship
+   to anything. They are the same row now, which is what a header is. */
+[data-testid="stSidebarContent"] { position: relative; padding-top: 64px; }
+[data-testid="stSidebarHeader"] {
+    position: absolute; top: 0; right: 0; left: auto; z-index: 5;
+    height: 64px; display: flex; align-items: center; justify-content: flex-end;
+    padding: 0 var(--s3) 0 0; background: transparent; width: auto;
+}
+/* The rail is a column: the appearance switch is pinned to its FOOT, so it
+   is never wedged between the model readout and whatever follows, and the
+   rail reads top-to-bottom as identity → navigation → controls → settings. */
+[data-testid="stSidebarUserContent"] { display: flex; flex-direction: column; min-height: 0; }
+[data-testid="stSidebarUserContent"] > div { display: flex; flex-direction: column; flex: 1 1 auto; }
+[data-testid="stSidebar"] .st-key-appearance { margin-top: auto; padding-top: var(--s5); }
+/* An absolutely positioned element resolves against its nearest POSITIONED
+   ancestor. Streamlit nests every markdown block several wrappers deep, and
+   one of those carries a position — so `top: 0` landed the mark half-way down
+   the rail, on top of the first widget label, instead of at the top. Flatten
+   the chain inside the sidebar so the only positioned ancestor is the content
+   box the padding above reserves room in. */
+[data-testid="stSidebarUserContent"],
+[data-testid="stSidebarUserContent"] > div,
+[data-testid="stSidebar"] [data-testid="stVerticalBlock"],
+[data-testid="stSidebar"] [data-testid="stElementContainer"],
+[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] {
+    position: static !important;
+}
+[data-testid="stSidebar"] .nav-brand {
+    position: absolute; top: 0; left: 0; right: 0; z-index: 4;
+    height: 64px; display: flex; flex-direction: column; justify-content: center;
+    margin: 0;
+    /* 64px of right padding is the collapse control's own width. Without it
+       the tagline runs UNDER the button — "UNIFIED CONVERGENCE" was being
+       clipped mid-word by it. Sharing a row is not enough; the row has to be
+       divided. */
+    padding: 0 64px 0 var(--s5);
+    background: var(--surface-1);
+    border-bottom: 1px solid var(--line);
+    overflow: hidden;
+}
+[data-testid="stSidebar"] .nav-brand .tagline {
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* The collapse/expand chevrons are Streamlit's, drawn from its static theme —
+   near-invisible against Paper. Both the in-rail « and the page-level » that
+   appears once the rail is closed. */
+[data-testid="stSidebarHeader"] button,
+[data-testid="stSidebarCollapsedControl"] button,
+[data-testid="stExpandSidebarButton"] {
+    color: var(--ink-tertiary) !important;
+}
+[data-testid="stSidebarHeader"] button svg,
+[data-testid="stSidebarCollapsedControl"] svg,
+[data-testid="stExpandSidebarButton"] svg {
+    fill: var(--ink-tertiary) !important; color: var(--ink-tertiary) !important;
+    opacity: 1 !important;
+}
+[data-testid="stSidebarHeader"] button:hover svg,
+[data-testid="stSidebarCollapsedControl"] button:hover svg { fill: var(--ink) !important; }
 .nav-brand {
     padding: 0 0 var(--s3);
     border-bottom: 1px solid var(--line);
@@ -1173,6 +1349,48 @@
     border-radius: var(--r-md);
     padding: 2px;
     width: fit-content;
+}
+/* In the rail the control matches the selectboxes: full width, segments
+   splitting it evenly. A fit-content control under two full-width dropdowns
+   reads as a different class of thing.
+   `flex: 1 1 auto`, not `1 1 0`: a zero basis collapsed each segment to 24px
+   and clipped its label, because the group itself was not being stretched. */
+[data-testid="stSidebar"] [data-testid="stButtonGroup"] {
+    display: flex !important; width: 100% !important;
+}
+/* …and the element container Streamlit wraps it in, which is what was
+   actually capping the width. */
+[data-testid="stSidebar"] [data-testid="stElementContainer"]:has([data-testid="stButtonGroup"]),
+[data-testid="stSidebar"] [data-testid="stButtonGroup"] > div {
+    width: 100% !important;
+}
+/* The group's children are a LABEL and a div holding the buttons. A blanket
+   `> *` rule gave the label `width: 100%` — and a collapsed label is still a
+   flex item, so it consumed the whole row and left the buttons at 24px of
+   bare padding with their text clipped. The label must size to its content
+   (zero, when collapsed); only the button wrapper stretches. */
+[data-testid="stSidebar"] [data-testid="stButtonGroup"] > label {
+    flex: 0 0 auto !important; width: auto !important;
+}
+[data-testid="stSidebar"] [data-testid="stButtonGroup"] > div {
+    display: flex !important; width: 100% !important; flex: 1 1 auto !important;
+}
+/* Two things are needed, and each alone fails.
+   `flex: 1 1 0` makes the segments share the row EVENLY (an auto basis sizes
+   them to their labels and then refuses to grow, leaving dead space on the
+   right). But a zero basis also collapses the button's inner content wrapper
+   to 0 width, which clips the label and shrinks the button to bare padding.
+   So: zero basis on the button, full width on the wrapper inside it. */
+/* An explicit share, not a flex negotiation. Streamlit's own emotion rules
+   on this control refused every combination of grow/basis — the segments
+   either sized to their labels and left dead space on the right, or collapsed
+   to bare padding. The rail's control has exactly two segments (Terminal,
+   Paper), so half each is exact, and `flex: none` stops flex from
+   re-negotiating it. */
+[data-testid="stSidebar"] [data-testid="stButtonGroup"] button {
+    flex: none !important;
+    width: 50% !important; min-width: 0 !important;
+    justify-content: center;
 }
 [data-testid="stButtonGroup"] button {
     background: transparent !important;
@@ -1372,6 +1590,16 @@
     transition: color var(--motion-fast) var(--ease-standard);
 }
 .stSelectbox [data-baseweb="select"]:focus-within svg { color: var(--accent) !important; }
+/* The select is type-to-search, so it carries a real text caret. Left at the
+   browser/accent default it painted a bright blue bar next to the selected
+   value — an element the reader cannot identify. Muted to the same ink as
+   the rest of the control's furniture; still visible when typing. */
+/* No caret. Muting it was not enough — a grey I-beam parked beside the
+   selected value still reads as a stray element, because nothing in this UI
+   is an editable text field shaped like a dropdown. Typing to filter still
+   works; the typed characters are their own feedback. */
+.stSelectbox [data-baseweb="select"] input,
+.stSelectbox input { caret-color: transparent !important; }
 /* Streamlit paints a filled "clear" affordance on some selects; it reads as a
    second, louder control inside the first. */
 .stSelectbox [data-baseweb="select"] [role="button"][aria-label*="Clear"] { opacity: 0.5; }
@@ -1385,11 +1613,21 @@
    nested under .stApp cannot reach the open menu at all, and that is why the
    menu previously kept BaseWeb's own white-on-dark default styling while
    every control that opened it was themed. */
-[data-baseweb="popover"] [data-baseweb="menu"],
-[data-baseweb="popover"] ul[role="listbox"] {
+/* The menu's own surface. This previously required `ul[role="listbox"]` and
+   `[data-baseweb="menu"]` — NEITHER of which exists in the rendered markup:
+   the role sits on the `li`, not the list. So the option rows were themed
+   while the list and the popover shell behind them were not, and they fell
+   through to Streamlit's static `backgroundColor` — a dark panel under light
+   option text on Paper. Target the popover shell and the bare `ul`. */
+[data-baseweb="popover"] > div,
+[data-baseweb="popover"] ul,
+[data-baseweb="popover"] [data-baseweb="menu"] {
     background: var(--surface-2) !important;
-    border: 1px solid var(--line-strong) !important;
+    color: var(--ink) !important;
     border-radius: var(--r-md) !important;
+}
+[data-baseweb="popover"] ul {
+    border: 1px solid var(--line-strong) !important;
     box-shadow: var(--shadow-pop) !important;
     padding: var(--s1) !important;
 }
@@ -1422,7 +1660,9 @@
 
 /* Tooltips — the `help=` affordance and any BaseWeb tooltip. Dark, compact,
    mono, and bounded; BaseWeb's default is a wide white slab. */
-[data-baseweb="tooltip"] {
+[data-baseweb="tooltip"],
+[data-baseweb="tooltip"] > div,
+[role="tooltip"], [role="tooltip"] > div {
     background: var(--surface-3) !important;
     color: var(--ink) !important;
     border: 1px solid var(--line-strong) !important;
@@ -1532,6 +1772,11 @@
 .js-plotly-plot .modebar-btn.active path { fill: var(--accent) !important; }
 .js-plotly-plot .modebar-group { background: transparent !important; }
 
+/* The embedded table needs breathing room under the panel header: its own
+   sticky column-header row is opaque and was landing directly against the
+   panel's header rule, so the two read as one doubled, overlapping band. */
+[class*="st-key-panel-"] [data-testid="stIFrame"] { margin-top: var(--s2); }
+
 /* The table iframe sits flush inside its panel — the frame, radius and
    header all belong to the panel, so the embed must contribute no chrome of
    its own. This is what stops an embedded component reading as "pasted in". */
@@ -1636,6 +1881,106 @@
     text-transform: uppercase; letter-spacing: 0.14em;
     color: var(--ink-quaternary);
     margin: var(--s4) 0 var(--s2);
+}
+
+/* ── COLD START ──────────────────────────────────────────────────────────
+   A description of the product, so it is set like prose with one claim at
+   display size — not like an application chrome page. This is the only screen
+   in the app where reading comes before scanning. */
+.lede { padding: var(--s4) 0 var(--s8); max-width: 96ch; }
+.lede-claim {
+    font-family: var(--sans); font-size: 1.5rem; font-weight: 600;
+    line-height: 1.35; letter-spacing: -0.015em; color: var(--ink);
+    max-width: 52ch;
+}
+/* The muted body tier below it is gone; nothing else in .lede may be set in
+   ink so faint it has to be hunted for. */
+.lede-body {
+    margin-top: var(--s5);
+    font-family: var(--sans); font-size: var(--fs-md); line-height: 1.75;
+    color: var(--ink-tertiary); max-width: 82ch;
+}
+.lede-cta {
+    margin-top: var(--s5); padding-top: var(--s4);
+    border-top: 1px solid var(--line);
+    font-family: var(--mono); font-size: var(--fs-xs);
+    letter-spacing: 0.06em; color: var(--ink-secondary);
+}
+.lede-cta strong { color: var(--accent); font-weight: 700; }
+
+/* Three figures that make the claim concrete. Numbers at display size,
+   because on this page they ARE the argument. */
+.fact-row {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--s6);
+    padding: var(--s6) 0 var(--s8);
+    border-bottom: 1px solid var(--line); margin-bottom: var(--s6);
+}
+.fact .f-n {
+    font-family: var(--mono); font-size: var(--fs-3xl); font-weight: 600;
+    letter-spacing: -0.03em; color: var(--ink); line-height: 1;
+}
+.fact .f-l {
+    margin-top: var(--s2);
+    font-family: var(--mono); font-size: var(--fs-2xs); font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.14em; color: var(--ink-quaternary);
+}
+.fact .f-d {
+    margin-top: var(--s3);
+    font-family: var(--sans); font-size: var(--fs-sm); line-height: 1.6;
+    color: var(--ink-tertiary); max-width: 34ch;
+}
+
+/* What the run hands back. Four statements, not four cards — this is the
+   close of an argument, and boxing it would make it a feature list. */
+.outcome-grid {
+    display: grid; grid-template-columns: repeat(2, 1fr);
+    gap: var(--s5) var(--s8);
+    margin-top: var(--s8); padding-top: var(--s6);
+    border-top: 1px solid var(--line);
+}
+.outcome .o-t {
+    font-family: var(--sans); font-size: var(--fs-md); font-weight: 650; color: var(--ink);
+}
+.outcome .o-d {
+    margin-top: var(--s2);
+    font-family: var(--sans); font-size: var(--fs-sm); line-height: 1.65;
+    color: var(--ink-tertiary); max-width: 52ch;
+}
+@media (max-width: 900px) {
+    .fact-row, .outcome-grid { grid-template-columns: 1fr; }
+    .lede-claim { font-size: 1.25rem; }
+}
+
+/* The cold-start run breakdown: a numbered list of phases with a duration
+   each. Same key/value grammar as every other readout in the app — number,
+   name, description, figure — so it belongs to the page it opens. */
+.phase-list {
+    border: 1px solid var(--line); border-radius: var(--r-lg);
+    background: var(--surface-1); overflow: hidden;
+}
+.phase-row {
+    display: grid;
+    grid-template-columns: 34px 130px 1fr auto;
+    align-items: baseline; gap: var(--s3);
+    padding: var(--s3) var(--s4);
+    border-bottom: 1px solid var(--line-faint);
+    font-family: var(--mono); font-size: var(--fs-xs);
+}
+.phase-row:last-child { border-bottom: none; }
+.phase-row .ph-n {
+    color: var(--ink-quaternary); font-weight: 700; letter-spacing: 0.08em;
+}
+.phase-row .ph-name {
+    color: var(--ink); font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.1em; font-size: var(--fs-2xs);
+}
+.phase-row .ph-desc { font-family: var(--sans); color: var(--ink-tertiary); }
+.phase-row .ph-time {
+    color: var(--ink-quaternary); font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+@media (max-width: 720px) {
+    .phase-row { grid-template-columns: 28px 1fr auto; }
+    .phase-row .ph-desc { grid-column: 2 / -1; }
 }
 
 /* Key/value rows in a panel (FVO's per-lookback zone readout). Same grammar

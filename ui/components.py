@@ -233,6 +233,7 @@ def panel(
     meta: str = "",
     chip: "tuple[str, str] | None" = None,
     footer: str = "",
+    window: bool = False,
 ):
     """Context manager wrapping any content in the shared panel chrome.
 
@@ -243,7 +244,20 @@ def panel(
     system rather than sitting on the page unframed.
     """
     with st.container(key=f"panel-{key}"):
-        render_panel_header(title, context=context, meta=meta, chip=chip)
+        if window:
+            # A widget cannot live inside the header's HTML string, so the
+            # header and the control are emitted as two siblings of one
+            # container, and `.st-key-panelrow-*` turns that container's
+            # vertical block into a centred row. Columns were the obvious
+            # choice here and the wrong one: `stColumn` computes to zero
+            # height, so the header hung 8px off the control's centre line and
+            # no amount of override CSS pulled it back. Siblings in a single
+            # flex row centre against each other by construction.
+            with st.container(key=f"panelrow-{key}"):
+                render_panel_header(title, context=context, meta=meta, chip=chip)
+                render_window_control(key)
+        else:
+            render_panel_header(title, context=context, meta=meta, chip=chip)
         yield
         if footer:
             st.markdown(f'<div class="panel-foot">{footer}</div>', unsafe_allow_html=True)
@@ -275,6 +289,7 @@ def render_chart_panel(
     meta: str = "",
     chip: "tuple[str, str] | None" = None,
     footer: str = "",
+    window: bool = False,
 ) -> None:
     """Render a Plotly figure inside the shared panel chrome.
 
@@ -292,8 +307,32 @@ def render_chart_panel(
     """
     from ui.theme import PLOTLY_CONFIG   # local: avoids a circular import
     ctx = default_chart_context(units) if context is None else context
-    with panel(key, title, context=ctx, meta=meta, chip=chip, footer=footer):
+    with panel(key, title, context=ctx, meta=meta, chip=chip, footer=footer,
+               window=window):
         st.plotly_chart(fig, width="stretch", key=f"chart-{key}", config=PLOTLY_CONFIG)
+
+
+def render_window_control(key: str = "window") -> None:   # noqa: ARG001
+    """The chart-window selector, rendered inside a panel header.
+
+    It used to sit in a toolbar strip docked under the command bar — page
+    chrome, physically distant from the thing it changes. A control that
+    reframes a chart belongs ON that chart, so it now renders in the panel
+    header, right-aligned opposite the panel's context line.
+
+    All charts on a page share one window, so exactly one panel per page
+    carries the control (``render_chart_panel(..., window=True)``). It writes
+    the shared ``tf_selected`` key that the page's series filtering reads.
+    """
+    from core.config import TIMEFRAME_TRADING_DAYS
+    options = list(TIMEFRAME_TRADING_DAYS) + ["ALL"]
+    if st.session_state.get("tf_selected") not in options:
+        st.session_state["tf_selected"] = "6M"
+    st.segmented_control(
+        "Window", options, key="tf_selected", label_visibility="collapsed",
+        help="Chart window. Applies to every plot on this page; the engines "
+             "always fit on the full history.",
+    )
 
 
 def render_loading_skeleton(
@@ -329,6 +368,7 @@ def render_table_panel(
     meta: str = "",
     chip: "tuple[str, str] | None" = None,
     footer: str = "",
+    window: bool = False,
     **table_kwargs,
 ) -> None:
     """Render a DataFrame inside the shared panel chrome.
@@ -344,7 +384,8 @@ def render_table_panel(
     Remaining kwargs still pass through to the table renderer.
     """
     ctx = default_chart_context(units) if context is None else context
-    with panel(key, title, context=ctx, meta=meta, chip=chip, footer=footer):
+    with panel(key, title, context=ctx, meta=meta, chip=chip, footer=footer,
+               window=window):
         render_data_table(df, **table_kwargs)
 
 
@@ -1418,7 +1459,10 @@ def render_data_table(
     body {{ font-family:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
             background:transparent; color:{t['ink_primary']};
             font-variant-numeric:tabular-nums; font-feature-settings:"tnum" 1,"zero" 1; }}
-    .tt-scroll {{ max-height:{max_height}px; overflow:auto;
+    /* A hair of top padding so the sticky header cannot sit flush against
+       the panel header rendered directly above this iframe — the two read as
+       one doubled, overlapping header row without it. */
+    .tt-scroll {{ padding-top:2px; max-height:{max_height}px; overflow:auto;
                   scrollbar-width:thin; scrollbar-color:{t['ink_tertiary']} transparent; }}
     .tt-scroll::-webkit-scrollbar {{ width:9px; height:9px; }}
     .tt-scroll::-webkit-scrollbar-track {{ background:transparent; }}
