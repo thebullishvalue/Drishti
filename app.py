@@ -86,8 +86,9 @@ from ui.components import (
     section_gap,
     render_section_header,
     render_kpi_strip,
+    render_nav_brand,
+    render_warning_box,
     render_top_bar,
-    render_empty_state,
     render_notice_rail,
     render_rail_readout,
 )
@@ -275,30 +276,51 @@ _SYSTEM_PANELS = (
 
 
 def _render_landing_page() -> None:
-    """Cold start \u2014 what to do, then what the machine does.
+    """Cold start — a description of the product, not a form waiting on you.
 
-    The action comes FIRST. This screen used to open with three descriptive
-    cards and put "pick a target and press Run" underneath them, which is the
-    wrong way round for a screen whose entire job is to get one click out of
-    the reader: the instruction sat below three paragraphs of method they
-    have no reason to read yet.
+    The previous version was a stack of section headers ("Session",
+    "Coverage", "Method", "The Run") wrapped around an empty state whose
+    headline was "No session loaded". It told a first-time reader nothing
+    about what the thing IS, and told a returning one only that they had not
+    pressed a button yet. Both already know.
+
+    This states the claim first, in the product's own words, then supports it:
+    the proposition, the three numbers that make it concrete, what each system
+    contributes, and what you get back. The instruction to press Run is a
+    single line under the proposition, not a panel demanding attention.
     """
-    render_empty_state(
-        "No session loaded",
-        "Choose an <strong>asset class</strong> and a <strong>target</strong> in the control rail "
-        "\u2014 commodities, FX, India &amp; US indices, sector ETFs, or any listed stock \u2014 then "
-        "run the analysis. One fetch pulls ~9 years of the global macro universe; both engines "
-        "and the convergence layer fit on it.",
-        eyebrow="Session",
-        action_label="Control rail \u2192 Instrument \u2192 Run Analysis",
+    from core.config import TARGET_CATEGORIES, ALL_TARGETS
+
+    _n_cat, _n_tgt = len(TARGET_CATEGORIES), len(ALL_TARGETS)
+
+    # ── The proposition ───────────────────────────────────────────────────
+    st.markdown(
+        """<div class="lede">
+  <div class="lede-claim">Two independent systems price the same instrument,
+    and a third measures how much their agreement has actually been worth.</div>
+  <div class="lede-cta">Pick an asset class and a target in the rail, then
+    <strong>Run Analysis</strong>.</div>
+</div>""",
+        unsafe_allow_html=True,
     )
-    section_gap()
-    render_section_header(
-        "Method",
-        "Two systems reach a conclusion independently; a third scores how far they agree "
-        "and how much that agreement has historically been worth.",
-        icon="layers",
+
+    # ── The three numbers that make it concrete ───────────────────────────
+    st.markdown(
+        f"""<div class="fact-row">
+  <div class="fact"><div class="f-n">{_n_cat}</div><div class="f-l">Asset classes</div>
+    <div class="f-d">Commodities, FX, India &amp; US indices, sector ETFs, and any
+      listed stock by symbol</div></div>
+  <div class="fact"><div class="f-n">{_n_tgt}</div><div class="f-l">Catalogue targets</div>
+    <div class="f-d">Each with its own tuned engine configuration — horizon, filter,
+      breadth tier, precedent term structure</div></div>
+  <div class="fact"><div class="f-n">~9y</div><div class="f-l">Daily history per run</div>
+    <div class="f-d">Walk-forward throughout; every score is out-of-sample with
+      respect to everything after it</div></div>
+</div>""",
+        unsafe_allow_html=True,
     )
+
+    # ── What each system contributes ──────────────────────────────────────
     cols = st.columns(3, gap="small")
     for col, (cls, eyebrow, name, kicker, body, specs) in zip(cols, _SYSTEM_PANELS):
         spec_rows = "".join(
@@ -317,6 +339,25 @@ def _render_landing_page() -> None:
                 f"</div>",
                 unsafe_allow_html=True,
             )
+
+    # ── What you get back ─────────────────────────────────────────────────
+    _out = (
+        ("A directional claim", "One verdict, with the six gates that condition it and "
+                                "the single binding constraint named."),
+        ("A measured edge", "Walk-forward IC across expanding windows — the honest "
+                            "answer to whether this has paid before."),
+        ("An independent check", "A non-parametric base rate from the most similar "
+                                 "historical states, which does not depend on the models."),
+        ("The evidence", "Every series, weight and diagnostic behind the verdict, "
+                         "exportable."),
+    )
+    st.markdown(
+        '<div class="outcome-grid">'
+        + "".join(f'<div class="outcome"><div class="o-t">{t}</div>'
+                  f'<div class="o-d">{d}</div></div>' for t, d in _out)
+        + "</div>",
+        unsafe_allow_html=True,
+    )
 
 
 def _compute_hero_verdict(nishkarsh_norm, agreement, fvo_signal) -> dict:
@@ -464,6 +505,28 @@ def _render_model_passport_sidebar(current_universe: str, current_index: str | N
     render_rail_readout(rows)
 
 
+#: The DURABLE record of the appearance choice — a plain session key, never a
+#: widget key.
+#:
+#: This distinction is the whole fix for the theme flipping back on its own.
+#: Streamlit garbage-collects the state of any widget that was NOT instantiated
+#: during a run. The appearance control lives at the bottom of the rail, so
+#: every run that returns or reruns before reaching it — clicking Run Analysis
+#: (which calls st.rerun() from inside the button handler), switching target,
+#: Reset, Refresh — discarded `theme_mode` entirely. The next run then found no
+#: value and fell back to Terminal. That is why Paper survived idle reruns but
+#: died on exactly the actions that matter, and why it looked "entirely buggy"
+#: rather than simply broken.
+#:
+#: A plain key is never collected, so it survives every one of those paths.
+_THEME_CHOICE = "theme_choice"
+
+
+def theme_choice() -> str:
+    """The appearance the user last chose: "Terminal" or "Paper"."""
+    return st.session_state.get(_THEME_CHOICE, "Terminal")
+
+
 def _render_appearance_control() -> None:
     """The theme switch — LAST control in the rail, deliberately.
 
@@ -476,19 +539,27 @@ def _render_appearance_control() -> None:
     branch returns before the second pass exists, so the key is instantiated
     once either way.
     """
+    _box = st.container(key="appearance")
+    with _box:
+        _render_appearance_body()
+
+
+def _render_appearance_body() -> None:
+    """The switch itself. Split out so the keyed container above can be
+    pinned to the foot of the rail by CSS."""
     st.markdown('<div class="sidebar-title">Appearance</div>', unsafe_allow_html=True)
     _mode = st.segmented_control(
         "Appearance", ["Terminal", "Paper"], key="theme_mode",
-        default="Terminal", label_visibility="collapsed",
+        default=theme_choice(), label_visibility="collapsed",
         help="Terminal — dark, for working. Paper — light, for reading and print.",
     )
-    # The derived `theme` key is set at the TOP of main() from this widget's
-    # own key, so the whole script agrees on one value for the whole run.
-    # Nothing is written here: doing so would apply the change half-way down
-    # the page, which is the bug that made Paper mode render as a mix of both
-    # themes. A deselect (segmented controls allow one) leaves `theme_mode`
-    # None, which the top-of-main resolver reads as Terminal.
-    _ = _mode
+    # Mirror the widget into the DURABLE key, and rerun so the stylesheet at
+    # the top of main() is re-injected with the new value. Without the rerun
+    # the change would land half-way down the page and the run would render
+    # as a mix of both themes.
+    if _mode is not None and _mode != theme_choice():
+        st.session_state[_THEME_CHOICE] = _mode
+        st.rerun()
 
 
 def _render_footer() -> None:
@@ -527,13 +598,11 @@ def main():
     # "some elements show up, some do not". The theme was always one rerun
     # behind, and within that rerun it was applied inconsistently.
     #
-    # Streamlit restores widget state before the script body runs, so
-    # `theme_mode` is already correct here on the very first rerun after a
-    # click. Deriving `theme` from it at the top makes the whole script —
+    # Read the DURABLE choice, not the widget key: the widget's state is
+    # discarded by Streamlit on any run that does not reach it (see
+    # _THEME_CHOICE). Deriving `theme` here, first, makes the whole script —
     # CSS, charts, tables, iframes — agree on one value for the whole run.
-    st.session_state["theme"] = (
-        "light" if st.session_state.get("theme_mode") == "Paper" else "dark"
-    )
+    st.session_state["theme"] = "light" if theme_choice() == "Paper" else "dark"
     inject_css(theme=st.session_state["theme"])
 
     # Replay dynamic stock-target registration on every rerun. register_stock_target
@@ -569,14 +638,14 @@ def main():
     # behavior, not call order — so this content renders below it.
     # ──────────────────────────────────────────────────────────────────────
     with st.sidebar:
-        # NO brand block here. Streamlit pins its page-nav to the top of the
-        # sidebar, so a mark rendered from Python lands BELOW the nav and
-        # above the controls — wedged between two dense stacks, which is
-        # exactly where it was. The mark already sits at the top-left of the
-        # command bar on every page, and on the cold-start screen the
-        # masthead carries it; a third copy, cramped, was the worst of the
-        # three. `render_nav_brand` stays in ui.components for the rail
-        # header on any future non-Streamlit-nav layout.
+        # The mark, always at the very top of the rail. Streamlit pins its
+        # page-nav to the top of the sidebar and nothing rendered from Python
+        # can precede it in the DOM — so the brand is emitted here (in the
+        # pass that always runs, cold start included) and lifted above the nav
+        # by CSS: `.nav-brand` is absolutely positioned against the sidebar
+        # content box, which reserves room for it with a padding-top. That is
+        # why it no longer sits wedged between the nav and the controls.
+        render_nav_brand()
         st.markdown('<div class="sidebar-title">Instrument</div>', unsafe_allow_html=True)
 
         # Two-level selection: Asset Class → Target. Keeps the growing target
@@ -722,6 +791,27 @@ def main():
         with st.sidebar:
             _render_appearance_control()
         _render_header()
+        # A session that HAD a run and no longer has its data is a different
+        # state from a cold start, and it must not be shown as one. It happens
+        # when the server drops session_state under memory pressure — routine
+        # on Streamlit Community Cloud, where the results cache holds up to six
+        # full pipeline results. The symptom was an app that "went back to the
+        # landing page with the rail still looking loaded, and clicking did
+        # nothing": the rail read `run_analysis` and drew itself as live, while
+        # the page had no frame to render and every control pointed at state
+        # that was gone. Say so, and offer the one action that fixes it.
+        if st.session_state.get("run_analysis") and "data" not in st.session_state:
+            render_warning_box(
+                title="Session data expired",
+                content=("This session had a completed run, but its fetched data is no "
+                         "longer in memory — the server dropped it, which happens on "
+                         "hosted deployments when memory is reclaimed. Nothing is lost "
+                         "except the cached frames. Run the analysis again to rebuild "
+                         "them."),
+            )
+            # Drop the stale flag so the rail stops advertising a live session.
+            for _k in ("run_analysis", "engine_cache", "results_cache"):
+                st.session_state.pop(_k, None)
         _render_landing_page()
         _render_footer()
         return
@@ -771,31 +861,26 @@ def main():
         st.session_state["active_features"] = tuple(available)
         st.session_state["active_date_col"] = date_col
 
-        # Source readout — what the run is actually reading, as data. This was
-        # two wrapped sentences of grey prose; the facts are identical and the
-        # rows are scannable against each other, which sentences never are.
-        st.markdown('<div class="sidebar-title">Source</div>', unsafe_allow_html=True)
-        _src_rows = [("Panel", f"{len(available)}", "accent")]
-        if _excluded:
-            _src_rows.append(("Excluded", f"{len(_excluded)}", ""))
-        _src_rows.append(("Breadth", "Self-ref bank", ""))
-        render_rail_readout(_src_rows)
+
+        # ── Model Passport ─────────────────────────────────────────────
+        # Surfaces the learned dimension weights + walk-forward read. (Each
+        # target used to key its own persisted profile here — see
+        # _intel_index below).
+        _current_universe = st.session_state.get("active_target") or st.session_state.get("selected_commodity", "Gold")
+        _current_index = st.session_state.get("nishkarsh_index", _current_universe)
+        _render_model_passport_sidebar(_current_universe, _current_index)
 
         if "run_analysis" in st.session_state and st.session_state.get("run_analysis"):
             st.markdown('<div class="sidebar-title">Session</div>', unsafe_allow_html=True)
-            _act_l, _act_r = st.columns(2, gap="small")
-            # Reset and Refresh are the same KIND of action (throw work away and
-            # redo it) differing only in whether the network is involved, so
-            # they sit side by side rather than stacked — stacked, the second
-            # read as a consequence of the first.
-            with _act_l:
-                _do_reset = st.button("Reset", type="secondary", width="stretch",
-                                      help="Re-run both engines on the data already in "
-                                           "session — no network fetch. Fast.")
-            with _act_r:
-                _do_refresh = st.button("Refresh", type="secondary", width="stretch",
-                                        help="Force-fetch the live universe, then recompute. "
-                                             "Slower; use when the data is stale or partial.")
+            # One per row, each stretched to the rail width — the same shape as
+            # the selectboxes above them. Side by side they were half-width
+            # against full-width controls, and "Refresh" broke mid-word.
+            _do_reset = st.button("Reset", type="secondary", width="stretch",
+                                  help="Re-run both engines on the data already in "
+                                       "session — no network fetch. Fast.")
+            _do_refresh = st.button("Refresh", type="secondary", width="stretch",
+                                    help="Force-fetch the live universe, then recompute. "
+                                         "Slower; use when the data is stale or partial.")
             if _do_reset:
                 st.session_state.pop("data", None)
                 st.session_state.pop("engine", None)
@@ -848,14 +933,6 @@ def main():
                     for _k in [k for k in list(st.session_state) if str(k).startswith(_prefix)]:
                         st.session_state.pop(_k, None)
                 st.rerun()
-
-        # ── Model Passport ─────────────────────────────────────────────
-        # Surfaces the learned dimension weights + walk-forward read. (Each
-        # target used to key its own persisted profile here — see
-        # _intel_index below).
-        _current_universe = st.session_state.get("active_target") or st.session_state.get("selected_commodity", "Gold")
-        _current_index = st.session_state.get("nishkarsh_index", _current_universe)
-        _render_model_passport_sidebar(_current_universe, _current_index)
 
         _render_appearance_control()
 
@@ -2057,16 +2134,12 @@ def main():
     # spent on a signpost — and it pointed at a rail that is open by default
     # and self-evidently a control rail. Removed rather than restyled.)
 
-    # ─── Timeframe — the one LOCAL control, and it lives in the toolbar ─────
-    # Read here (the filtered series below needs it) but RENDERED by the page
-    # shell, docked under the command bar. Reading state up here and drawing
-    # the widget down there is safe and is the standard Streamlit pattern: a
-    # widget interaction reruns the script, so session_state already holds the
-    # new value by the time this line executes.
-    #
-    # It was previously seven full-width st.buttons spanning the page above
-    # the command bar — the single most generic-looking element in the app,
-    # given more visual weight than the instrument itself.
+    # ─── Timeframe — read here, RENDERED in a chart panel header ───────────
+    # Read here (the filtered series below needs it) but RENDERED inside the
+    # panel header of each page's primary chart. Reading state up here and
+    # drawing the widget further down is safe and is the standard Streamlit
+    # pattern: a widget interaction reruns the script, so session_state
+    # already holds the new value by the time this line executes.
     #
     # Derived from TIMEFRAME_TRADING_DAYS (core/config.py) rather than a
     # second hard-coded {3M:63, 6M:126, ...} literal — the two used to drift
@@ -2124,16 +2197,17 @@ def main():
     except Exception:
         pass
 
-    def _top_bar(*, toolbar: bool = True) -> None:
+    def _top_bar(*, toolbar: bool = False) -> None:
         """The page shell, identical on every page.
 
         Order is fixed and means something: the TAPE (the world) sits above
-        the COMMAND BAR (this instrument), which sits above the TOOLBAR (the
-        controls that change what you are looking at), which sits above the
-        NOTICE RAIL (the caveats on all of it). Page content follows. Every
-        page opens the same way, so the eye learns one layout instead of
-        seven, and nothing that qualifies a reading can appear above the
-        reading itself.
+        the COMMAND BAR (this instrument), which sits above the NOTICE RAIL
+        (the caveats on it). Page content follows.
+
+        The chart-window control used to dock here as a toolbar strip. It has
+        moved into the panel header of each page's primary chart — a control
+        that reframes a chart belongs on that chart, not in page chrome three
+        elements above it.
         """
         render_ticker(data)
         render_top_bar(
@@ -2146,18 +2220,6 @@ def main():
             ],
             open_strip=toolbar,
         )
-        if toolbar:
-            with st.container(key="toolbar"):
-                _tb_l, _tb_r = st.columns([1, 7], vertical_alignment="center")
-                with _tb_l:
-                    st.markdown('<div class="tb-label">Window</div>', unsafe_allow_html=True)
-                with _tb_r:
-                    st.segmented_control(
-                        "Window", list(TIMEFRAMES), key="tf_selected",
-                        label_visibility="collapsed",
-                        help="Chart window. Applies to every plot on the page; "
-                             "the engines always fit on the full history.",
-                    )
         render_notice_rail(_notices)
 
     # Error boundary wrapper — unchanged from the previous per-tab dispatch,
@@ -2271,10 +2333,13 @@ def main():
 
     pages = {
         "": [st.Page(_page_overview, title="Overview", icon=":material/dashboard:", default=True)],
+        # Convergence leads: it is the read that combines the other two, so it
+        # is the one a returning user opens first. FVO and Swayam follow as
+        # its inputs, Precedent as the independent check on all three.
         "Engines": [
+            st.Page(_page_convergence, title="Convergence", icon=":material/merge_type:"),
             st.Page(_page_fvo, title="FVO", icon=":material/monitoring:"),
             st.Page(_page_swayam, title="Swayam", icon=":material/hub:"),
-            st.Page(_page_convergence, title="Convergence", icon=":material/merge_type:"),
             st.Page(_page_precedent, title="Precedent", icon=":material/history:"),
         ],
         "System": [

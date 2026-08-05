@@ -134,6 +134,38 @@ Sections used: **Added · Changed · Deprecated · Removed · Fixed · Security 
   progress bar's inline `box-shadow: 0 0 10px` glow — on the element every
   user watches for a full minute — deleted.
 
+- **UI: the rail, the landing page, and where controls live.** The mark is
+  pinned above Streamlit's page-nav (which cannot be preceded in the DOM, so
+  it is positioned against the sidebar content box). Rail order is now
+  Instrument → Model → Session → Appearance; the Source readout is gone and
+  Session's actions are stacked full-width like the selectboxes above them.
+  Navigation leads with Convergence, the read that combines the other two.
+  The chart-window control has left the page chrome and now renders in the
+  panel header of each page's primary chart. The cold-start screen gained a
+  counted Coverage strip and a five-phase run breakdown with durations, so a
+  three-minute first run is expected rather than discovered. Removed outright:
+  the Recent Divergences table, FVO's Market State and Current Lookback
+  States, Swayam's ensemble blurb, Precedent's prediction-history section, and
+  the calibrated-model overlay — a second line making the same claim as the
+  consensus, in the one colour reserved for interaction.
+
+- **UI: alignment and legibility, measured rather than asserted.** The panel
+  header holding the window control was built from two columns, and its text
+  sat 8px below the control's centre line. Columns were the wrong primitive:
+  `stColumn` computes to zero height, so centring the column centred an empty
+  box while the text hung half its own height below it — and every override
+  aimed at the column chain either did nothing or collapsed it outright. The
+  header and the control are now siblings in one flex row, Streamlit's markdown
+  wrappers are removed from layout with `display: contents` so no intermediate
+  box can collapse, and the header no longer carries the padding and border the
+  row already supplies. Also in this pass: the rail's collapse chevrons are
+  drawn in app ink (near-invisible against Paper before, now 4.9:1); the brand
+  reserves the chevron's width so the tagline is no longer clipped mid-word;
+  the selectbox's text caret is hidden, since nothing here is an editable field
+  shaped like a dropdown; help tooltips follow the active theme through their
+  BaseWeb portal; and axis titles, tick labels and trace colours resolve per
+  render instead of at import, so both themes get their own palette.
+
 ### Added
 - **`research/test_reproducibility.py` — the non-repainting guarantee, asserted.**
   Runs the system on `data[:T]` and `data[:T-250]` and requires exact agreement
@@ -161,6 +193,41 @@ Sections used: **Added · Changed · Deprecated · Removed · Fixed · Security 
 - `optuna` from `requirements.txt` — nothing imports it any more.
 
 ### Fixed
+- **Paper mode reset itself on every action that mattered.** The appearance
+  choice lived in `theme_mode` — a WIDGET key — and Streamlit garbage-collects
+  the state of any widget not instantiated during a run. The control sits at
+  the bottom of the rail, so every path that returns or reruns before reaching
+  it (Run Analysis, which calls `st.rerun()` from inside its own handler;
+  target switch; Reset; Refresh) discarded the value, and the next run fell
+  back to Terminal. That is why Paper survived idle reruns but died on exactly
+  the actions a user takes, and why it read as "entirely buggy" rather than
+  simply broken. The choice now lives in a plain session key, which is never
+  collected. Verified surviving Run Analysis, a window change and Reset.
+- **A session that lost its data pretended to be a cold start.** When the
+  server drops `session_state` under memory pressure — routine on Community
+  Cloud, where the results cache holds up to six full pipeline results — the
+  app fell back to the landing page while the rail still read `run_analysis`
+  and drew itself as live. Every control then pointed at state that was gone,
+  which is the "sidebar looks loaded but clicking does nothing" report. The
+  state is now detected and named, and the stale flag cleared.
+- **Tab-local colour aliases were frozen at import.** `EMERALD = chart_color(...)`
+  and friends were module-level constants, evaluated once when there is no
+  session to read a theme from — the same import-time binding that stopped the
+  original `COLOR_*` constants following Paper mode, reintroduced by the sweep
+  that removed them. Inlined to their call sites, with a static check that now
+  asserts no theme-resolving call runs at module scope.
+- **The chart crosshair drew as a solid white rule.** At 1px `across` it was
+  the loudest mark on the panel and belonged to no part of the design system.
+  Now 0.5px, dotted, at the theme's own low-alpha spike colour.
+- **The legend sat under the plot toolbar and was invisible on Paper.** It was
+  anchored top-right, exactly where Plotly puts the modebar, and its font dict
+  named a size and family but no colour — so Plotly used its own default ink
+  rather than inheriting the layout font. Moved below the plot, right-aligned,
+  with the colour supplied per theme.
+- **Stacked-subplot y-axis titles did not align.** Plotly derives the title
+  standoff from each subplot's widest tick label, so rows carrying different
+  magnitudes ("0.5" vs "-100") put their titles at different x. Fixed
+  standoff; the three convergence titles now share one left edge.
 - **Paper (light) mode was applied one rerun late, and half-applied within
   that rerun.** `inject_css()` runs first in `main()`, but the derived `theme`
   key was written by the appearance control far down the sidebar — so on the
