@@ -29,9 +29,29 @@
 #     `display: contents`. None of that is public API. It was measured against
 #     1.51.0; a frontend rewrite would silently un-style the app.
 #
-# Raising this ceiling is a deliberate upgrade, not a version bump: re-run the
-# UI verification against the new build before shipping it.
-streamlit>=1.51.0,<1.53.0
+# PINNED EXACTLY, and it has to be — this package is a UI contract, not a
+# dependency with a floor.
+#
+# A range is what caused a live bug. The ceiling `<1.53.0` still admitted
+# 1.52.x, so a local run on 1.51.0 and a Streamlit Cloud deploy on 1.52.2 were
+# two different frontends: 1.52 inserts an anonymous `display: flex;
+# flex-direction: row` div between `stMarkdown` and `stMarkdownContainer`, and
+# every rule in theme.css that repairs Streamlit's collapsing wrappers lands
+# somewhere different because of it. The landing page's system panels rendered
+# with their copy beside their spec rows at half width each, and the rail's
+# group labels overlapped the controls under them. Nothing was wrong with the
+# CSS; it had been measured against a frontend that was not the one served.
+#
+# 1.52.2 and not 1.51.0, which is the version the design system was originally
+# measured against, because 1.51 CANNOT run on Streamlit Cloud: it requires
+# `pyarrow<22`, and pyarrow only publishes cp314 wheels from 22.0.0, while
+# Cloud is on Python 3.14. The deployable floor is therefore 1.52.0, and the
+# UI is now measured against 1.52.2 instead.
+#
+# Develop on this exact version too. `pip install -r requirements.txt` gives it
+# to you; a local interpreter on a different Streamlit is how this bug reached
+# production in the first place.
+streamlit==1.52.2
 # Belt and braces, inert under the ceiling above: on Tornado, Streamlit never
 # imports Starlette, so this only installs ~1MB of unused package. It earns its
 # place the day someone raises that ceiling — it caps Starlette below 1.4.0 and
