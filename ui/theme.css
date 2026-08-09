@@ -214,6 +214,16 @@
     outline-offset: 2px;
     border-radius: var(--r-sm);
 }
+/* …except the selectbox's own input, which is a 2px-wide type-to-search field
+   BaseWeb hides beside the value. A 2px ring with a 2px offset around a 2px x
+   22px box is not a focus indicator, it is a blue pill floating next to the
+   text — which is exactly what it looked like. Focus is not lost: the control
+   around it takes the accent border on `:focus-within`, so the keyboard user
+   still sees where they are, on a box they can actually see. */
+.stApp .stSelectbox input:focus-visible,
+.stApp .stSelectbox input:focus {
+    outline: none !important;
+}
 
 ::-webkit-scrollbar { width: 9px; height: 9px; }
 ::-webkit-scrollbar-track { background: transparent; }
@@ -550,6 +560,35 @@
    19px cap height (the icon sat ~3px high), and the description inherited
    the title's left edge only by accident of the grid. The two-row grid below
    states both relationships instead of relying on them. */
+/* ── Outcome grid ─────────────────────────────────────────────────────────
+   Four static cards, drawn as one grid of plain divs rather than four
+   Streamlit containers. They carry the panel's own surface, hairline and
+   radius, so they belong to the same system — what they do NOT carry is a
+   Streamlit wrapper that collapses shorter than its content and clips the
+   last line off. `1fr` columns and `stretch` rows make the four uniform by
+   construction instead of by each one happening to size the same. */
+.outcome-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr));
+    gap: var(--s4);
+    align-items: stretch;
+}
+.outcome {
+    background: var(--surface-1);
+    border: 1px solid var(--line);
+    border-radius: var(--r-lg);
+    padding: var(--s4);
+    display: flex; flex-direction: column; gap: var(--s2);
+}
+.outcome .o-t {
+    font-family: var(--sans); font-size: var(--fs-md); font-weight: 650;
+    color: var(--ink); line-height: 1.3;
+}
+.outcome .o-d {
+    font-family: var(--sans); font-size: var(--fs-sm); line-height: 1.6;
+    color: var(--ink-secondary);
+}
+
 /* Prose inside a panel body. Panels have held charts, tables and readouts;
    the landing's system panels are the first to hold a paragraph, and without
    this it inherited the page's body size and sat flush against the panel's
@@ -577,6 +616,16 @@
 [class*="st-key-panel-"] [data-testid="stElementContainer"]:has(.panel-copy),
 [class*="st-key-panel-"] [data-testid="stMarkdown"]:has(.panel-copy) {
     display: contents !important;
+}
+/* The box those two hand the content to — an anonymous flex row in 1.52 —
+   does not grow to fit it. Measured: the row stayed 26px around copy that
+   needed 47-66px, so the panel sized itself to the row, clipped 15px off
+   every card at `overflow: hidden`, and the four cards came out at two
+   different heights because each was short by a different amount. */
+[class*="st-key-panel-"] [data-testid="stMarkdown"]:has(.panel-copy) > div {
+    height: auto !important;
+    min-height: fit-content !important;
+    flex: 0 0 auto !important;
 }
 
 /* ── The section rhythm contract ──────────────────────────────────────────
