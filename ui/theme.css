@@ -559,7 +559,7 @@
     font-family: var(--sans); font-size: var(--fs-sm); line-height: 1.6;
     color: var(--ink-secondary);
 }
-.panel-specs { padding: 0 var(--s4) var(--s3); }
+.panel-specs { padding: 0 var(--s4) var(--s4); }
 /* The panel column is `align-items: start`, so a flex item that is not told
    otherwise shrinks to fit its own widest line. That left each card's spec
    block a different width — 229, 268 and 235px inside identical 377px panels —
@@ -575,8 +575,7 @@
    cut in half. Dissolving the wrappers makes the copy and the rows direct
    children of the panel's flex column, and the panel grows to hold them. */
 [class*="st-key-panel-"] [data-testid="stElementContainer"]:has(.panel-copy),
-[class*="st-key-panel-"] [data-testid="stMarkdown"]:has(.panel-copy),
-[class*="st-key-panel-"] [data-testid="stMarkdownContainer"]:has(.panel-copy) {
+[class*="st-key-panel-"] [data-testid="stMarkdown"]:has(.panel-copy) {
     display: contents !important;
 }
 
@@ -606,7 +605,17 @@
    under the title, and adding a margin on top of it made title-to-content
    32px — twice the block rhythm, so a heading looked detached from the thing
    it named. */
-/* The header must BE the flex item, not sit inside one. Measured otherwise:
+/* NOTE — `stMarkdownContainer` is deliberately NOT dissolved anywhere below.
+   Streamlit 1.52 inserts an anonymous `display: flex; flex-direction: row`
+   div between `stMarkdown` and `stMarkdownContainer`. Dissolving the
+   container hands its children to that ROW, so two stacked divs render side
+   by side at half width each — which is exactly how the landing page's system
+   panels broke on Streamlit Cloud while looking correct locally on 1.51.
+   Leaving the innermost container as a block keeps its children stacked on
+   both versions, and it still establishes a BFC (it is a flex item either
+   way), so the margins this file depends on do not collapse out of it.
+
+   The header must BE the flex item, not sit inside one. Measured otherwise:
    `section-hdr bottom=300` against `flex item bottom=284` — the header
    overflows its own container by 16px, which is precisely the gap that should
    separate it from the section's first block. The consequence is the rhythm
@@ -622,8 +631,7 @@
    spacers were the others. The rule is always the same: if a block's spacing
    must be reliable, that block has to be the flex item. */
 [data-testid="stMain"] [data-testid="stElementContainer"]:has(.section-hdr),
-[data-testid="stMain"] [data-testid="stMarkdown"]:has(.section-hdr),
-[data-testid="stMain"] [data-testid="stMarkdownContainer"]:has(.section-hdr) {
+[data-testid="stMain"] [data-testid="stMarkdown"]:has(.section-hdr) {
     display: contents !important;
 }
 .section-hdr {
@@ -1297,9 +1305,24 @@
    padding overflowed a container that would not grow (h=14 vs h=30), and a
    margin on the wrapper moved a box the label was already escaping. */
 [data-testid="stSidebarUserContent"] [data-testid="stElementContainer"]:has(.sidebar-title),
-[data-testid="stSidebarUserContent"] [data-testid="stMarkdown"]:has(.sidebar-title),
-[data-testid="stSidebarUserContent"] [data-testid="stMarkdownContainer"]:has(.sidebar-title) {
+[data-testid="stSidebarUserContent"] [data-testid="stMarkdown"]:has(.sidebar-title) {
     display: contents !important;
+}
+/* Whatever box sits directly inside that markdown — in 1.51 the markdown
+   container, in 1.52 an anonymous flex row Streamlit inserts before it — must
+   be tall enough to hold the label AND the 16px that separates one rail group
+   from the next. Measured on 1.52: the anonymous row is 14px while the
+   container inside it is 30px, so the label paints 16px below the row's box
+   and lands on the control underneath (-8px clearance).
+
+   38px is not a guess: 16px group separation + a 14px label + the 8px that
+   separates the label from its first control. Stated as a floor rather than a
+   height, so a wrapped label still grows. Measured on 1.52.2, which is the
+   pinned frontend — at 30px the clearance came out 0px, touching. */
+[data-testid="stSidebarUserContent"] [data-testid="stMarkdown"]:has(.sidebar-title) > div,
+[data-testid="stSidebarUserContent"] [data-testid="stMarkdownContainer"]:has(.sidebar-title) {
+    height: auto !important;
+    min-height: 38px !important;
 }
 .sidebar-title::after {
     content: ""; flex: 1; height: 1px; background: var(--line);
@@ -1463,8 +1486,18 @@
 [data-testid="stSidebar"] [data-testid="stButtonGroup"] > label {
     flex: 0 0 auto !important; width: auto !important;
 }
+/* `flex-basis: 100%`, not `auto`. With an auto basis this wrapper sizes to
+   its two buttons and then declines to grow, so it sat 127px wide inside a
+   215px group: the segments were a correct 50% OF THE WRONG BOX (64px each),
+   the labels ellipsed to "PAP…", and the right third of the control was dead
+   space that stayed dead however wide the rail was dragged. `width: 100%`
+   alone did not fix it — for a flex item the basis is what decides the main
+   size, and an auto basis reads the content, not the declared width.
+   Measured on 1.52.2: wrapper 127 -> 209, segments 64/64 -> 105/105. */
 [data-testid="stSidebar"] [data-testid="stButtonGroup"] > div {
-    display: flex !important; width: 100% !important; flex: 1 1 auto !important;
+    display: flex !important;
+    width: 100% !important; max-width: none !important;
+    flex: 1 1 100% !important;
 }
 /* Two things are needed, and each alone fails.
    `flex: 1 1 0` makes the segments share the row EVENLY (an auto basis sizes
