@@ -149,6 +149,10 @@
        that is the only case where the eye needs help following the change.
        There is no entrance animation anywhere: content that fades in on every
        rerun is content you have to wait for twice. */
+    /* Crosshair. Transient and on demand, so it may sit above the grid's
+       weight without competing with the data. */
+    --spike: rgba(139, 149, 166, 0.45);
+
     --motion-fast:     120ms;   /* hover, colour, border */
     --motion-base:     160ms;   /* selection, panel state */
     --motion-slow:     220ms;   /* size/extent changes only */
@@ -546,12 +550,99 @@
    19px cap height (the icon sat ~3px high), and the description inherited
    the title's left edge only by accident of the grid. The two-row grid below
    states both relationships instead of relying on them. */
+/* Prose inside a panel body. Panels have held charts, tables and readouts;
+   the landing's system panels are the first to hold a paragraph, and without
+   this it inherited the page's body size and sat flush against the panel's
+   own edge. */
+.panel-copy {
+    padding: var(--s4) var(--s4) var(--s3);
+    font-family: var(--sans); font-size: var(--fs-sm); line-height: 1.6;
+    color: var(--ink-secondary);
+}
+.panel-specs { padding: 0 var(--s4) var(--s3); }
+/* The panel column is `align-items: start`, so a flex item that is not told
+   otherwise shrinks to fit its own widest line. That left each card's spec
+   block a different width — 229, 268 and 235px inside identical 377px panels —
+   so the values stopped 124-164px short of the edge and, worse, at three
+   different positions across the three cards. Stretching both body blocks to
+   the panel's width lets `space-between` do what it was already asking for:
+   label at the left edge, value hard against the right. */
+.panel-copy, .panel-specs { align-self: stretch; width: 100%; }
+/* Single-line values, right-aligned, so a wrapped one stays on the same edge. */
+.panel-specs .lookback-row .val { text-align: right; }
+/* The panel's body container computes to 27px around ~209px of prose and
+   rows, and the panel clips at `overflow: hidden` — so the last spec row was
+   cut in half. Dissolving the wrappers makes the copy and the rows direct
+   children of the panel's flex column, and the panel grows to hold them. */
+[class*="st-key-panel-"] [data-testid="stElementContainer"]:has(.panel-copy),
+[class*="st-key-panel-"] [data-testid="stMarkdown"]:has(.panel-copy),
+[class*="st-key-panel-"] [data-testid="stMarkdownContainer"]:has(.panel-copy) {
+    display: contents !important;
+}
+
+/* ── The section rhythm contract ──────────────────────────────────────────
+   Vertical rhythm has exactly ONE definition, and it lives here, because the
+   section header is the only thing that marks a boundary between sections.
+   Streamlit stacks top-level blocks in a flex column with a 16px gap; that
+   16px IS the intra-section rhythm and every number below is stated relative
+   to it:
+
+       40px   last block of a section  →  the rule   (16 flex gap + 24 margin)
+       16px   the rule                 →  the title  (padding-top)
+       16px   the title                →  first block of the section (flex gap)
+       16px   block                    →  block, inside a section (flex gap)
+
+   Before this, spacing came from four places at once — the flex gap, this
+   margin, this padding, and a `section_gap()` helper that injected an 8px
+   empty div which took a slot of its own in the flex column. That shim made
+   the space above a rule 16+8+16 = 40px where it was used and 16px where it
+   was not, which is the "random rhythm" the layout actually had: measured
+   across FVO, Convergence and Swayam, identical-looking section boundaries
+   were landing at different distances depending only on whether a page
+   author had remembered to call it. All 23 calls are gone and the helper
+   with them, so the boundary cannot be set anywhere but here.
+
+   `margin-bottom` is 0 deliberately: the flex gap already supplies the 16px
+   under the title, and adding a margin on top of it made title-to-content
+   32px — twice the block rhythm, so a heading looked detached from the thing
+   it named. */
+/* The header must BE the flex item, not sit inside one. Measured otherwise:
+   `section-hdr bottom=300` against `flex item bottom=284` — the header
+   overflows its own container by 16px, which is precisely the gap that should
+   separate it from the section's first block. The consequence is the rhythm
+   inverting: the description ends up 0px from the cards below it and 8px from
+   the title above, so the sub-header reads as belonging to the chart rather
+   than to the heading it explains.
+
+   Dissolving the wrappers makes `.section-hdr` a direct child of the page
+   column, so its own margin-top supplies the 40px above the rule and the
+   column's 16px gap supplies the space below it. This is the fourth place in
+   this stylesheet where a Streamlit wrapper collapses shorter than what it
+   holds — the panel header, the rail's group label, and the two phantom
+   spacers were the others. The rule is always the same: if a block's spacing
+   must be reliable, that block has to be the flex item. */
+[data-testid="stMain"] [data-testid="stElementContainer"]:has(.section-hdr),
+[data-testid="stMain"] [data-testid="stMarkdown"]:has(.section-hdr),
+[data-testid="stMain"] [data-testid="stMarkdownContainer"]:has(.section-hdr) {
+    display: contents !important;
+}
 .section-hdr {
     display: grid;
     grid-template-columns: 22px 1fr;
-    column-gap: var(--s3); row-gap: var(--s2);
+    column-gap: var(--s3);
+    /* Zero, and the description still sits 17px under the title — because
+       what separates them is LEADING, not gap. Box spacing lies here: with
+       `row-gap: 8px` the boxes measured 8px apart above and 16px below, which
+       reads as correct grouping, while the ink measured 26px above and 19px
+       below and the description visibly belonged to the cards. Line-height
+       is the whole story, so the title gives up its own (1.1 below) and the
+       row gives up the gap. Measured after: 17px above, 27px below. */
+    row-gap: 0;
     align-items: center;
-    margin: var(--s6) 0 var(--s4);
+    /* 8px here + the column's 16px gap = 24px under the block, against 17px
+       inside it. A sub-header has to be nearer the heading it explains than
+       the content it introduces, or it reads as a caption on the chart. */
+    margin: var(--s6) 0 var(--s2);
     padding-top: var(--s4);
     border-top: 1px solid var(--line);
 }
@@ -567,7 +658,9 @@
 .section-hdr h3 {
     margin: 0;
     font-family: var(--sans); font-size: var(--fs-lg); font-weight: 650;
-    letter-spacing: -0.01em; color: var(--ink); line-height: 1.25;
+    /* 1.1, not 1.25: a single-line heading spends the extra leading below
+       itself, pushing its description away from it and toward the content. */
+    letter-spacing: -0.01em; color: var(--ink); line-height: 1.1;
 }
 /* Row 2, column 2: aligned to the title's left edge, tight under it. It sat
    ~30px below the title before, far enough to read as an unrelated
@@ -587,7 +680,9 @@
 .section-hdr.violet  .icon { color: var(--violet);  border-color: var(--violet-edge); background: var(--violet-fill); }
 
 .section-divider { height: 1px; background: var(--line); margin: var(--s5) 0; }
-.section-gap { height: var(--s6); }
+/* `.section-gap` deleted with the helper that emitted it — see the section
+   rhythm contract above for why a spacer element cannot coexist with a
+   flex-gap rhythm without doubling it. */
 
 /* ─────────────────────────────────────────────────────────────────────────
    6 · METRIC CARDS
@@ -613,17 +708,14 @@
 }
 /* The element container holding a card, and the markdown wrapper inside it,
    both grow — then the card itself fills what they hand it. */
-[data-testid="stColumn"] [data-testid="stElementContainer"]:has(.metric-card),
-[data-testid="stColumn"] [data-testid="stElementContainer"]:has(.system-card) {
+[data-testid="stColumn"] [data-testid="stElementContainer"]:has(.metric-card) {
     flex: 1 1 auto; display: flex; flex-direction: column;
 }
 [data-testid="stColumn"] .stMarkdown:has(.metric-card),
-[data-testid="stColumn"] .stMarkdown:has(.system-card),
-[data-testid="stColumn"] [data-testid="stMarkdownContainer"]:has(.metric-card),
-[data-testid="stColumn"] [data-testid="stMarkdownContainer"]:has(.system-card) {
+[data-testid="stColumn"] [data-testid="stMarkdownContainer"]:has(.metric-card) {
     flex: 1 1 auto; display: flex; flex-direction: column;
 }
-.metric-card, .system-card { flex: 1 1 auto; }
+.metric-card { flex: 1 1 auto; }
 
 .metric-card {
     position: relative;
@@ -884,50 +976,6 @@
 .info-box.violet  { border-left-color: var(--violet);  background: var(--violet-fill); }
 .info-box.accent  { border-left-color: var(--accent);  background: var(--accent-fill); }
 
-.system-card {
-    display: flex; flex-direction: column;
-    background: var(--surface-1);
-    border: 1px solid var(--line);
-    border-radius: var(--r-lg);
-    padding: var(--s4);
-    height: 100%;
-    transition: border-color var(--fast) var(--ease);
-}
-.system-card:hover { border-color: var(--line-strong); }
-.system-card .sc-eyebrow {
-    font-family: var(--mono); font-size: var(--fs-3xs); font-weight: 600;
-    text-transform: uppercase; letter-spacing: 0.18em; color: var(--ink-quaternary);
-    margin-bottom: var(--s2);
-}
-.system-card .sc-kicker {
-    font-family: var(--mono); font-size: var(--fs-2xs); font-weight: 600;
-    text-transform: uppercase; letter-spacing: 0.12em; color: var(--ink-tertiary);
-    margin-top: var(--s1);
-}
-.system-card h3 {
-    margin: 0;
-    font-family: var(--sans); font-size: var(--fs-lg); font-weight: 700;
-    letter-spacing: 0.02em; color: var(--ink); line-height: 1.2;
-}
-.system-card p {
-    margin: var(--s3) 0 0; font-family: var(--sans); font-size: var(--fs-sm);
-    line-height: 1.65; color: var(--ink-tertiary);
-    flex: 1;   /* spec block bottom-aligns across all three panels */
-}
-.system-card.fvo         { border-top: 2px solid var(--accent); }
-.system-card.swayam      { border-top: 2px solid var(--system); }
-.system-card.convergence { border-top: 2px solid var(--long); }
-.system-spec {
-    margin-top: var(--s4); padding-top: var(--s3);
-    border-top: 1px solid var(--line);
-    display: flex; flex-direction: column; gap: var(--s1);
-}
-.spec-row {
-    display: flex; justify-content: space-between; gap: var(--s3);
-    font-family: var(--mono); font-size: var(--fs-2xs);
-}
-.spec-label { color: var(--ink-quaternary); text-transform: uppercase; letter-spacing: 0.08em; }
-.spec-value { color: var(--ink-secondary); font-weight: 600; }
 
 /* ─────────────────────────────────────────────────────────────────────────
    9 · CHIPS / STATUS BADGES
@@ -1204,11 +1252,54 @@
 /* Group label. Every control in the rail belongs to exactly one labelled
    group — INSTRUMENT, SESSION, MODEL, APPEARANCE — so the rail reads as an
    outline of what can be changed rather than a pile of widgets. */
+/* ── The rail rhythm contract ─────────────────────────────────────────────
+   The same idea as the page's section contract, scaled to a 200-256px rail:
+   the group label owns the boundary, and one flex gap owns everything else.
+
+        24px   previous group  →  group label   (8 rail gap + 16 margin)
+         8px   group label     →  its first control
+         8px   control         →  control, inside a group
+
+   Measured before this: 0px under a label (its margin-bottom was collapsing
+   away, so INSTRUMENT sat flush on the Asset Class box), 8px between
+   controls, and 44px above the next label. A reader cannot infer grouping
+   from 0 / 8 / 44 — the label was closer to the control below it than the
+   controls were to each other, which reads as four ungrouped stacks rather
+   than four groups.
+
+   The gap is pinned on the rail's vertical block instead of left to
+   Streamlit's default so the 8px is stated once, and the label carries only
+   a top margin — nothing below it, because the gap already supplies that. */
+[data-testid="stSidebarUserContent"] [data-testid="stVerticalBlock"] {
+    gap: var(--s2) !important;
+}
 .sidebar-title {
     display: flex; align-items: center; gap: var(--s2);
     font-family: var(--mono); font-size: var(--fs-3xs); font-weight: 700;
     text-transform: uppercase; letter-spacing: 0.18em;
-    color: var(--ink-quaternary); margin: var(--s4) 0 var(--s2);
+    color: var(--ink-quaternary);
+    margin: var(--s4) 0 0;
+}
+/* The group label's element container computes to ZERO height: the label
+   paints 14px but occupies none, so Streamlit lays the next control out 6px
+   INTO it — measured `label(612->626) item(612->612 h=0) next.top=620`, which
+   is the overlap that put the readout panel's border through the word MODEL.
+   The label's own margins cannot fix that; a margin on a zero-height box has
+   nothing to push.
+
+   Same collapse as the panel header, same remedy: dissolve the wrappers so
+   `.sidebar-title` IS the flex item the rail lays out. Then it occupies the
+   space it paints, its margin cannot collapse (flex item margins never do),
+   and the boundary is 8px rail gap + 16px margin = 24px.
+
+   Three earlier attempts failed because they all treated the label's box as
+   real: a margin on the label collapsed out (container h=14, label h=14), a
+   padding overflowed a container that would not grow (h=14 vs h=30), and a
+   margin on the wrapper moved a box the label was already escaping. */
+[data-testid="stSidebarUserContent"] [data-testid="stElementContainer"]:has(.sidebar-title),
+[data-testid="stSidebarUserContent"] [data-testid="stMarkdown"]:has(.sidebar-title),
+[data-testid="stSidebarUserContent"] [data-testid="stMarkdownContainer"]:has(.sidebar-title) {
+    display: contents !important;
 }
 .sidebar-title::after {
     content: ""; flex: 1; height: 1px; background: var(--line);
@@ -1425,6 +1516,19 @@
     background: var(--surface-1); border: 1px solid var(--line);
     border-radius: var(--r-lg); padding: var(--s3) var(--s4); margin-bottom: var(--s4);
 }
+/* Which phase of the run this is — the same numbering the console prints, so
+   the terminal and the UI describe one run the same way. */
+.progress-phase {
+    display: flex; align-items: center; gap: var(--s2);
+    font-family: var(--mono); font-size: var(--fs-3xs); font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.16em;
+    color: var(--ink-quaternary);
+    margin-bottom: var(--s2);
+}
+.progress-phase .pp-name {
+    color: var(--ink-tertiary); letter-spacing: 0.12em;
+    padding-left: var(--s2); border-left: 1px solid var(--line);
+}
 .progress-label {
     display: flex; align-items: center; gap: var(--s2);
     font-family: var(--mono); font-size: var(--fs-2xs); font-weight: 600;
@@ -1478,7 +1582,7 @@
     height: 2.75rem !important;
 }
 [data-testid="stMain"] .block-container {
-    padding: 3.25rem var(--s6) var(--s10) !important;
+    padding: 3.25rem var(--page-pad) var(--s10) !important;
     max-width: 100% !important;
 }
 [data-testid="stToolbar"] { right: var(--s3); }
@@ -1754,6 +1858,46 @@
 
 /* The chart itself carries no chrome — the panel around it does. Without
    this reset the plot draws a second border inside the first. */
+/* `inject_css` ships the whole stylesheet through `st.markdown("<style>…")`,
+   and Streamlit wraps that in an element container like any other block. The
+   container renders nothing but it is `display: block` with height 0, so it
+   still takes a slot in the page column's flex gap — 16px of dead space at
+   the top of every page, from the stylesheet describing the page. Hiding the
+   container does not disable the CSS: a <style> element is never rendered,
+   and stylesheets inside a `display: none` subtree still apply.
+
+   Last of the invisible-element family (`section_gap`'s shim, `.tab-bg`, and
+   this). `display: none` is the right tool HERE and was the wrong one there:
+   none removes the box entirely, which is what an element with nothing to
+   show wants — what it cannot do is hide a child while the container around
+   it keeps the slot. */
+[data-testid="stMain"] [data-testid="stElementContainer"]:has(> [data-testid="stMarkdown"] style) {
+    display: none !important;
+}
+
+/* ── The crosshair ────────────────────────────────────────────────────────
+   Plotly draws every spikeline TWICE: a contrast halo underneath, then the
+   real line on top. The halo is not reachable from the figure — with a
+   transparent plot background Plotly falls back to solid WHITE at
+   `spikethickness + 2`, and that is the 3px white bar that survived every
+   previous attempt to style this. Those attempts all set `spikecolor`, and
+   `spikecolor` was never wrong. Measured mid-hover, the two lines were
+
+       stroke=rgb(255,255,255)        width=3px  dash=none      <- the halo
+       stroke=rgba(139,149,166,0.22)  width=1px  dash=3px,3px   <- the spike
+
+   Rather than try to tell them apart — they share a class, and DOM order or
+   stroke-width would both be brittle — style BOTH identically. Two identical
+   hairlines drawn over each other read as one, so the halo stops being a
+   separate mark without having to be singled out. `--spike` is a token, so
+   this follows the appearance mode with no second rule. */
+.js-plotly-plot .hoverlayer line.spikeline {
+    stroke: var(--spike) !important;
+    stroke-width: 1px !important;
+    stroke-dasharray: 3 3 !important;
+    stroke-opacity: 1 !important;
+}
+
 [class*="st-key-panel-"] .stPlotlyChart {
     background: transparent; border: none; border-radius: 0;
     padding: var(--s2) var(--s2) 0;
@@ -1852,7 +1996,13 @@
     color: var(--ink-quaternary) !important;
 }
 [data-testid="stSpinner"] i, [data-testid="stSpinner"] svg { color: var(--ink-quaternary) !important; }
-.tab-bg { display: none; }
+/* `.tab-bg` deleted. Four tabs emitted a decorative <div> that this rule had
+   already switched off — but `display: none` on the CHILD does not remove
+   Streamlit's element container around it, and that container still took a
+   slot in the main column's flex gap. So FVO and Convergence carried 56px
+   above their first section rule where Data and Precedent carried 40px:
+   one invisible element, one page-to-page inconsistency, and exactly the
+   same failure mode as the `section_gap()` shim. */
 
 /* Data tables rendered inside the app (not the iframe component). */
 [data-testid="stDataFrame"] {
@@ -1910,44 +2060,10 @@
 
 /* Three figures that make the claim concrete. Numbers at display size,
    because on this page they ARE the argument. */
-.fact-row {
-    display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--s6);
-    padding: var(--s6) 0 var(--s8);
-    border-bottom: 1px solid var(--line); margin-bottom: var(--s6);
-}
-.fact .f-n {
-    font-family: var(--mono); font-size: var(--fs-3xl); font-weight: 600;
-    letter-spacing: -0.03em; color: var(--ink); line-height: 1;
-}
-.fact .f-l {
-    margin-top: var(--s2);
-    font-family: var(--mono); font-size: var(--fs-2xs); font-weight: 600;
-    text-transform: uppercase; letter-spacing: 0.14em; color: var(--ink-quaternary);
-}
-.fact .f-d {
-    margin-top: var(--s3);
-    font-family: var(--sans); font-size: var(--fs-sm); line-height: 1.6;
-    color: var(--ink-tertiary); max-width: 34ch;
-}
 
 /* What the run hands back. Four statements, not four cards — this is the
    close of an argument, and boxing it would make it a feature list. */
-.outcome-grid {
-    display: grid; grid-template-columns: repeat(2, 1fr);
-    gap: var(--s5) var(--s8);
-    margin-top: var(--s8); padding-top: var(--s6);
-    border-top: 1px solid var(--line);
-}
-.outcome .o-t {
-    font-family: var(--sans); font-size: var(--fs-md); font-weight: 650; color: var(--ink);
-}
-.outcome .o-d {
-    margin-top: var(--s2);
-    font-family: var(--sans); font-size: var(--fs-sm); line-height: 1.65;
-    color: var(--ink-tertiary); max-width: 52ch;
-}
 @media (max-width: 900px) {
-    .fact-row, .outcome-grid { grid-template-columns: 1fr; }
     .lede-claim { font-size: 1.25rem; }
 }
 
@@ -2002,14 +2118,80 @@
 .lookback-row .val.flat  { color: var(--ink-tertiary); }
 
 /* ─────────────────────────────────────────────────────────────────────────
-   14 · RESPONSIVE
+   14 · LAYOUT GRID & RESPONSIVE
    Density is the point, so the layout holds as long as it can and then
-   degrades by stacking — never by shrinking type below the legibility floor.
+   degrades by REFLOWING — never by shrinking type below the legibility floor,
+   and never by letting a column squeeze past the width its content needs.
    ───────────────────────────────────────────────────────────────────────── */
+
+/* ── The column floor ─────────────────────────────────────────────────────
+   One number drives the whole grid: the width below which a column stops
+   being a column and wraps to the next row. Nothing counts columns, so a
+   5-up KPI row and a 4-up row reflow by the same rule and no page needs a
+   breakpoint of its own.
+
+   This is the fix for the measured tablet failure. Streamlit lays columns out
+   as `flex: 1 1 0` with no minimum, so they divide whatever space exists
+   however small that is: at an iPad-portrait 768px the docked 256px rail left
+   512px of content, and a 4-up KPI row rendered cards 108px wide — a label
+   wrapping over four lines beside a number. Below, those same cards wrap 2-up
+   at ~230px each. */
+:root {
+    --col-min: 220px;
+    --grid-gap: var(--s4);
+    --page-pad: var(--s6);
+}
+[data-testid="stMain"] [data-testid="stHorizontalBlock"] {
+    flex-wrap: wrap;
+    row-gap: var(--grid-gap);
+}
+/* `min()` against 100% so the floor can never exceed the space available —
+   a column narrower than the floor shrinks to fit rather than overflowing
+   the page, which is the failure mode a bare `min-width` would introduce. */
+[data-testid="stMain"] [data-testid="stColumn"] {
+    min-width: min(var(--col-min), 100%);
+    /* No growing into a wrapped row's leftover space. Streamlit's basis
+       (20% for a 5-up) already fills an UNwrapped row exactly, so this costs
+       nothing at full width — but the moment a row wraps, grow is what turns
+       the odd card out into a full-bleed slab: a 5-up at 1280 wrapped 4+1 and
+       the orphan measured 976px against its siblings' 232px. Left-packed at
+       track width, a wrapped row reads as a grid with a gap in it, which is
+       what it is. */
+    flex-grow: 0 !important;
+}
+
+/* ── Breakpoints ──────────────────────────────────────────────────────────
+   Large desktop → phone. Only two things change across them: how much air
+   the page carries at its edges, and how wide a column must be to keep its
+   place in the row. Everything else is derived. */
+@media (min-width: 1441px) {                        /* large desktop */
+    :root { --col-min: 240px; --page-pad: var(--s8); }
+}
+@media (max-width: 1440px) {                        /* desktop */
+    /* 176px. The floor must sit BELOW the natural column width at the
+       widest point of the band, or it manufactures the very reflow it exists
+       to prevent. Measured: at 1280 the rail takes 256 and the shell 24 a
+       side, leaving 976 of inner content; a 5-up row is (976 - 4x16)/5 = 182
+       per card. A 220 floor wrapped it 4+1, and so did 190. At 176 the row
+       stays 5-up here, and still wraps once the viewport drops near 1100
+       where the natural width falls to ~146. */
+    :root { --col-min: 176px; --page-pad: var(--s6); }
+}
+@media (max-width: 1024px) {                        /* iPad landscape */
+    :root { --col-min: 200px; --page-pad: var(--s5); }
+    /* The rail is a quarter of an iPad's width. Narrowed here, not hidden:
+       the instrument selector is how you change what every page is about. */
+    [data-testid="stSidebar"] { min-width: 200px !important; max-width: 200px !important; }
+    [data-testid="stSidebar"] > div { min-width: 200px !important; }
+}
+@media (max-width: 768px) {                         /* iPad portrait */
+    :root { --col-min: 180px; }
+}
+@media (max-width: 640px) {                         /* phone: one column */
+    :root { --col-min: 100%; --page-pad: var(--s4); }
+}
+
 @media (max-width: 1100px) {
-    [data-testid="stMain"] .block-container {
-        padding: 3.25rem var(--s4) var(--s6) !important;
-    }
     .hero-gate { grid-template-columns: 76px 44px 1fr; }
     .hero-gate-detail { grid-column: 1 / -1; padding-left: 76px; }
     /* Sticky chrome costs more than it returns once the viewport is short:
@@ -2019,6 +2201,29 @@
        and the instrument does not. */
     .command-bar .cb-brand { display: none; }
 }
+
+/* ── Touch ────────────────────────────────────────────────────────────────
+   Keyed to the POINTER, not the viewport: a 1024px iPad and a 1024px browser
+   window need different targets, and only the pointer distinguishes them.
+   Desktop keeps its density; touch devices get the 44px floor. Measured
+   before this rule: 43 of 45 controls on FVO were under 44px, the smallest
+   22px. */
+@media (pointer: coarse) {
+    [data-testid^="stBaseButton"],
+    /* The testid sits ON the anchor — `stSidebarNavLink a` is a descendant
+       selector that matches nothing (verified: 0 elements). */
+    [data-testid="stSidebarNavLink"],
+    .stSelectbox [data-baseweb="select"] > div {
+        min-height: 44px !important;
+    }
+    [data-testid="stButtonGroup"] [data-testid^="stBaseButton"] {
+        min-height: 44px !important; padding-left: var(--s4); padding-right: var(--s4);
+    }
+    /* A hover-only affordance is unreachable here, so the panel's chart
+       toolbar stays visible instead of appearing on hover. */
+    [class*="st-key-panel-"] .js-plotly-plot .modebar { opacity: 1 !important; }
+}
+
 @media (max-width: 720px) {
     .hero-top { flex-direction: column; gap: var(--s3); }
     .hero-conviction-block { text-align: left; }
@@ -2080,7 +2285,7 @@
         break-inside: avoid; break-after: avoid;
     }
     [data-testid="stMain"] .block-container { padding: 0 !important; }
-    .hero-card, .metric-card, .analog-card, .system-card, .notice {
+    .hero-card, .metric-card, .analog-card, .notice {
         border: 1px solid #ccc; background: #fff; break-inside: avoid;
     }
     .hero-signal, .metric-card .value, .metric-card h2,

@@ -141,11 +141,6 @@ def render_sub_header(title: str) -> None:
                 unsafe_allow_html=True)
 
 
-def section_gap() -> None:
-    """Insert vertical spacing between major sections."""
-    st.markdown('<div class="section-gap"></div>', unsafe_allow_html=True)
-
-
 def render_control_hint(text: str) -> None:
     """Render the canonical terse helper caption beneath a control.
 

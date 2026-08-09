@@ -17,7 +17,7 @@ Aesthetic: "Graphite" — near-achromatic ground, semantic colour only
                each clears WCAG AA on every surface it is used on.
 - Surfaces:    Flat, told apart by a hairline border and one step of tone.
                No blur, no stacked shadows — a shadow is spent on overlays.
-- Themes:      Terminal (dark, canonical) and Paper (light, for reading and
+- Themes:      Slate (dark, canonical) and Paper (light, for reading and
                print). The light theme is a token swap, not a second
                stylesheet — see LIGHT_TOKENS below.
 """
@@ -68,6 +68,7 @@ LIGHT_TOKENS = """
     --ink-secondary: #3D4756;   /*  9.4:1 */
     --ink-tertiary:  #5E6979;   /*  5.6:1 */
     --ink-quaternary:#6B7482;   /*  4.6:1 */
+    --spike: rgba(90, 100, 114, 0.45);
 
     --accent:        #2B5FD9;   /* 5.6:1 */
     --long:          #0F7A54;   /* 5.3:1 */
@@ -202,7 +203,7 @@ _CHART_THEME = {
         grid_zero="rgba(255,255,255,0.11)",
         axis_line="rgba(255,255,255,0.09)",
         tick="#737D8E",
-        spike="rgba(139,149,166,0.22)",
+        spike="rgba(139,149,166,0.45)",
     ),
     "light": dict(
         font_color="#5E6979",
@@ -213,7 +214,7 @@ _CHART_THEME = {
         grid_zero="rgba(15,23,42,0.16)",
         axis_line="rgba(15,23,42,0.12)",
         tick="#5E6979",
-        spike="rgba(15,23,42,0.20)",
+        spike="rgba(90,100,114,0.45)",
     ),
 }
 
@@ -599,6 +600,35 @@ def inject_css(theme: str = "dark") -> None:
     st.markdown(f"<style>{css}</style>", unsafe_allow_html=True)
 
 
+# ── The run's five phases, and the percentage band each one owns ────────────
+# One table, read by the progress bar and matching the phase numbers the
+# console prints (`console.start_phase(name, n, 5)` in app.py). Before this the
+# bar showed a percentage and a free-text label with no way to tell which phase
+# of the run you were in, while the terminal beside it printed "Phase 3/5:
+# SWAYAM ENGINE" — the same run described two different ways.
+#
+# The bands are closed intervals and must not overlap, because the phase is
+# DERIVED from the percentage: that keeps ~25 call sites free of a phase
+# argument they would have to keep in sync by hand, but it means a call site's
+# number decides which phase it is reported under. Data acquisition therefore
+# ends at 19 and not 20 — 20 is the FVO band's first number.
+RUN_PHASES = (
+    (1, 0, 19, "Data Acquisition"),
+    (2, 20, 41, "FVO Engine"),
+    (3, 42, 75, "Swayam Engine"),
+    (4, 76, 95, "Convergence"),
+    (5, 96, 100, "Final Assembly"),
+)
+
+
+def _phase_of(pct: int) -> "tuple[int, int, str]":
+    """Which phase a percentage falls in, as ``(n, total, name)``."""
+    for n, lo, hi, name in RUN_PHASES:
+        if lo <= pct <= hi:
+            return n, len(RUN_PHASES), name
+    return len(RUN_PHASES), len(RUN_PHASES), RUN_PHASES[-1][3]
+
+
 def progress_bar(slot, pct: int, label: str, sub: str = "") -> None:
     """Render the pipeline's progress card into an ``st.empty()`` slot.
 
@@ -615,8 +645,11 @@ def progress_bar(slot, pct: int, label: str, sub: str = "") -> None:
     """
     is_complete = pct >= 100
     state = " complete" if is_complete else ""
+    n, total, phase = _phase_of(pct)
     slot.markdown(
         f'<div class="progress-card{state}">'
+        f'<div class="progress-phase">Phase {n} of {total}'
+        f'<span class="pp-name">{html.escape(phase)}</span></div>'
         f'<div class="progress-label">'
         f'<span class="pulse-dot"></span>{html.escape(label)}'
         f'<span class="progress-pct">{int(pct)}%</span>'
