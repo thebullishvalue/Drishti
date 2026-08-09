@@ -219,6 +219,18 @@ Sections used: **Added · Changed · Deprecated · Removed · Fixed · Security 
 - `optuna` from `requirements.txt` — nothing imports it any more.
 
 ### Fixed
+- **The landing page is now on the section-rhythm contract, and so is every
+  header that has no description.** The landing sat at 24px above its first
+  rule and 8px between a header and its content, against 40/24 everywhere
+  else. Chasing it exposed a real inconsistency underneath: on Streamlit 1.52
+  the page column contributes no gap between a header and the block below it,
+  so that distance was being made up from different parts depending on whether
+  the header had a description — 8px with one, 24px without. `margin-bottom`
+  is now the full 24px on every section header rather than 8px plus a gap that
+  no longer exists. Verified on 1.52.2: landing reads 40/24/40/24/40/24/40 top
+  to bottom, Data's description-less header 24px, and all six FVO headers 24px
+  where they had been 8px.
+
 - **A blue pill appeared beside the value in every dropdown.** Not the caret,
   which was already transparent — a 2px accent `outline` from the app's own
   `:focus-visible` rule landing on the selectbox's hidden type-to-search
