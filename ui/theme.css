@@ -650,10 +650,12 @@
    author had remembered to call it. All 23 calls are gone and the helper
    with them, so the boundary cannot be set anywhere but here.
 
-   `margin-bottom` is 0 deliberately: the flex gap already supplies the 16px
-   under the title, and adding a margin on top of it made title-to-content
-   32px — twice the block rhythm, so a heading looked detached from the thing
-   it named. */
+   `margin-bottom` is the full 24px, not a part of it. On Streamlit 1.52 the
+   page column contributes no gap between a header and the block under it, so
+   every pixel of that distance has to come from here — measured before this,
+   a header WITH a description sat 8px off its content while one WITHOUT sat
+   24px, purely because the two were being made up from different parts. One
+   value, one result, whether or not an author passed a description. */
 /* NOTE — `stMarkdownContainer` is deliberately NOT dissolved anywhere below.
    Streamlit 1.52 inserts an anonymous `display: flex; flex-direction: row`
    div between `stMarkdown` and `stMarkdownContainer`. Dissolving the
@@ -699,10 +701,17 @@
     /* 8px here + the column's 16px gap = 24px under the block, against 17px
        inside it. A sub-header has to be nearer the heading it explains than
        the content it introduces, or it reads as a caption on the chart. */
-    margin: var(--s6) 0 var(--s2);
+    margin: var(--s6) 0 var(--s6);
     padding-top: var(--s4);
     border-top: 1px solid var(--line);
 }
+/* The lede is the block a landing page opens with, and the first section rule
+   under it was landing at 24px where every other rule on the page lands at
+   40 — the lede's block contributes no gap of its own. */
+.lede {
+    margin-bottom: var(--s4);
+}
+
 .section-hdr .icon {
     grid-row: 1; grid-column: 1;
     display: grid; place-items: center;
