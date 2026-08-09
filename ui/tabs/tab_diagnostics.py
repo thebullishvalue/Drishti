@@ -25,8 +25,7 @@ import streamlit as st
 
 from ui.theme import (chart_layout, style_axes,
                       chart_color, chart_rgba, grid_rgba)
-from ui.components import (render_metric_card, render_section_header, section_gap,
-                           render_chip, render_empty_state, render_sub_header,
+from ui.components import (render_metric_card, render_section_header,                            render_chip, render_empty_state, render_sub_header,
                            render_chart_panel, render_table_panel, render_note)
 from core.config import (
     UI_CHART_HEIGHT_MEDIUM,
@@ -62,18 +61,12 @@ def render_diagnostics_tab(engine, ts_filtered, x_axis, x_title, signal, model_s
     """ML Diagnostics — sections ordered by decision priority (edge first)."""
 
     # System identity background
-    st.markdown(
-        '<div class="tab-bg diagnostics"></div>',
-        unsafe_allow_html=True,
-    )
-
     # ═══════════════════════════════════════════════════════════════════════
     # 1. EDGE & TRUST — Intelligence Center (learned weights + walk-forward)
     #    The out-of-sample IC and durability are the headline diagnostics, so
     #    they lead.
     # ═══════════════════════════════════════════════════════════════════════
     _render_intelligence_center()
-    section_gap()
 
     # ═══════════════════════════════════════════════════════════════════════
     # 5. RESIDUAL STATIONARITY (OU) — the foundation of the whole signal stack.
@@ -128,7 +121,6 @@ def render_diagnostics_tab(engine, ts_filtered, x_axis, x_title, signal, model_s
         unsafe_allow_html=True,
     )
 
-    section_gap()
 
     # ═══════════════════════════════════════════════════════════════════════
     # 2. FEATURE IMPACT
@@ -196,7 +188,6 @@ def render_diagnostics_tab(engine, ts_filtered, x_axis, x_title, signal, model_s
             eyebrow="Diagnostics",
         )
 
-    section_gap()
 
     # ═══════════════════════════════════════════════════════════════════════
     # 3. SIGNAL PERFORMANCE
@@ -229,7 +220,6 @@ def render_diagnostics_tab(engine, ts_filtered, x_axis, x_title, signal, model_s
                        units="hit-rate · avg move · t-stat",
                        label_col="Period", max_height=220)
 
-    section_gap()
 
     # ═══════════════════════════════════════════════════════════════════════
     # 4. HMM TELEMETRY
@@ -279,7 +269,6 @@ def render_diagnostics_tab(engine, ts_filtered, x_axis, x_title, signal, model_s
     # ═══════════════════════════════════════════════════════════════════════
     # 4. DATA LAYER HEALTH — cache hit rate + circuit breaker state per source
     # ═══════════════════════════════════════════════════════════════════════
-    section_gap()
     render_section_header(
         "Data Layer Health",
         "Two-tier cache statistics and circuit-breaker state for each external service.",
@@ -412,7 +401,6 @@ def _render_intelligence_center() -> None:
     render_note(f"Largest move from prior {_moved:+.3f} · dominant dimension {_top}")
 
     # ── Out-of-sample durability ────────────────────────────────────────
-    section_gap()
     render_section_header(
         "Walk-Forward Durability",
         "Expanding-window out-of-sample IC — each window learns on the past and is scored on the next purged block",

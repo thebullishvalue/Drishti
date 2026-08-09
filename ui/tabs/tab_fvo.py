@@ -34,8 +34,7 @@ from ui.components import (
     render_interpretation_card,
     render_section_header,
     render_chart_panel,
-    section_gap,
-)
+    )
 from core.config import (
     OU_PROJECTION_DAYS,
     get_instrument_config, InstrumentConfig,  # per-instrument display tiers (resolved
@@ -624,11 +623,6 @@ def render_fvo_tab(engine, ts_filtered, x_axis, x_title, signal, model_stats, re
       9. Average Z-Score       — "What's statistically extreme?"
     """
 
-    st.markdown(
-        '<div class="tab-bg fvo"></div>',
-        unsafe_allow_html=True,
-    )
-
     # ── Phase 1: TRUST ─────────────────────────────────────────────────
     render_section_header(
         "Model Quality",
@@ -638,7 +632,6 @@ def render_fvo_tab(engine, ts_filtered, x_axis, x_title, signal, model_stats, re
     )
     _render_model_quality_cards(model_stats, signal)
 
-    section_gap()
 
     # ── Phase 2: ANCHOR ────────────────────────────────────────────────
     _n_inst = int(model_stats.get("n_features", 0) or 0)
@@ -656,7 +649,6 @@ def render_fvo_tab(engine, ts_filtered, x_axis, x_title, signal, model_stats, re
     )
     _render_fair_value_chart(engine, ts_filtered, x_axis, ts, active_target)
 
-    section_gap()
 
     # ── Phase 3: SIGNAL ────────────────────────────────────────────────
 
@@ -669,7 +661,6 @@ def render_fvo_tab(engine, ts_filtered, x_axis, x_title, signal, model_stats, re
     )
     _render_ddm_conviction_chart(ts_filtered, x_axis, signal)
 
-    section_gap()
 
     render_section_header(
         "Market Breadth",
@@ -680,7 +671,6 @@ def render_fvo_tab(engine, ts_filtered, x_axis, x_title, signal, model_stats, re
     )
     _render_market_breadth_chart(ts_filtered, x_axis)
 
-    section_gap()
 
     # ── Phase 5: EXTREMES ──────────────────────────────────────────────
     render_section_header(
@@ -691,7 +681,6 @@ def render_fvo_tab(engine, ts_filtered, x_axis, x_title, signal, model_stats, re
     )
     _render_signal_frequency_chart(ts_filtered, x_axis)
 
-    section_gap()
 
     render_section_header(
         "Average Z-Score",

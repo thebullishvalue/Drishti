@@ -41,8 +41,7 @@ from ui.components import (
     render_empty_state,
     render_chart_panel,
     render_note,
-    section_gap,
-)
+    )
 from ui.theme import (chart_layout, style_axes,
                       chart_color, chart_rgba)
 
@@ -248,7 +247,6 @@ def render_precedent_tab(
         color="info",
     )
 
-    section_gap()
 
     # ── Analog SKILL — term structure across ALL precedent horizons ─────────
     # The base-rate cards above are a *snapshot* (today's analog pool). This
@@ -315,7 +313,6 @@ def render_precedent_tab(
             f"Strongest at +{_best_h}d · IC {_best['ic']:+.2f} (p={_best['pval']:.3f}) · "
             f"hit-rate {_best['hit']:.0f}% over {_best['n']} windows{_lens_note}"
         )
-        section_gap()
 
     # (The 'Analog Predictions Over Time' section stood here: a per-as-of-date
     # predicted-vs-realised scatter for the active horizon. It restated, at
@@ -341,7 +338,6 @@ def render_precedent_tab(
             _render_period_card(period, active_target, display_hold)
 
     # ── Backtest: state extension vs forward return (descriptive) ───────────
-    section_gap()
     render_section_header(
         title=f"Backtest · Extension (Z) vs Forward {active_target} Return",
         description=f"Each dot = one independent (non-overlapping) {fwd_horizon}d window · honest OOS IC",

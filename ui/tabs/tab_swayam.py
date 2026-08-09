@@ -29,8 +29,7 @@ from analytics.adaptive import tier_now
 
 from ui.theme import (chart_layout, style_axes,
                       chart_color, chart_rgba, grid_rgba)
-from ui.components import (render_metric_card, render_section_header,
-                           section_gap, render_empty_state,
+from ui.components import (render_metric_card, render_section_header, render_empty_state,
                            render_chart_panel, render_table_panel)
 from core.config import (
     get_instrument_config, InstrumentConfig, # per-instrument breadth tier
@@ -258,11 +257,6 @@ def render_swayam_tab(selected_tf: str | None = None) -> None:
     """
 
     # System identity background
-    st.markdown(
-        '<div class="tab-bg swayam"></div>',
-        unsafe_allow_html=True,
-    )
-
     swayam_daily = st.session_state.get("swayam_daily")
     swayam_view_dfs = st.session_state.get("swayam_view_dfs", {})
     tooltips = TOOLTIPS
@@ -364,7 +358,6 @@ def render_swayam_tab(selected_tf: str | None = None) -> None:
         render_metric_card("LOOKBACK WINDOW", str(len(df_n)), "Trading days", "info",
                            tooltip=tooltips["trading_days"])
 
-    section_gap()
 
     # ── Phase 2: REGIME ────────────────────────────────────────────────
     render_section_header(
@@ -375,7 +368,6 @@ def render_swayam_tab(selected_tf: str | None = None) -> None:
     )
     _render_hmm_regime_chart(df_n, dates)
 
-    section_gap()
 
     # ── Phase 3: COMPOSITION ───────────────────────────────────────────
     render_section_header(
@@ -386,7 +378,6 @@ def render_swayam_tab(selected_tf: str | None = None) -> None:
     )
     _render_zone_distribution_chart(df_n, dates)
 
-    section_gap()
 
     render_section_header(
         "Raw Zone Counts",
@@ -396,7 +387,6 @@ def render_swayam_tab(selected_tf: str | None = None) -> None:
     )
     _render_raw_zone_counts_chart(df_n, dates)
 
-    section_gap()
 
     # ── Phase 4: SIGNALS ───────────────────────────────────────────────
     render_section_header(
@@ -407,7 +397,6 @@ def render_swayam_tab(selected_tf: str | None = None) -> None:
     )
     _render_signal_counts_chart(df_n, dates)
 
-    section_gap()
 
     render_section_header(
         "Average Unified Signal",
@@ -416,7 +405,6 @@ def render_swayam_tab(selected_tf: str | None = None) -> None:
     )
     _render_avg_unified_signal_chart(df_n, dates)
 
-    section_gap()
 
     # ── Phase 5: DRILL-DOWN ────────────────────────────────────────────
     render_section_header(

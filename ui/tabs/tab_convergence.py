@@ -25,9 +25,8 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from ui.theme import (chart_layout, style_axes,
-                      chart_color, chart_rgba, grid_rgba)
-from ui.components import (render_metric_card, render_section_header, section_gap,
-                           render_info_box, render_empty_state,
+                      chart_color, chart_rgba, grid_rgba, panel_bg)
+from ui.components import (render_metric_card, render_section_header,                            render_info_box, render_empty_state,
                            render_chart_panel, render_note)
 from convergence.normalization import (
     align_fvo_swayam,
@@ -85,11 +84,6 @@ def _dynamic_range(vals, padding=0.15):
 def render_convergence_tab(ts_filtered=None):
     """Render the convergence dashboard tab with amber-gold system identity."""
     # System identity background
-    st.markdown(
-        '<div class="tab-bg convergence"></div>',
-        unsafe_allow_html=True,
-    )
-
     convergence_df = st.session_state.get("convergence_df")
     nishkarsh_norm = st.session_state.get("nishkarsh_conv_normalized")
     fvo_ts = st.session_state.get("fvo_ts")
@@ -283,7 +277,6 @@ def render_convergence_tab(ts_filtered=None):
                            "success" if agreement > UI_AGREEMENT_STRONG else "warning" if agreement > UI_AGREEMENT_MODERATE else "neutral",
                            tooltip=TOOLTIPS["agreement"])
 
-    section_gap()
 
     # ═══════════════════════════════════════════════════════════════════════
     # UNIFIED NORMALIZED SIGNAL — 3-row stacked chart
@@ -362,19 +355,42 @@ def render_convergence_tab(ts_filtered=None):
         vertical_spacing=0.05,
     )
 
+    # ── Signal marker tiers ───────────────────────────────────────────
+    # One definition for all three rows. SIZE carries strength, COLOUR carries
+    # direction, and opacity now only separates "no signal" from "signal".
+    #
+    # The moderate tier used to be drawn at 55% alpha, which composited to
+    # 2.31:1 against the panel in Terminal and 2.46:1 in Paper — the reader
+    # could not see the dots, and they are the ones a moderate signal depends
+    # on. At 0.90 the same dot measures 4.30:1 and 4.62:1. Strength stopped
+    # being encoded in opacity because a half-transparent 5px dot is not a
+    # weaker signal, it is an invisible one.
+    _SZ_STRONG, _SZ_MODERATE, _SZ_FLAT = 9, 6, 4
+    _A_MODERATE, _A_FLAT = 0.90, 0.55
+
+    def _marker(sizes, colors):
+        """Marker styling shared by every row of this figure.
+
+        The 1px outline is drawn in the panel's own colour so that dots in a
+        dense run read as separate marks instead of a thick segment, and so a
+        dot sitting on the connecting line still detaches from it.
+        """
+        return dict(size=sizes, color=colors,
+                    line=dict(width=1, color=panel_bg()))
+
     # Convergence color mapping
     avg_colors, avg_sizes = [], []
     for v in norm_avg:
         if v < -UI_CONSENSUS_STRONG:
-            avg_colors.append(chart_color("emerald")); avg_sizes.append(7)
+            avg_colors.append(chart_color("emerald")); avg_sizes.append(_SZ_STRONG)
         elif v <= -UI_CONSENSUS_MODERATE:
-            avg_colors.append(chart_rgba("emerald", 0.55)); avg_sizes.append(5)
+            avg_colors.append(chart_rgba("emerald", _A_MODERATE)); avg_sizes.append(_SZ_MODERATE)
         elif v > UI_CONSENSUS_STRONG:
-            avg_colors.append(chart_color("rose")); avg_sizes.append(7)
+            avg_colors.append(chart_color("rose")); avg_sizes.append(_SZ_STRONG)
         elif v >= UI_CONSENSUS_MODERATE:
-            avg_colors.append(chart_rgba("rose", 0.55)); avg_sizes.append(5)
+            avg_colors.append(chart_rgba("rose", _A_MODERATE)); avg_sizes.append(_SZ_MODERATE)
         else:
-            avg_colors.append(chart_rgba("slate", 0.45)); avg_sizes.append(4)
+            avg_colors.append(chart_rgba("slate", _A_FLAT)); avg_sizes.append(_SZ_FLAT)
 
     # ── Row 1: Unified normalized ─────────────────────────────────────
     fig.add_trace(go.Scatter(
@@ -398,7 +414,7 @@ def render_convergence_tab(ts_filtered=None):
     fig.add_trace(go.Scatter(
         x=aligned_dates, y=norm_avg, mode="lines+markers", name="Consensus (50/50)",
         line=dict(color=chart_rgba("slate", 0.55), width=1.2),
-        marker=dict(size=avg_sizes, color=avg_colors),
+        marker=_marker(avg_sizes, avg_colors),
     ), row=1, col=1)
     # (A dashed accent 'Calibrated Model' overlay was drawn here. It plotted
     # a second smoothed read of the same signal on top of the consensus
@@ -413,17 +429,17 @@ def render_convergence_tab(ts_filtered=None):
     conv_colors, conv_sizes = [], []
     for v in aligned_conv_raw:
         if v is None:
-            conv_colors.append(chart_rgba("slate", 0.45)); conv_sizes.append(4)
+            conv_colors.append(chart_rgba("slate", _A_FLAT)); conv_sizes.append(_SZ_FLAT)
         elif v > UI_CONVRAW_STRONG:
-            conv_colors.append(chart_color("rose")); conv_sizes.append(7)
+            conv_colors.append(chart_color("rose")); conv_sizes.append(_SZ_STRONG)
         elif v >= UI_CONVRAW_MODERATE:
-            conv_colors.append(chart_rgba("rose", 0.55)); conv_sizes.append(5)
+            conv_colors.append(chart_rgba("rose", _A_MODERATE)); conv_sizes.append(_SZ_MODERATE)
         elif v < -UI_CONVRAW_STRONG:
-            conv_colors.append(chart_color("emerald")); conv_sizes.append(7)
+            conv_colors.append(chart_color("emerald")); conv_sizes.append(_SZ_STRONG)
         elif v <= -UI_CONVRAW_MODERATE:
-            conv_colors.append(chart_rgba("emerald", 0.55)); conv_sizes.append(5)
+            conv_colors.append(chart_rgba("emerald", _A_MODERATE)); conv_sizes.append(_SZ_MODERATE)
         else:
-            conv_colors.append(chart_rgba("slate", 0.45)); conv_sizes.append(4)
+            conv_colors.append(chart_rgba("slate", _A_FLAT)); conv_sizes.append(_SZ_FLAT)
 
     fig.add_trace(go.Scatter(
         x=aligned_dates, y=np.clip(conv_vals, 0, None),
@@ -436,18 +452,21 @@ def render_convergence_tab(ts_filtered=None):
     fig.add_trace(go.Scatter(
         x=aligned_dates, y=conv_vals, mode="lines+markers", name="Base Conviction",
         line=dict(color=chart_rgba("slate", 0.55), width=1.2),
-        marker=dict(size=conv_sizes, color=conv_colors),
+        marker=_marker(conv_sizes, conv_colors),
     ), row=2, col=1)
     fig.add_hline(y=0, line_color=grid_rgba(0.06), line_width=0.5, row=2, col=1)
     fig.add_hline(y=UI_CONVRAW_STRONG, line_dash="dot", line_color=chart_rgba("rose", 0.12), line_width=0.5, row=2, col=1)
     fig.add_hline(y=-UI_CONVRAW_STRONG, line_dash="dot", line_color=chart_rgba("emerald", 0.12), line_width=0.5, row=2, col=1)
 
     # ── Row 3: Swayam Avg Signal ──────────────────────────────────────
-    # Same three tiers, same colours, same sizes as the two rows above.
+    # TWO tiers here, not three: Swayam has a single threshold, so there is no
+    # moderate band to draw. (The comment that used to sit here claimed three,
+    # which the code never implemented.)
     swayam_colors = [chart_color("emerald") if v < -UI_SWAYAM_AVG_THRESHOLD
                      else chart_color("rose") if v > UI_SWAYAM_AVG_THRESHOLD
-                     else chart_rgba("slate", 0.45) for v in aligned_swayam_raw]
-    swayam_sizes = [7 if abs(v) > UI_SWAYAM_AVG_THRESHOLD else 4 for v in aligned_swayam_raw]
+                     else chart_rgba("slate", _A_FLAT) for v in aligned_swayam_raw]
+    swayam_sizes = [_SZ_STRONG if abs(v) > UI_SWAYAM_AVG_THRESHOLD else _SZ_FLAT
+                    for v in aligned_swayam_raw]
 
     fig.add_trace(go.Scatter(
         x=aligned_dates, y=np.clip(aligned_swayam_raw, 0, None),
@@ -460,7 +479,7 @@ def render_convergence_tab(ts_filtered=None):
     fig.add_trace(go.Scatter(
         x=aligned_dates, y=aligned_swayam_raw, mode="lines+markers", name="Avg Signal",
         line=dict(color=chart_rgba("slate", 0.55), width=1.2),
-        marker=dict(size=swayam_sizes, color=swayam_colors),
+        marker=_marker(swayam_sizes, swayam_colors),
     ), row=3, col=1)
     fig.add_hline(y=UI_SWAYAM_AVG_THRESHOLD, line_dash="dot", line_color=chart_rgba("rose", 0.15), line_width=0.5, row=3, col=1)
     fig.add_hline(y=-UI_SWAYAM_AVG_THRESHOLD, line_dash="dot", line_color=chart_rgba("emerald", 0.15), line_width=0.5, row=3, col=1)

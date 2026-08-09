@@ -12,7 +12,7 @@ import streamlit as st
 from datetime import datetime
 
 from ui.components import (render_section_header, render_table_panel,
-                           render_note, section_gap)
+                           render_note)
 
 
 def render_data_tab(ts_filtered, ts, active_target):
@@ -92,7 +92,6 @@ def render_data_tab(ts_filtered, ts, active_target):
     )
 
     # ── Export ──────────────────────────────────────────────────────────
-    section_gap()
     csv_data = ts.to_csv(index=False).encode("utf-8")
     # Label is plain text. It carried a "\u2913" glyph — a Unicode arrow standing
     # in for an icon, from no icon set, drawn at whatever weight the system
