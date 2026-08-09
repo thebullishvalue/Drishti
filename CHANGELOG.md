@@ -219,6 +219,60 @@ Sections used: **Added · Changed · Deprecated · Removed · Fixed · Security 
 - `optuna` from `requirements.txt` — nothing imports it any more.
 
 ### Fixed
+- **A blue pill appeared beside the value in every dropdown.** Not the caret,
+  which was already transparent — a 2px accent `outline` from the app's own
+  `:focus-visible` rule landing on the selectbox's hidden type-to-search
+  input, a 2px x 22px box. A focus ring with a 2px offset around a 2px-wide
+  element is a floating pill, not an indicator. The ring is removed on that
+  one input; focus is not lost, because the control around it already takes an
+  accent border on `:focus-within` — a box the reader can actually see.
+
+- **The four "What a run returns" cards clipped their own last line and came
+  out uneven.** They were Streamlit containers, and on 1.52 the anonymous row
+  that wraps markdown sized to 31px around 47px of copy and refused to grow —
+  `min-height: fit-content`, `flex: 0 0 auto`, dissolving the wrappers and
+  `overflow: visible` all left it at 31px. Each card was ~15px short, and by a
+  different amount, which is what made the grid ragged. These four cards are
+  static text and gain nothing from a container, so they are now one CSS grid
+  of plain divs carrying the panel's surface, hairline and radius. Verified:
+  4 cards, heights 116/116/116/116, widths 283/283/283/283, one row, nothing
+  clipped.
+
+- **The appearance toggle filled 59% of its control and truncated a label.**
+  Its button wrapper carried `flex-basis: auto`, so it sized to its two
+  segments and then declined to grow — 127px inside a 215px group. The
+  segments were a correct 50% of the wrong box (64px each), `PAPER` ellipsed
+  to `PAP…`, and the right third stayed dead however wide the rail was
+  dragged. `width: 100%` was already on it and could not help: for a flex item
+  the basis decides the main size, and an auto basis reads the content rather
+  than the declared width. At `flex: 1 1 100%` the wrapper measures 209px and
+  the segments 105/105 — 97% fill, both labels whole.
+
+- **The UI was verified against a frontend that was never deployed.**
+  `requirements.txt` asked for `streamlit>=1.51.0,<1.53.0`, so local ran 1.51.0
+  and Streamlit Cloud resolved 1.52.2 — and 1.52 inserts an anonymous
+  `display: flex; flex-direction: row` div between `stMarkdown` and
+  `stMarkdownContainer`. Every rule in theme.css that repairs Streamlit's
+  collapsing wrappers lands somewhere different because of it: the landing
+  page's system panels rendered with their copy beside their spec rows at
+  188px each instead of stacked at 375px, and the rail's group labels
+  overlapped the controls under them. Reproduced locally by installing 1.52.2
+  in a venv, which is the only reason the cause was found rather than guessed.
+
+  Two fixes. `stMarkdownContainer` is no longer dissolved anywhere — leaving
+  the innermost container as a block keeps its children stacked whichever
+  wrapper sits above it — and the rail's group label carries an explicit 38px
+  floor (16px group separation + 14px label + 8px to its first control)
+  because the label's own margins overflow a row box that will not grow.
+
+  Streamlit is now pinned EXACTLY, at 1.52.2: this package is a UI contract,
+  not a dependency with a floor. Not 1.51.0, the version the design system was
+  originally measured against, because 1.51 cannot run on Cloud at all — it
+  requires `pyarrow<22` and pyarrow only ships cp314 wheels from 22.0.0, while
+  Cloud is on Python 3.14. Verified on 1.52.2: landing panels stacked at 375px
+  and nothing clipped, spec values 17px from the panel edge, section rhythm
+  40/17, all rail labels at 8px clearance, zero phantom blocks.
+
 - **Vertical rhythm had four sources and no contract.** Spacing between
   sections came from Streamlit's 16px flex gap, `.section-hdr`'s margin, its
   padding, AND a `section_gap()` helper that injected an 8px empty div taking

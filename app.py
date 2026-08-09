@@ -355,12 +355,24 @@ def _render_landing_page() -> None:
         ("The evidence", "Every series, weight and diagnostic behind the verdict, "
                          "exportable."),
     )
-    ocols = st.columns(2, gap="small")
-    for i, (title, desc) in enumerate(_out):
-        with ocols[i % 2]:
-            with panel(f"landing-out-{i}", title):
-                st.markdown(f'<div class="panel-copy">{desc}</div>',
-                            unsafe_allow_html=True)
+    # ONE markdown block, not four panels. These four cards are static text, so
+    # they gain nothing from a Streamlit container and lose something real to
+    # it: on 1.52 the anonymous row Streamlit wraps markdown in sizes to 31px
+    # around 47px of copy and will not grow, so each panel came out ~15px
+    # short and clipped its own last line at `overflow: hidden` — and clipped
+    # by a different amount per card, which is why the four were uneven. A
+    # single grid of plain divs has no wrapper to collapse, and CSS grid gives
+    # the uniform two-up layout the panels were only approximating.
+    st.markdown(
+        '<div class="outcome-grid">'
+        + "".join(
+            f'<div class="outcome"><div class="o-t">{html.escape(t)}</div>'
+            f'<div class="o-d">{html.escape(d)}</div></div>'
+            for t, d in _out
+        )
+        + "</div>",
+        unsafe_allow_html=True,
+    )
 
 
 def _compute_hero_verdict(nishkarsh_norm, agreement, fvo_signal) -> dict:
