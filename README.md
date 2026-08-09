@@ -6,14 +6,21 @@
 > truth distilled from the convergence of evidence.
 
 Tattva is a research terminal that produces a single, reproducible directional
-signal for a **target** — a commodity (Gold, Silver, Copper, Brent, Cotton), an
-FX pair (USD/INR), or an equity **index** (Indian broad & sectoral, US benchmarks,
+signal for a **target** — a commodity (Gold, Silver, Copper, Brent, Cotton), a
+currency (USD/INR, the Dollar Index), or an equity **index** (Indian broad & sectoral, US benchmarks,
 or an India sector-ETF universe) — by converging two independent engines: a
 top-down macro **forecast** and a bottom-up **regime breadth** read, grading its
 own out-of-sample edge as it goes.
 
 It runs entirely on free **yfinance** data (plus NSE/Wikipedia for index
 constituents). No API keys, no secrets, no database.
+
+**Where to start.** [What it does](#what-it-does) is the one-screen version and
+[Quickstart](#quickstart) gets it running. [How the model works](#how-the-model-works)
+is the argument — what is estimated, what is declared, and what is deliberately
+not claimed — and is the section to read before trusting an output.
+[Interpreting the output](#interpreting-the-output) is what to look at once a run
+finishes, including where the edge is not.
 
 ---
 
@@ -52,11 +59,13 @@ Then in the control rail on the left: pick an **Asset Class** and a **Target**
 runs the full pipeline; subsequent runs are fast. Switching target re-runs the
 engines on the already-fetched macro universe.
 
-The rail is grouped by how often you touch it — **Instrument** → **Session**
-(Reset / Refresh) → **Model** (read-only status) → **Appearance** (Terminal, the
-dark working theme; Paper, the light one for reading and print). Page-local
-controls — currently just the chart window — live in the toolbar strip docked
-under the command bar, not in the rail.
+The rail is grouped by scope — **Instrument** (what is being analysed) →
+**Model** (a read-only status readout) → **Session** (Reset / Refresh) →
+**Appearance** (Slate, the dark working theme; Paper, the light one for
+reading and print). Controls that reframe a single chart live in that chart's
+own panel header, not in the rail: the chart-window selector sits opposite the
+context line on the page's primary chart, so a control's position tells you its
+scope.
 
 No configuration is required — there are no secrets or environment variables to set.
 
@@ -102,31 +111,30 @@ history does.
 horizon (daily bars throughout — no weekly resampling), finalized from a 33-target
 walk-forward study: the leakage-free directional edge lives at 1–10d and fades by
 15–20d (analog edge peaks at +20d and collapses beyond it — zero of 33 targets
-significant at +60d). An earlier build offered a second "Positional 20d" lens, but it
-was a slower-turnover re-expression rather than an independent edge, so it was removed
-along with its selector. The Precedent tab still shows a fixed **1/3/5/10/20/60d**
+significant at +60d). There is no second horizon to choose, because a longer lens
+measured on this evidence is a slower-turnover re-expression of the same edge
+rather than an independent one. The Precedent tab shows a fixed **1/3/5/10/20/60d**
 term structure spanning past that collapse point on purpose — its per-horizon
 walk-forward IC makes the fade legible rather than hiding it behind a truncated grid.
 
 **Estimated, not tuned.** A classification cut-point is the causal empirical
 quantile of the signal's own past; a weight is the exponentially-discounted
 realised skill of the thing being weighted. Both come from
-`analytics/adaptive.py`, both use only data that had already resolved, and both
-replace numbers that previously had to be re-swept whenever an instrument's
-distribution moved. The p90 conviction cut-point resolves to 15.28 on Gold,
-12.26 on USD/INR and 13.10 on S&P 500 — where one pooled 15.13 used to serve
-all three, leaving quiet instruments permanently NEUTRAL and volatile ones
-permanently at an extreme. The old constants survive as **warm-up priors**, so
-an instrument's first year is unchanged and the estimate takes over only once
-it is better informed than the prior.
+`analytics/adaptive.py`, and both use only data that had already resolved. Because the
+quantile is the instrument's own, the p90 conviction cut-point resolves to
+15.28 on Gold, 12.26 on USD/INR and 13.10 on S&P 500 — a single pooled number
+would leave quiet instruments permanently NEUTRAL and volatile ones permanently
+at an extreme. Each constant has a **warm-up prior**, so an instrument's first
+year runs on the declared value and the estimate takes over only once it is
+better informed than the prior.
 
 What stays declared is *structure* — horizons (what you intend to hold), the
 view bank and discount grid (the hypothesis space to average over), the
 estimability floors — because those are choices about the question, not
 estimates of an answer. Still genuinely hand-set, and the README would rather
 say so than pretend otherwise: the DDM filter constants, the analog blend
-weights, and the Swayam kernel knobs. The research suite went from 20 studies
-to 8 as the sweeps behind the estimated constants retired.
+weights, and the Swayam kernel knobs. The research suite is eight studies —
+one per constant that is still swept rather than estimated.
 
 **Nothing repaints, and it is asserted.** Every published value is a function of
 data available at its own date, so re-running on more data extends the record
@@ -187,12 +195,11 @@ not N adjacent days of the same episode.
   (bond/rates/equity/risk/real-asset ETFs) + `MACRO_SYMBOLS_YF` (commodities + FX).
 - **Index targets:** `INDEX_TARGETS` in `data/universe.py` (India broad/sectoral, US
   benchmarks, India sector-ETF universe).
-- **Swayam input:** depends on the target's archetype (`TARGET_ARCHETYPE`,
-  `core/config.py`). *Basket-mode* targets fetch a cross-section — an index's own
-  its own OHLCV. Every target is read the same way — the constituent resolution
-  (NSE archive CSV / Wikipedia scrapes, 24h caches, hardcoded snapshot fallbacks)
-  and the curated proxy baskets went with the basket engine, taking a
-  503-symbol fetch off the critical path for a large index.
+- **Swayam input:** the target's **own** OHLCV, for every target. Swayam asks
+  its breadth question of one price series read many ways — timescale ×
+  information set × mechanism — so no constituent list, proxy basket or
+  cross-section fetch is involved, and a large index costs the same single
+  series as a commodity.
 
 Every external call is wrapped in a two-tier cache (memory + disk), a per-service
 circuit breaker, retry-with-backoff, a **partial-success re-fetch** (yfinance
@@ -204,7 +211,7 @@ the UI and research suite keep working through transient yfinance rate-limiting.
 exchange and uses real trading calendars (`exchange_calendars`) to count "days behind",
 judge the partial-session gate (only markets that were *open* are expected to post), and
 build each target's model spine from its true sessions. The dependency is **optional** —
-absent, every check degrades to a plain Mon–Fri mask, identical to prior behaviour.
+absent, every check degrades to a plain Mon–Fri mask.
 
 ---
 
@@ -221,10 +228,11 @@ india_index, us_index, etf) are tuned **per instrument** (hand-wired values in
 `_PER_INSTRUMENT_OVERRIDES`, layered on the class default); the India/US **stock**
 classes are tuned at **asset-class** level via `STOCK_CONFIGS`, since free-form
 symbols can't be pre-tuned. Only genuine statistical-definition constants
-(R²/ADF/KPSS/HMM cut-points, chart dimensions) stay global. Field defaults equal
-the former global constants, so an untuned instrument behaves exactly as before —
-to retune one, add its knob to `_PER_INSTRUMENT_OVERRIDES`; to retune a whole
-class, edit its default in `CLASS_CONFIG_DEFAULTS`.
+(R²/ADF/KPSS/HMM cut-points, chart dimensions) stay global. An instrument with
+no override runs on its class default, so the registry only has to carry what
+is genuinely instrument-specific: to retune one instrument, add its knob to
+`_PER_INSTRUMENT_OVERRIDES`; to retune a whole class, edit its default in
+`CLASS_CONFIG_DEFAULTS`.
 
 | What | Where |
 |---|---|
@@ -234,7 +242,7 @@ class, edit its default in `CLASS_CONFIG_DEFAULTS`.
 | **Per-asset-class config defaults** | `CLASS_CONFIG_DEFAULTS` (`commodity`, `fx`, `india_index`, `us_index`, `etf`, `stock_india`, `stock_us`) + `STOCK_CONFIGS` in `core/config.py` |
 | Individual-stock targets (free-form symbol, Swayam self-mode) | Sidebar **India Stocks** / **US Stocks** asset class → `data/universe.py::resolve_stock_symbol` + `core/config.py::register_stock_target` |
 | FVO valuation + scoring horizons (burn-in / print floor / discount grid / lookback / hold) | fields on each `InstrumentConfig` (`fvo_*`, `forecast_horizon`, `hold_horizons`) |
-| DDM / dimension weights / thresholds / markers / display tiers / analog blend / Swayam grid | fields on each `InstrumentConfig` (defaults = the former globals) |
+| DDM / dimension weights / thresholds / markers / display tiers / analog blend / Swayam grid | fields on each `InstrumentConfig` |
 | Macro predictor universe | `GLOBAL_MACRO_MAP` + `MACRO_SYMBOLS_YF` |
 | Constituent cap | `_DEFAULT_CAP` in `data/universe.py` (`0` = no cap, full index) |
 | Valuation burn-in / print floor / discount grid | `core/config.py` (`FVO_BURN_IN`, `FVO_MIN_PRINTS`, `FVO_VALUATION_DELTAS`, `MIN_DATA_POINTS`) |
@@ -275,8 +283,8 @@ engines/                fvo/ (valuation: recursive cointegrating regression —
                         Marchenko-Pastur cut, regime filter, asset-class block
                         map), swayam/ (breadth: the per-series MSF/MMR/regime
                         kernel + the skill-weighted self-referential view bank)
-analytics/              adaptive (causal thresholds + online skill weights — the
-                        layer that replaced the tuned constants), OU, Hurst/DFA,
+analytics/              adaptive (causal thresholds + online skill weights),
+                        OU, Hurst/DFA,
                         robust-quantile z-scores, HMM/GARCH/CUSUM, breaks,
                         analogs (Mahalanobis precedent matcher)
 convergence/            cross-validator, conviction (DDM), divergence,
@@ -331,7 +339,9 @@ the price of not needing a hand-curated proxy, and it is disclosed rather than
 hidden: the Swayam tab surfaces an "effective view count" (an eigenvalue-based
 diagnostic, never fed into the signal itself), and the views are skill-weighted,
 so a timescale that has stopped predicting fades out of the aggregate instead of
-padding the apparent agreement.
+padding the apparent agreement. The trade is deliberate — a self-referential
+bank needs no hand-curated proxy basket, and a proxy is a judgement the data
+never gets to overrule.
 
 ---
 

@@ -2,14 +2,55 @@
 # @thebullishvalue Product
 
 # Core Framework
-# streamlit>=1.42.0: the UI passes width='stretch' to st.button/st.plotly_chart/
+# Lower bound: the UI passes width='stretch' to st.button/st.plotly_chart/
 # st.dataframe, an argument introduced in 1.42 — on older versions (e.g. 1.37.1)
 # the app crashes at first render with TypeError: unexpected keyword 'width'.
-streamlit>=1.42.0
+#
+# Upper bound, <1.53.0 — two independent reasons, either one sufficient:
+#
+#  1. THE SERVER STACK. 1.53 began the move off Tornado to Starlette/uvicorn,
+#     and Streamlit did not cap its Starlette dependency until 1.61.1. Every
+#     release in 1.57.0–1.61.0 declares `starlette>=0.40.0` (1.60/1.61.0 widen
+#     it only to `<2`), so a fresh install resolves whatever Starlette is
+#     newest. Starlette 1.4.0 made `thread_minimum_size` a REQUIRED
+#     keyword-only argument of `GZipResponder.__init__`, which Streamlit's
+#     `_MediaAwareGZipResponder` subclass does not pass — so every HTTP
+#     request, health checks included, dies with
+#     `TypeError: GZipResponder.__init__() missing 1 required keyword-only
+#     argument: 'thread_minimum_size'` and the deploy serves 500s. (Narrow
+#     window: 1.4.1 gave the argument a default. But an unpinned resolve is a
+#     lottery, and this is what Streamlit Cloud drew.) Staying under 1.53
+#     keeps the Tornado server, so the ASGI path that crashes is never run.
+#
+#  2. THE UI IS BUILT ON STREAMLIT'S INTERNAL DOM. The design system hooks
+#     `data-testid` attributes, the placement of the `st-key-*` class, and the
+#     exact wrapper nesting inside an element container — `.panel-hdr`
+#     centring depends on dissolving `stMarkdown`/`stMarkdownContainer` with
+#     `display: contents`. None of that is public API. It was measured against
+#     1.51.0; a frontend rewrite would silently un-style the app.
+#
+# Raising this ceiling is a deliberate upgrade, not a version bump: re-run the
+# UI verification against the new build before shipping it.
+streamlit>=1.51.0,<1.53.0
+# Belt and braces, inert under the ceiling above: on Tornado, Streamlit never
+# imports Starlette, so this only installs ~1MB of unused package. It earns its
+# place the day someone raises that ceiling — it caps Starlette below 1.4.0 and
+# stops the crash reappearing on a Streamlit that still ships the unfixed call.
 starlette>=0.46.0,<1.0.0
 pandas>=2.1.0
 numpy>=1.24.0
 plotly>=5.18.0
+# Deliberately unpinned. On the deploy target (Linux x86_64, Python 3.14) pip
+# resolves numba 0.66.0 / llvmlite 0.48.0 — both stable — and backtracks numpy
+# to 2.4.6 on its own to satisfy numba's `numpy<2.5`.
+#
+# On an INTEL Mac the same install yields numba 0.63.0b1, a pre-release, and
+# that is not something a version pin here can fix: numba 0.66.0 publishes a
+# cp314 wheel for macosx_12_0_ARM64 and none for macOS x86_64, so on Intel
+# there is no stable wheel to choose and pip falls back to the beta. Capping
+# numpy does NOT change this (verified: capped, Intel macOS still resolves the
+# beta) — it just constrains numpy for no gain. Local Intel-Mac concern only;
+# it does not reach the deployment.
 numba
 
 # Scientific Computing

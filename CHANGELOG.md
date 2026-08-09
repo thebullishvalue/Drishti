@@ -167,6 +167,32 @@ Sections used: **Added · Changed · Deprecated · Removed · Fixed · Security 
   render instead of at import, so both themes get their own palette.
 
 ### Added
+- **Dollar Index (DX-Y.NYB) as a target**, under Currency (FX). It was already
+  in the macro universe as a PREDICTOR, which is the whole difficulty: the
+  index is a fixed basket of six crosses (EUR 57.6%, JPY 13.6%, GBP 11.9%,
+  CAD 9.1%, SEK 4.2%, CHF 3.6%), so most of the FX complex reconstructs it
+  arithmetically rather than explaining it. Left alone, a handful of
+  predictors rebuild the target to ~96% by weight and the residual that
+  remains is rounding — an OOS R2 near 1.0 that means nothing. Fifteen columns
+  are excluded for this target: the index column itself, the three USD-index
+  ETFs that track it (UUP long, UDN its exact inverse, USDU a broad USD
+  basket), and the component legs. Non-component FX stays, because AUD, the
+  INR legs and the EM crosses drive the dollar rather than compose it; 191
+  predictors remain. Verified end to end on a live run — mispricing -0.33 SD
+  (0.3% vs fair value), walk-forward IC +0.033 across 6 windows, model spread
+  93.9 bps. For comparison Gold reads 286.2 bps: a genuine uncertainty band in
+  both cases, which is what a self-explained target would not have.
+
+- **The dark appearance is called Slate**, not Terminal. Terminal named the
+  application, not the surface — and the app is a terminal in both appearances,
+  so the label distinguished nothing. Slate and Paper are both reading
+  surfaces, one dark and one light, which is the actual distinction, and it
+  matches the Graphite ramp the dark theme is already built from. The two names
+  now live in one `APPEARANCES` tuple, and `theme_choice()` treats a value
+  outside it as unset — a session opened before the rename still holds the old
+  string in its durable key, and handing an unknown option to the segmented
+  control as its default is an error rather than a fallback.
+
 - **`research/test_reproducibility.py` — the non-repainting guarantee, asserted.**
   Runs the system on `data[:T]` and `data[:T-250]` and requires exact agreement
   on every shared date across the FVO engine, Swayam view weights, aggregated
@@ -193,6 +219,137 @@ Sections used: **Added · Changed · Deprecated · Removed · Fixed · Security 
 - `optuna` from `requirements.txt` — nothing imports it any more.
 
 ### Fixed
+- **Vertical rhythm had four sources and no contract.** Spacing between
+  sections came from Streamlit's 16px flex gap, `.section-hdr`'s margin, its
+  padding, AND a `section_gap()` helper that injected an 8px empty div taking
+  a slot of its own in the flex column — so the space above a section rule was
+  16+8+16 = 40px where an author had remembered to call it and 16px where they
+  had not. Measured across FVO, Convergence and Swayam, identical-looking
+  boundaries landed at different distances for no reason a reader could infer.
+  All 23 calls and the helper are gone, and the boundary is now stated once:
+  40px to the rule, 16px rule-to-title, 16px title-to-content, 16px between
+  blocks. Re-measured: every page is a uniform 16px with no off-scale gaps.
+
+  A second invisible element was doing the same damage between TABS. Four of
+  the six pages emitted a decorative `<div class="tab-bg">` that CSS had
+  already switched off — but `display: none` on the child does not remove
+  Streamlit's element container around it, and that container still took a
+  slot in the column's flex gap. So FVO and Convergence carried 56px above
+  their first section rule while Data and Precedent carried 40px: identical
+  markup, different spacing, for an element nobody could see. The markup and
+  the class are gone. Measured across all five analysis pages afterwards,
+  every section header on every page now reads the same — 40px to the rule,
+  17px rule to title, 4px title to description, 24px description to content.
+
+  The last of it was a lesson in measuring the wrong thing. The section header
+  overflowed its own flex item by 16px — the exact gap meant to separate it
+  from the section's first block — so the description landed flush on the
+  cards. Dissolving the wrappers with `display: contents` made the header the
+  flex item and restored that gap. But the BOX numbers then read 8px above the
+  description and 16px below, which looks like correct grouping and is not:
+  measured as INK, the visible distances were 26px above and 19px below, so
+  the sub-header still belonged to the chart rather than to the heading it
+  explains. Line-height was the whole story — a single-line title spends its
+  extra leading below itself. The title gives up that leading (1.25 -> 1.1)
+  and the row gives up its gap; measured after, 17px above and 27px below.
+  The rail got the same treatment scaled down — it had been 0px under a group
+  label (the label's margin was collapsing out of its flex item), 8px between
+  controls and 44px above the next group, so a label sat *closer* to the
+  control below it than the controls sat to each other. Now 8px within a
+  group, 24px above one. The real cause took four tries to find, because the
+  label's box is a lie: its rail item computes to ZERO height, so the label
+  paints 14px and occupies none, and Streamlit lays the next control out 6px
+  INTO it — which is what put the readout panel's border through the word
+  MODEL. No margin or padding on a zero-height box can fix that. Dissolving
+  the wrappers with `display: contents` makes `.sidebar-title` itself the flex
+  item, so it occupies the space it paints; verified at 8px clearance under
+  all four group labels, where three of them had been overlapping.
+
+- **The landing page was built from components that existed nowhere else.** A
+  bespoke `.fact-row` of oversized numerals where every other count in the
+  product is a metric card; `.system-card` with a 2px coloured top bar where
+  every other container is a 1px hairline panel; a floating `.outcome-grid`
+  with no container at all; and no section headers, which made the landing the
+  only page not on the section-rhythm contract. It is now built from the app's
+  own parts — `render_section_header`, `render_kpi_strip`, `panel()` — and the
+  three dead compositions are deleted from the stylesheet (21 rule blocks).
+  Building it from panels surfaced a fifth instance of the container-collapse
+  family: the panel body computed to 27px around ~209px of prose and spec rows
+  and the panel's `overflow: hidden` cut the last row in half, 15px past the
+  edge. Verified after: 3 section headers, 7 panels, 3 metric cards, zero
+  bespoke compositions, zero phantom blocks, nothing clipped.
+
+- **The progress bar did not say which phase of the run it was in**, while the
+  console beside it printed `Phase 3/5: SWAYAM ENGINE` — one run described two
+  different ways. The bar now derives the phase from the percentage against a
+  single band table (`RUN_PHASES`), so ~25 call sites gained a correct phase
+  readout without having to pass and maintain one by hand. Two percentages were
+  wrong in a way the bar made visible: the convergence scoring loop ran to 85%
+  and the step that follows it reported 83%, so the bar moved backwards
+  mid-phase, and data acquisition finished on the FVO band's first number.
+  Verified against a live run — phase labels match the console exactly, the
+  sequence is monotonic, and the sub-lines carry real work (`225 Instruments ·
+  1597 Rows`, `1/15 views` with the actual view names).
+
+- **README read as a changelog.** It described the system in terms of what it
+  used to be — "defaults = the former globals", "identical to prior behaviour",
+  "the layer that replaced the tuned constants", "an earlier build offered" —
+  which tells a first-time reader about a version they never saw. Rewritten in
+  the present tense throughout. Two passages were also simply wrong: the rail
+  order (it is Instrument → Model → Session → Appearance) and the chart-window
+  control (it lives in the primary chart's panel header, not a toolbar strip),
+  and one sentence about Swayam's data source had been left mid-edit and no
+  longer parsed. Added a short reading path at the top.
+
+- **The solid white crosshair, finally understood.** Plotly draws every
+  spikeline TWICE — a contrast halo underneath, then the configured line on
+  top — and the halo is not reachable from the figure object. With a
+  transparent plot background it falls back to solid white at
+  `spikethickness + 2`. Every previous attempt at this set `spikecolor`, and
+  `spikecolor` was never wrong; measured mid-hover, the two elements were
+  `stroke=rgb(255,255,255) width=3px dash=none` and
+  `stroke=rgba(139,149,166,0.22) width=1px dash=3,3`. Verifying the figure's
+  layout could never have caught it, because the layout was correct.
+  Both lines are now styled identically from CSS off a `--spike` token, so
+  the halo is no longer a separate mark and the crosshair follows the
+  appearance mode: `rgba(139,149,166,0.45)` on Terminal,
+  `rgba(90,100,114,0.45)` on Paper, 1px, 3/3 dashed, verified in both.
+
+- **The stylesheet was pushing every page down by 16px.** `inject_css` ships
+  theme.css through `st.markdown("<style>…")`, and Streamlit wraps that in an
+  element container like any other block — `display: block`, height 0, first
+  child of the page column, taking a full slot in the column's flex gap. The
+  container is now hidden, which does not disable the CSS (a `<style>` tag is
+  never rendered, and stylesheets inside a `display: none` subtree still
+  apply). Measured after: zero real zero-height boxes remain on any page. The
+  other block flagged alongside it turned out to be `display: none` already
+  and was never consuming anything — an earlier probe of mine had mislabelled
+  it.
+
+- **The convergence plot's moderate-signal dots were effectively invisible.**
+  Drawn at 55% alpha, a moderate red dot composited to **2.31:1** against the
+  panel in Terminal and 2.46:1 in Paper — the marks a moderate reading depends
+  on were the ones the eye could not find. Strength had been encoded partly in
+  opacity, which is not a weaker signal but an unreadable one. Opacity now only
+  separates "no signal" from "signal" (0.90 → 4.30:1 and 4.62:1), strength is
+  carried by size alone (4 / 6 / 9px), and every marker takes a 1px outline in
+  the panel's own colour so dots in a dense run read as separate marks rather
+  than a thick segment. One tier definition now serves all three rows; the
+  third row's comment claimed three tiers it never implemented.
+
+- **Streamlit Cloud served 500s to every request, health checks included.**
+  `requirements.txt` asked only for `streamlit>=1.42.0`, so the deploy resolved
+  to whatever was newest. Streamlit 1.53 began moving off Tornado to
+  Starlette/uvicorn and did not cap its Starlette dependency until 1.61.1;
+  Starlette 1.4.0 had meanwhile made `thread_minimum_size` a required
+  keyword-only argument of `GZipResponder.__init__`, which Streamlit's
+  `_MediaAwareGZipResponder` subclass does not pass. Every HTTP request died in
+  the gzip middleware before reaching the app — nothing in Tattva was involved.
+  Pinned to `streamlit>=1.51.0,<1.53.0`, which keeps the Tornado server and the
+  frontend the design system was measured against; a full dependency resolve
+  for the deploy target (Linux x86_64 / Python 3.14) confirms 65 packages,
+  Streamlit 1.52.2 on Tornado 6.5.8, no uvicorn, and no pre-releases.
+
 - **Paper mode reset itself on every action that mattered.** The appearance
   choice lived in `theme_mode` — a WIDGET key — and Streamlit garbage-collects
   the state of any widget not instantiated during a run. The control sits at

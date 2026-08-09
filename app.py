@@ -83,9 +83,9 @@ from ui.components import (
     render_hero_card,
     render_control_hint,
     render_ticker,
-    section_gap,
     render_section_header,
     render_kpi_strip,
+    panel,
     render_nav_brand,
     render_warning_box,
     render_top_bar,
@@ -276,18 +276,21 @@ _SYSTEM_PANELS = (
 
 
 def _render_landing_page() -> None:
-    """Cold start — a description of the product, not a form waiting on you.
+    """Cold start — a description of the product, built from the product's own parts.
 
-    The previous version was a stack of section headers ("Session",
-    "Coverage", "Method", "The Run") wrapped around an empty state whose
-    headline was "No session loaded". It told a first-time reader nothing
-    about what the thing IS, and told a returning one only that they had not
-    pressed a button yet. Both already know.
+    Every block here now uses the same components the analysis pages use: a
+    section header for each division, `render_kpi_strip` for the coverage
+    numbers, and `panel()` for each system. The previous version was built
+    from four compositions that existed nowhere else in the app — a bespoke
+    `.fact-row` of oversized numerals where every other count in the product
+    is a metric card, `.system-card` with a 2px coloured top bar where every
+    other container is a 1px hairline panel, a floating `.outcome-grid` with
+    no container at all, and no section headers, which made the landing page
+    the only page not on the section-rhythm contract. It read as a different
+    product's marketing page bolted to the front of this one.
 
-    This states the claim first, in the product's own words, then supports it:
-    the proposition, the three numbers that make it concrete, what each system
-    contributes, and what you get back. The instruction to press Run is a
-    single line under the proposition, not a panel demanding attention.
+    The claim still leads, because a reader who has not run anything needs to
+    know what the thing IS before they are shown what it covers.
     """
     from core.config import TARGET_CATEGORIES, ALL_TARGETS
 
@@ -304,43 +307,44 @@ def _render_landing_page() -> None:
         unsafe_allow_html=True,
     )
 
-    # ── The three numbers that make it concrete ───────────────────────────
-    st.markdown(
-        f"""<div class="fact-row">
-  <div class="fact"><div class="f-n">{_n_cat}</div><div class="f-l">Asset classes</div>
-    <div class="f-d">Commodities, FX, India &amp; US indices, sector ETFs, and any
-      listed stock by symbol</div></div>
-  <div class="fact"><div class="f-n">{_n_tgt}</div><div class="f-l">Catalogue targets</div>
-    <div class="f-d">Each with its own tuned engine configuration — horizon, filter,
-      breadth tier, precedent term structure</div></div>
-  <div class="fact"><div class="f-n">~9y</div><div class="f-l">Daily history per run</div>
-    <div class="f-d">Walk-forward throughout; every score is out-of-sample with
-      respect to everything after it</div></div>
-</div>""",
-        unsafe_allow_html=True,
+    # ── Coverage — the app's own KPI grammar, not a bespoke number row ─────
+    render_section_header("Coverage", icon="layers")
+    render_kpi_strip(
+        [
+            {"label": "Asset Classes", "value": str(_n_cat),
+             "subtext": "Commodities, FX, India and US indices, sector ETFs, "
+                        "and any listed stock by symbol"},
+            {"label": "Catalogue Targets", "value": str(_n_tgt),
+             "subtext": "Each with its own engine configuration — horizon, filter, "
+                        "breadth tier, precedent term structure"},
+            {"label": "Daily History Per Run", "value": "~9y",
+             "subtext": "Walk-forward throughout; every score is out-of-sample with "
+                        "respect to everything after it"},
+        ],
+        max_cols=3,
+        key="landing-coverage",
     )
 
-    # ── What each system contributes ──────────────────────────────────────
+    # ── The three systems, as panels ──────────────────────────────────────
+    render_section_header("Systems", icon="cpu")
     cols = st.columns(3, gap="small")
     for col, (cls, eyebrow, name, kicker, body, specs) in zip(cols, _SYSTEM_PANELS):
-        spec_rows = "".join(
-            f'<div class="spec-row"><span class="spec-label">{k}</span>'
-            f'<span class="spec-value">{v}</span></div>'
-            for k, v in specs
-        )
         with col:
-            st.markdown(
-                f"<div class='system-card {cls}'>"
-                f"<div class='sc-eyebrow'>{eyebrow}</div>"
-                f"<h3>{name}</h3>"
-                f"<div class='sc-kicker'>{kicker}</div>"
-                f"<p>{body}</p>"
-                f"<div class='system-spec'>{spec_rows}</div>"
-                f"</div>",
-                unsafe_allow_html=True,
-            )
+            with panel(f"landing-{cls}", name, context=kicker):
+                st.markdown(
+                    f'<div class="panel-copy">{body}</div>'
+                    '<div class="panel-specs">'
+                    + "".join(
+                        f'<div class="lookback-row"><span class="lbl">{k}</span>'
+                        f'<span class="val">{v}</span></div>'
+                        for k, v in specs
+                    )
+                    + "</div>",
+                    unsafe_allow_html=True,
+                )
 
-    # ── What you get back ─────────────────────────────────────────────────
+    # ── What a run returns ────────────────────────────────────────────────
+    render_section_header("What a run returns", icon="target")
     _out = (
         ("A directional claim", "One verdict, with the six gates that condition it and "
                                 "the single binding constraint named."),
@@ -351,13 +355,12 @@ def _render_landing_page() -> None:
         ("The evidence", "Every series, weight and diagnostic behind the verdict, "
                          "exportable."),
     )
-    st.markdown(
-        '<div class="outcome-grid">'
-        + "".join(f'<div class="outcome"><div class="o-t">{t}</div>'
-                  f'<div class="o-d">{d}</div></div>' for t, d in _out)
-        + "</div>",
-        unsafe_allow_html=True,
-    )
+    ocols = st.columns(2, gap="small")
+    for i, (title, desc) in enumerate(_out):
+        with ocols[i % 2]:
+            with panel(f"landing-out-{i}", title):
+                st.markdown(f'<div class="panel-copy">{desc}</div>',
+                            unsafe_allow_html=True)
 
 
 def _compute_hero_verdict(nishkarsh_norm, agreement, fvo_signal) -> dict:
@@ -514,7 +517,7 @@ def _render_model_passport_sidebar(current_universe: str, current_index: str | N
 #: every run that returns or reruns before reaching it — clicking Run Analysis
 #: (which calls st.rerun() from inside the button handler), switching target,
 #: Reset, Refresh — discarded `theme_mode` entirely. The next run then found no
-#: value and fell back to Terminal. That is why Paper survived idle reruns but
+#: value and fell back to Slate. That is why Paper survived idle reruns but
 #: died on exactly the actions that matter, and why it looked "entirely buggy"
 #: rather than simply broken.
 #:
@@ -522,9 +525,21 @@ def _render_model_passport_sidebar(current_universe: str, current_index: str | N
 _THEME_CHOICE = "theme_choice"
 
 
+#: The two appearances. Both are reading surfaces — Slate is the dark one you
+#: work on, Paper the light one you read a result on and print from.
+APPEARANCES = ("Slate", "Paper")
+
+
 def theme_choice() -> str:
-    """The appearance the user last chose: "Terminal" or "Paper"."""
-    return st.session_state.get(_THEME_CHOICE, "Terminal")
+    """The appearance the user last chose, always one of ``APPEARANCES``.
+
+    A value that is not in the list is treated as unset. That matters across a
+    rename: a session opened before this list changed still holds the old
+    string in the durable key, and handing an unknown option to the segmented
+    control as its default is an error rather than a fallback.
+    """
+    choice = st.session_state.get(_THEME_CHOICE)
+    return choice if choice in APPEARANCES else APPEARANCES[0]
 
 
 def _render_appearance_control() -> None:
@@ -532,7 +547,7 @@ def _render_appearance_control() -> None:
 
     It was previously the first control under the brand mark, which gave the
     least consequential switch in the application the most valuable position
-    in it. Terminal (dark) is the working theme; Paper (light) is for reading
+    in it. Slate (dark) is the working theme; Paper (light) is for reading
     a result and for print.
 
     Called from exactly one of the two rail passes per rerun — the cold-start
@@ -549,9 +564,9 @@ def _render_appearance_body() -> None:
     pinned to the foot of the rail by CSS."""
     st.markdown('<div class="sidebar-title">Appearance</div>', unsafe_allow_html=True)
     _mode = st.segmented_control(
-        "Appearance", ["Terminal", "Paper"], key="theme_mode",
+        "Appearance", list(APPEARANCES), key="theme_mode",
         default=theme_choice(), label_visibility="collapsed",
-        help="Terminal — dark, for working. Paper — light, for reading and print.",
+        help="Slate — dark, for working. Paper — light, for reading and print.",
     )
     # Mirror the widget into the DURABLE key, and rerun so the stylesheet at
     # the top of main() is re-injected with the new value. Without the rerun
@@ -1375,7 +1390,7 @@ def main():
             swayam_macro_df = _nf_cache["swayam_macro_df"]
             macro_cols_list = _nf_cache["macro_cols_list"]
             console.item("Macro/OHLCV", "reused cached fetch (horizon-independent)")
-            progress_bar(progress_container, 20, "Data Acquisition Reused", f"{len(macro_cols_list)} Macros (cached)")
+            progress_bar(progress_container, 19, "Data Acquisition Reused", f"{len(macro_cols_list)} Macros (cached)")
             console.end_phase("DATA ACQUISITION")
         else:
             console.start_phase("DATA ACQUISITION", 1, 5)
@@ -1421,7 +1436,7 @@ def main():
                 console.success(f"Macro indicators: {len(swayam_macro_df.columns)} × {len(swayam_macro_df)} rows")
             macro_cols_list = list(swayam_macro_df.columns) if not swayam_macro_df.empty else []
             console.end_phase("DATA ACQUISITION")
-            progress_bar(progress_container, 20, "Data Acquisition Complete", f"{len(swayam_macro_df.columns)} Macros")
+            progress_bar(progress_container, 19, "Data Acquisition Complete", f"{len(swayam_macro_df.columns)} Macros")
 
             st.session_state["_swayam_fetch_cache"] = {
                 "key": _swayam_fetch_key,
@@ -1636,7 +1651,7 @@ def main():
 
         # ── Phase 4: Convergence ──────────────────────────────────────────
         console.start_phase("CONVERGENCE", 4, 5)
-        progress_bar(progress_container, 78, "Computing Convergence", "Cross-Validation · DDM Filtering")
+        progress_bar(progress_container, 76, "Computing Convergence", "Cross-Validation · DDM Filtering")
 
         console.section("Cross-Validation Setup")
         # ── Convergence weights: prior, then learned forward ─────────────
@@ -1733,7 +1748,10 @@ def main():
             divergence_detector.detect(fvo_sig, swayam_stats, date_str)
 
             if (i + 1) % 10 == 0 or i == total_dates - 1:
-                pct_val = int(78 + (i + 1) / total_dates * 7)
+                # 76-82: the step that follows this loop reports 83, so the
+                # loop must finish below it. It used to run to 85 and the bar
+                # visibly went backwards at the hand-off.
+                pct_val = int(76 + (i + 1) / total_dates * 6)
                 progress_bar(progress_container, pct_val, "Computing Convergence", f"{i + 1}/{total_dates} Dates Scored")
 
         console.item("Total FVO Dates", len(fvo_ts))
@@ -2281,7 +2299,6 @@ def main():
             {"label": "Engine Agreement", "value": (f"{_agree:.0%}" if _agree is not None else "—"),
              "subtext": "FVO vs Swayam", "color_class": "neutral"},
         ], max_cols=6)
-        section_gap()
         render_section_header(
             "Conviction Chain",
             "One directional claim from FVO, then every condition that can invalidate it. "
