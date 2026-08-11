@@ -1574,6 +1574,23 @@
     width: 50% !important; min-width: 0 !important;
     justify-content: center;
 }
+/* A segment's label ellipses; it never leaves the segment. Stated as an
+   invariant rather than as a fix: the rail's toggle already contained a
+   deliberately over-long label (105px segment, 0px spill, ellipsis applied),
+   so this changes nothing there — it exists so the same is true of the
+   controls that do not carry the rail's explicit widths, such as the window
+   selector in a narrow panel header. `min-width: 0` is the load-bearing part:
+   a flex item refuses to shrink below its content without it, which is how a
+   label escapes its button in the first place. */
+[data-testid="stButtonGroup"] button { overflow: hidden; }
+[data-testid="stButtonGroup"] button > div,
+[data-testid="stButtonGroup"] button p {
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
 [data-testid="stButtonGroup"] button {
     background: transparent !important;
     border: none !important;
