@@ -167,6 +167,24 @@ Sections used: **Added · Changed · Deprecated · Removed · Fixed · Security 
   render instead of at import, so both themes get their own palette.
 
 ### Added
+- **Aluminium and Zinc (commodities), and a Crypto asset class** with Bitcoin,
+  Ethereum, Solana, XRP, BNB, Cardano and Dogecoin — 36 targets to 45. Every
+  ticker was fetched before being registered rather than assumed: `ALI=F` and
+  `ZNC=F` both return full OHLC, and `ALUMINUM` and `JJU` (a zinc ETF) do not
+  exist on yfinance at all. Aluminium and Zinc exclude `Base Metals (DBB)`
+  from their predictor sets for the reason copper already did — DBB is roughly
+  equal thirds of the three, so it would let the regression explain a metal
+  with a basket containing it.
+
+  Crypto is the first target class that trades 7 days a week: 366 daily bars a
+  year against ~252 for a future, while every macro predictor prints on
+  weekdays only. `data/calendars.py` has no calendar for it and falls back to
+  a weekday mask, so weekend bars drop out of the model spine rather than
+  being carried against stale macro — a Saturday move is real, but nothing in
+  the cross-section was open to explain it. The class starts on the global
+  default config; a hand-picked knob with no sweep behind it would be a guess
+  wearing a number.
+
 - **Dollar Index (DX-Y.NYB) as a target**, under Currency (FX). It was already
   in the macro universe as a PREDICTOR, which is the whole difficulty: the
   index is a fixed basket of six crosses (EUR 57.6%, JPY 13.6%, GBP 11.9%,
