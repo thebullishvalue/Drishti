@@ -167,6 +167,23 @@ Sections used: **Added · Changed · Deprecated · Removed · Fixed · Security 
   render instead of at import, so both themes get their own palette.
 
 ### Added
+- **A target no longer has to be a predictor in order to be fetchable.** The
+  macro batch pulls exactly the columns in `GLOBAL_MACRO_MAP` +
+  `MACRO_SYMBOLS_YF` (plus the index levels merged into it), so a target whose
+  ticker sits in one of those maps arrives for free — which was true of every
+  commodity and FX target that predates this, because each is also a PREDICTOR
+  under the same name (Gold, Copper, Dollar Index). A target outside those maps
+  got no column at all and the guard downstream reported it as a failed source
+  fetch: "'Bitcoin' data is currently unavailable". Nothing was wrong with the
+  ticker — BTC-USD returns 366 bars a year — nothing fetched it.
+
+  The injection helper that existed for free-form stock targets is now gated on
+  the real condition (column missing, ticker is a yfinance symbol) rather than
+  on `is_stock_target`, which had been the only known case of a target outside
+  the batch. A new target now works by being registered, instead of also having
+  to be added to the predictor universe just to be fetchable — which would have
+  changed every other target's cross-section as a side effect.
+
 - **Aluminium and Zinc (commodities), and a Crypto asset class** with Bitcoin,
   Ethereum, Solana, XRP, BNB, Cardano and Dogecoin — 36 targets to 45. Every
   ticker was fetched before being registered rather than assumed: `ALI=F` and

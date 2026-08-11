@@ -195,23 +195,39 @@ def _bundle_swayam_view_dfs(dfs: dict) -> dict:
     return trimmed
 
 
-def _ensure_stock_target_column(df: pd.DataFrame, active_target: str) -> pd.DataFrame:
-    """Inject a free-form stock target's Close into the model matrix.
+#: Tickers that are NOT yfinance symbols — they name a source, and each has its
+#: own injection path (Jeera via data/sheets.py, SHEET_TARGETS likewise). Sending
+#: one to yf.download would be a guaranteed 404.
+_NON_YF_TICKER_SUFFIXES = (".NCDEX", ".SHEET")
 
-    Individual-stock targets (``is_stock_target``) are deliberately
-    NOT part of the macro batch universe fetch_commodity_dataset pulls (cache
-    coherence — see fetch_stock_target_series's docstring); their price
-    column is injected per-target here, the same pattern
-    data.fetcher._fetch_exogenous_targets uses for sheet targets: aligned to
-    the matrix's DATE spine, ffilled, leading NaNs left for the per-target
-    dropna downstream. No-op when the column already exists or the target
-    isn't a stock. Mutates st.session_state['data'] too, so a target switch
-    or a cached rerun sees the column without re-fetching.
+
+def _ensure_target_column(df: pd.DataFrame, active_target: str) -> pd.DataFrame:
+    """Inject a target's Close into the model matrix when the batch has not.
+
+    The macro batch fetches exactly the columns in GLOBAL_MACRO_MAP +
+    MACRO_SYMBOLS_YF (+ the index levels merged into it). A target whose
+    ticker is in one of those maps therefore arrives for free — which is true
+    of every commodity and FX target that predates this, because each is also
+    a PREDICTOR under the same name (Gold, Copper, Dollar Index …). A target
+    that is not in those maps has no column at all, and the guard downstream
+    reports it as a failed source fetch.
+
+    That is what happened to Aluminium, Zinc and the crypto targets: nothing
+    was wrong with the tickers (BTC-USD returns 366 bars a year), nothing
+    fetched them. This used to gate on ``is_stock_target``, which was the only
+    known case of a target outside the batch; the gate is now the actual
+    condition — the column is missing and the ticker is a real yfinance
+    symbol — so a new target works by being registered, without also having
+    to be added to the predictor universe just to be fetchable.
+
+    Aligned to the matrix's DATE spine, ffilled, leading NaNs left for the
+    per-target dropna downstream. Mutates st.session_state['data'] too, so a
+    target switch or a cached rerun sees the column without re-fetching.
     """
-    if active_target in df.columns or not is_stock_target(active_target):
+    if active_target in df.columns:
         return df
     ticker = ALL_TARGETS.get(active_target)
-    if not ticker:
+    if not ticker or ticker.endswith(_NON_YF_TICKER_SUFFIXES):
         return df
     end = pd.Timestamp.today()
     s = fetch_stock_target_series(ticker, end - pd.Timedelta(days=365 * 9), end)
@@ -849,7 +865,7 @@ def main():
     # Configuration's "Apply Configuration" button, further down, writes
     # that fallback straight into st.session_state["active_target"] if it's
     # ever wrong). Cheap no-op once the column already exists (cached fetch).
-    df = _ensure_stock_target_column(df, st.session_state.get("active_target", ""))
+    df = _ensure_target_column(df, st.session_state.get("active_target", ""))
 
     # ─── Sidebar: Model Configuration ──────────────────────────────────────
     numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
@@ -1152,7 +1168,7 @@ def main():
     # Stock targets (archetype 'self') are never IN the macro batch fetch to begin
     # with — inject their price column here (single-ticker fetch, cached) before
     # the guard checks for it.
-    df = _ensure_stock_target_column(df, active_target)
+    df = _ensure_target_column(df, active_target)
     if active_target not in df.columns:
         _tgt_ticker_guard = ALL_TARGETS.get(active_target, "?")
         if is_stock_target(active_target):
