@@ -443,6 +443,28 @@ COMMODITY_TARGETS = {
     "Cotton": "CT=F",
     "Brent Crude": "BZ=F",
     "USD/INR": "INR=X",
+    # Same ticker as the "Dollar Index" PREDICTOR column in MACRO_SYMBOLS_YF.
+    # That is intentional and safe only because TARGET_EXCLUDED_PREDICTORS
+    # drops the column (and its replicas) when DXY is the target — see there.
+    "Dollar Index": "DX-Y.NYB",
+    # Base metals. Both are LME contracts quoted in USD/tonne and print on the
+    # same weekday calendar as the rest of the commodity complex.
+    "Aluminium": "ALI=F",
+    "Zinc": "ZNC=F",
+    # Crypto trades 7 days a week — 366 daily bars a year against ~252 for a
+    # future — while every macro predictor prints on weekdays only. The model
+    # spine is the target's own sessions intersected with the predictor panel
+    # (data/calendars.py has no calendar for crypto and falls back to a
+    # weekday mask), so weekend bars drop out rather than being carried
+    # against stale macro. A Saturday move is real, but nothing in the
+    # cross-section was open to explain it.
+    "Bitcoin": "BTC-USD",
+    "Ethereum": "ETH-USD",
+    "Solana": "SOL-USD",
+    "XRP": "XRP-USD",
+    "BNB": "BNB-USD",
+    "Cardano": "ADA-USD",
+    "Dogecoin": "DOGE-USD",
     # Jeera (NCDEX cumin) is NOT a yfinance symbol — its daily price is pulled
     # from a published Google Sheet (data/sheets.py) and injected as a column in
     # the FVO matrix. The value here is a non-yfinance sentinel ticker: it
@@ -474,12 +496,37 @@ TARGET_EXCLUDED_PREDICTORS = {
     # few % copper — legitimate macro drivers, so they are kept; cf. Brent, which
     # excludes them because crude DOMINATES those indices.)
     "Copper": ["Base Metals (DBB)"],
+    # DBB is roughly equal thirds aluminium, zinc and copper, so it would let
+    # the regression explain either metal with a basket containing it — the
+    # same reason it is excluded for copper.
+    "Aluminium": ["Base Metals (DBB)"],
+    "Zinc": ["Base Metals (DBB)"],
     # EVERY INR-leg cross is a replica of USD/INR: INR/USD is its exact reciprocal,
     # and X/INR = X/USD × USD/INR all carry the target's own currency leg. Excluding
     # the whole set (computed so future additions are covered automatically) keeps
     # the fair-value residual honest. Dollar Index is kept — a driver, not a replica.
     "USD/INR": [n for n in MACRO_SYMBOLS_YF
                 if (n.endswith("/INR") or n == "INR/USD") and n != "USD/INR"],
+    # The Dollar Index IS a fixed basket of six crosses, so most of the FX
+    # complex reconstructs it arithmetically rather than explaining it:
+    # EUR 57.6%, JPY 13.6%, GBP 11.9%, CAD 9.1%, SEK 4.2%, CHF 3.6%. Left in,
+    # a handful of predictors rebuild the target to ~96% by weight and the
+    # "mispricing" that remains is rounding — an OOS R2 near 1.0 that means
+    # nothing. Excluded here: the index column itself, the three USD-index
+    # ETFs that track it (UUP long, UDN its exact inverse, USDU a broad USD
+    # basket), and the component legs. Non-component FX stays — AUD, the INR
+    # legs and the EM crosses are drivers of the dollar, not pieces of it.
+    "Dollar Index": [
+        "Dollar Index",
+        "US Dollar Bullish (UUP)", "US Dollar Bearish (UDN)",
+        "USD Bullish Broad (USDU)",
+        "Euro (FXE)", "EUR/USD",
+        "Japanese Yen (FXY)", "USD/JPY", "JPY/USD",
+        "British Pound (FXB)", "GBP/USD",
+        "Canadian Dollar (FXC)",
+        "Swiss Franc (FXF)", "USD/CHF",
+        "USD/SEK",
+    ],
     # WTI is ~the same barrel as Brent; the broad commodity indices + energy
     # sector ETF are crude-dominated → all would let crude "explain" itself.
     # RBOB/heating oil are refined FROM that barrel (crude + crack margin) —
@@ -516,8 +563,11 @@ ALL_TARGETS = {**COMMODITY_TARGETS, **INDEX_TARGETS_MAP}
 
 # Sidebar grouping — ordered category → target names.
 TARGET_CATEGORIES: dict[str, list[str]] = {
-    "Commodities": ["Gold", "Silver", "Copper", "Brent Crude", "Cotton", "Jeera"],
-    "Currency (FX)": ["USD/INR"]}
+    "Commodities": ["Gold", "Silver", "Copper", "Aluminium", "Zinc",
+                    "Brent Crude", "Cotton", "Jeera"],
+    "Currency (FX)": ["USD/INR", "Dollar Index"],
+    "Crypto": ["Bitcoin", "Ethereum", "Solana", "XRP", "BNB", "Cardano",
+               "Dogecoin"]}
 for _name, _meta in INDEX_TARGETS.items():
     TARGET_CATEGORIES.setdefault(_meta["category"], []).append(_name)
 
@@ -798,6 +848,11 @@ CLASS_CONFIG_DEFAULTS: dict[str, InstrumentConfig] = {
     "etf":         InstrumentConfig(),   # credible; etf (12) was n=1. Both inert (members carry their own MSF), so
                                          # kept at the global default rather than pinning a degenerate class-level best.
     # per_asset 2026-07-21 (asset-level, pooled Nifty100 / Nasdaq100 universes):
+    # Crypto starts on the global default: it has not been through a tuning
+    # sweep, and a hand-picked knob would be a guess wearing a number. A swept
+    # value belongs in the per-instrument registry once one exists.
+    "crypto":      InstrumentConfig(),
+    # per_asset 2026-07-21 (asset-level, pooled Nifty100 / Nasdaq100 universes):
     "stock_india": InstrumentConfig(swayam_lengths=(10, 14, 20, 28, 40), swayam_roc_frac=0.7),
     "stock_us":    InstrumentConfig(swayam_lengths=(10, 14, 20, 28, 40), swayam_roc_frac=0.55)}
 
@@ -811,6 +866,7 @@ STOCK_CONFIGS: dict[str, InstrumentConfig] = {
 _CATEGORY_TO_CLASS: dict[str, str] = {
     "Commodities":   "commodity",
     "Currency (FX)": "fx",
+    "Crypto":        "crypto",
     "India Indices": "india_index",
     "US Indices":    "us_index",
     "ETF Universe":  "etf"}
