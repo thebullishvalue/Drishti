@@ -1394,10 +1394,30 @@
    the app's uppercase + 0.1em tracking was breaking to "REFRES / H", which
    also made the two buttons different heights. Tighter tracking and padding
    buy the room; nowrap guarantees it. */
+/* Rail buttons WRAP; they do not truncate and they do not spill.
+   `white-space: nowrap` with no overflow handling is what pushed
+   "SWITCH → BRENT CRUDE" out through the side of its own button whenever the
+   rail was dragged narrow — the text simply refused to break and the button
+   had no instruction about what to do with the excess.
+   Wrapping rather than ellipsis is deliberate: this button's entire job is to
+   name the instrument you are switching to, so "SWITCH → BRENT CRU…" would
+   truncate the one word that carries the meaning. A short label ("RESET",
+   "REFRESH") still sits on one line — `normal` only breaks what must break. */
 [data-testid="stSidebar"] [data-testid^="stBaseButton"] {
-    white-space: nowrap;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    line-height: 1.3;
+    height: auto;
+    min-height: 44px;
     letter-spacing: 0.06em;
     padding-inline: var(--s2);
+}
+/* The inner content wrapper inherits nowrap from Streamlit's own rule, so the
+   break has to be granted at every level or the text still overflows. */
+[data-testid="stSidebar"] [data-testid^="stBaseButton"] > div,
+[data-testid="stSidebar"] [data-testid^="stBaseButton"] p {
+    min-width: 0; max-width: 100%;
+    white-space: normal; overflow-wrap: anywhere;
 }
 
 /* Widget labels in the rail are real <label> elements (not markdown divs
