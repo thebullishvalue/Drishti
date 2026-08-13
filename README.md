@@ -138,13 +138,7 @@ one per constant that is still swept rather than estimated.
 
 **Nothing repaints, and it is asserted.** Every published value is a function of
 data available at its own date, so re-running on more data extends the record
-rather than rewriting it. With one stated exception, which is a property of live
-data rather than of the model: the NEWEST bar is still forming until its session
-closes — continuously, for a 24/7 instrument like crypto — so the reading for
-today can differ from the reading for today once today is over. It is verified
-that this does not leak backwards: perturbing the final close and re-running
-leaves all 2,921 earlier dates bit-identical. Everything before the last bar is
-final. That is not a claim about intent — it is a mechanical
+rather than rewriting it. That is not a claim about intent — it is a mechanical
 property with a mechanical test: `research/test_reproducibility.py` runs the
 system on `data[:T]` and on `data[:T-250]` and requires the two to agree
 **exactly** on every shared date, across the FVO engine, the Swayam view
