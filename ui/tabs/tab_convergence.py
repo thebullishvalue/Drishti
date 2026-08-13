@@ -483,8 +483,17 @@ def render_convergence_tab(ts_filtered=None):
     # a second smoothed read of the same signal on top of the consensus
     # line, in the ONE colour this system reserves for interaction —
     # two lines making the same claim, the louder of which meant nothing.)
-    fig.add_hline(y=UI_CONSENSUS_STRONG, line_dash="dot", line_color=chart_rgba("rose", 0.15), line_width=0.5, row=1, col=1)
-    fig.add_hline(y=-UI_CONSENSUS_STRONG, line_dash="dot", line_color=chart_rgba("emerald", 0.15), line_width=0.5, row=1, col=1)
+    # The threshold a marker was judged against, drawn AS A STEP so the line and
+    # the dots always tell the same story. A flat `add_hline` at today's level
+    # was the last moving element on this figure: the markers stopped being
+    # re-labelled, but the bar they were measured against still slid with each
+    # run, so a dot could sit the wrong side of its own threshold.
+    _step = dict(mode="lines", line=dict(width=0.5, dash="dot"),
+                 hoverinfo="skip", showlegend=False)
+    fig.add_trace(go.Scatter(x=aligned_dates, y=_cs,
+                             line_color=chart_rgba("rose", 0.15), **_step), row=1, col=1)
+    fig.add_trace(go.Scatter(x=aligned_dates, y=-_cs,
+                             line_color=chart_rgba("emerald", 0.15), **_step), row=1, col=1)
     fig.add_hline(y=0, line_color=grid_rgba(0.06), line_width=0.5, row=1, col=1)
 
     # ── Row 2: Base Conviction ────────────────────────────────────────
@@ -518,8 +527,10 @@ def render_convergence_tab(ts_filtered=None):
         marker=_marker(conv_sizes, conv_colors),
     ), row=2, col=1)
     fig.add_hline(y=0, line_color=grid_rgba(0.06), line_width=0.5, row=2, col=1)
-    fig.add_hline(y=UI_CONVRAW_STRONG, line_dash="dot", line_color=chart_rgba("rose", 0.12), line_width=0.5, row=2, col=1)
-    fig.add_hline(y=-UI_CONVRAW_STRONG, line_dash="dot", line_color=chart_rgba("emerald", 0.12), line_width=0.5, row=2, col=1)
+    fig.add_trace(go.Scatter(x=aligned_dates, y=_vs,
+                             line_color=chart_rgba("rose", 0.12), **_step), row=2, col=1)
+    fig.add_trace(go.Scatter(x=aligned_dates, y=-_vs,
+                             line_color=chart_rgba("emerald", 0.12), **_step), row=2, col=1)
 
     # ── Row 3: Swayam Avg Signal ──────────────────────────────────────
     # TWO tiers here, not three: Swayam has a single threshold, so there is no
@@ -545,8 +556,10 @@ def render_convergence_tab(ts_filtered=None):
         line=dict(color=chart_rgba("slate", 0.55), width=1.2),
         marker=_marker(swayam_sizes, swayam_colors),
     ), row=3, col=1)
-    fig.add_hline(y=UI_SWAYAM_AVG_THRESHOLD, line_dash="dot", line_color=chart_rgba("rose", 0.15), line_width=0.5, row=3, col=1)
-    fig.add_hline(y=-UI_SWAYAM_AVG_THRESHOLD, line_dash="dot", line_color=chart_rgba("emerald", 0.15), line_width=0.5, row=3, col=1)
+    fig.add_trace(go.Scatter(x=aligned_dates, y=_ss,
+                             line_color=chart_rgba("rose", 0.15), **_step), row=3, col=1)
+    fig.add_trace(go.Scatter(x=aligned_dates, y=-_ss,
+                             line_color=chart_rgba("emerald", 0.15), **_step), row=3, col=1)
     fig.add_hline(y=0, line_color=grid_rgba(0.06), line_width=0.5, row=3, col=1)
 
     # ── Layout ────────────────────────────────────────────────────────
