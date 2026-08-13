@@ -231,7 +231,7 @@ def _ensure_stock_target_column(df: pd.DataFrame, active_target: str) -> pd.Data
     if not ticker:
         return df
     end = pd.Timestamp.today()
-    s = fetch_stock_target_series(ticker, end - pd.Timedelta(days=365 * 9), end)
+    s = fetch_stock_target_series(ticker, end - pd.DateOffset(days=365 * 9), end)
     if s is None:
         return df                      # the guard right after this call fires cleanly
     spine = pd.to_datetime(df["DATE"], errors="coerce").dt.normalize()
@@ -465,7 +465,7 @@ def _compute_hero_verdict(nishkarsh_norm, agreement, fvo_signal) -> dict:
                 _div_dates = pd.DatetimeIndex([])
             _valid_dates = _div_dates.dropna()
             if len(_valid_dates):
-                _cutoff = pd.Timestamp(_valid_dates.max()) - pd.Timedelta(days=int(DIV_LOOKBACK * 1.5))
+                _cutoff = pd.Timestamp(_valid_dates.max()) - pd.DateOffset(days=int(DIV_LOOKBACK * 1.5))
                 n_div = int((_div_dates >= _cutoff).sum())
             else:
                 # No usable dates — fall back to the raw count rather than a
@@ -815,7 +815,7 @@ def main():
                 _end = pd.Timestamp.today()
                 # Walk-forward needs MIN_DATA_POINTS (1500) daily observations.
                 # ~9 years of calendar history clears that with headroom.
-                _start = pd.Timestamp(_end) - pd.Timedelta(days=365 * 9)
+                _start = _end - pd.DateOffset(days=365 * 9)
                 df, error = fetch_commodity_dataset(_start, _end)
                 if error or df is None:
                     progress_container.empty()
@@ -966,7 +966,7 @@ def main():
                 progress_bar(progress_container, 3, "Re-fetching Live Market Data",
                              "yfinance · full universe · bypassing cache · ~30–60s")
                 _rend = pd.Timestamp.today()
-                _rdf, _rerr = fetch_commodity_dataset(_rend - pd.Timedelta(days=365 * 9), _rend)
+                _rdf, _rerr = fetch_commodity_dataset(_rend - pd.DateOffset(days=365 * 9), _rend)
                 if _rdf is not None:
                     progress_bar(progress_container, 15, "Live Data Refreshed",
                                  f"{_rdf.shape[1]} series × {_rdf.shape[0]} rows · recomputing…")
@@ -1447,7 +1447,7 @@ def main():
             # Match the FVO model-dataset window (~9y) so the Swayam views and
             # macro drivers overlap the FULL series — convergence then runs on
             # real data, not neutral placeholders.
-            start_date = end_date - pd.Timedelta(days=365 * 9)
+            start_date = end_date - pd.DateOffset(days=365 * 9)
             macro_df = fetch_macro_live(start_date, end_date)
             console.item("Date Range", f"{start_date.date()} to {end_date.date()}")
             if not macro_df.empty:
