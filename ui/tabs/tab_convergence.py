@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import streamlit as st
 
-from analytics.adaptive import tier_now
+from analytics.adaptive import tier_now, adaptive_tiers
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
@@ -167,6 +167,11 @@ def render_convergence_tab(ts_filtered=None):
 
     norm_a = norm_n = norm_avg = np.array([], dtype=np.float64)
     aligned_conv_raw: list = []
+    #: The causal-normalization cache, hoisted so the per-date tier levels
+    #: below can read the FULL normalized series rather than the visible
+    #: window — a tier built from only what the window shows would move every
+    #: time the window changed, which is the same repaint by another route.
+    params: dict = {}
     if has_overlap:
         # Key by the full engine config (target + features + horizon + date range) so
         # switching predictor sets with the same target never reuses stale z-scores.
@@ -200,6 +205,10 @@ def render_convergence_tab(ts_filtered=None):
             _p = {
                 "a": {_dk(d): v for d, v in zip(_full_dates, na_full)},
                 "n": {_dk(d): v for d, v in zip(_full_dates, nn_full)},
+                # The consensus the markers actually plot, kept whole so its
+                # tiers can be built from its own past.
+                "navg_vals": ((na_full + nn_full) / 2.0),
+                "navg_dates": list(_full_dates),
                 "_n": len(full_a),
             }
             st.session_state[_np_key] = _p
@@ -378,16 +387,70 @@ def render_convergence_tab(ts_filtered=None):
         return dict(size=sizes, color=colors,
                     line=dict(width=1, color=panel_bg()))
 
+    def _dkey(d):
+        return str(d.date()) if hasattr(d, "date") else str(d)
+
+    # ── Per-date tier levels ──────────────────────────────────────────
+    # A marker's tier must come from the threshold knowable AT ITS OWN DATE.
+    # These used to be classified against `tier_now(...)` — one scalar, the
+    # p90/p75 of the whole history "as of the last row", which `tier_now`'s
+    # own docstring reserves for "display code that colours a SINGLE CURRENT
+    # reading". Applied to a series it re-labels the past: each new day moves
+    # the quantile a little, every earlier point is re-tested against the new
+    # level, and any dot near a boundary changes size and colour. The values
+    # never moved — `causal_normalize` above guarantees that — but the chart
+    # said something different about a past date than it had the day before,
+    # which is repainting as far as a reader is concerned.
+    #
+    # `adaptive_tiers` is the column form of the same statistic and is what
+    # the FVO engine already publishes with: each row's level is built from
+    # strictly earlier rows, so re-running on more data cannot move a label
+    # that was already drawn.
+    def _tier_at(tiermap, dates, name, fallback):
+        """Per-date tier levels for `dates`, falling back while history is short."""
+        m = tiermap.get(name, {})
+        return np.array([m.get(_dkey(d), fallback) for d in dates], dtype=float)
+
+    def _tier_map(values, dates, priors, quantiles):
+        if values is None or not len(values) or dates is None or not len(dates):
+            return {}
+        n = min(len(values), len(dates))
+        t = adaptive_tiers(np.asarray(values[:n], dtype=float), priors, quantiles)
+        return {k: {_dkey(d): v for d, v in zip(list(dates)[:n], arr)}
+                for k, arr in t.items()}
+
+    _QS = {"strong": 0.90, "moderate": 0.75}
+
+    # Row 1 — classified on the same normalized consensus the markers plot.
+    _navg_map = _tier_map(
+        params.get("navg_vals"), params.get("navg_dates"),
+        {"strong": _icfg.ui_consensus_strong, "moderate": _icfg.ui_consensus_moderate}, _QS)
+    _cs = _tier_at(_navg_map, aligned_dates, "strong", UI_CONSENSUS_STRONG)
+    _cm = _tier_at(_navg_map, aligned_dates, "moderate", UI_CONSENSUS_MODERATE)
+
+    # Row 2 — the raw conviction series, on its own dates.
+    _conv_map = _tier_map(
+        _conv_raw, (fvo_ts.index if fvo_ts is not None else None),
+        {"strong": _icfg.ui_convraw_strong, "moderate": _icfg.ui_convraw_moderate}, _QS)
+    _vs = _tier_at(_conv_map, aligned_dates, "strong", UI_CONVRAW_STRONG)
+    _vm = _tier_at(_conv_map, aligned_dates, "moderate", UI_CONVRAW_MODERATE)
+
+    # Row 3 — Swayam's average signal, one threshold (it has a single band).
+    _sw_map = _tier_map(
+        _swayam_avg, (_swayam_d.index if _swayam_d is not None else None),
+        {"moderate": _icfg.ui_swayam_avg_threshold}, _QS)
+    _ss = _tier_at(_sw_map, aligned_dates, "moderate", UI_SWAYAM_AVG_THRESHOLD)
+
     # Convergence color mapping
     avg_colors, avg_sizes = [], []
-    for v in norm_avg:
-        if v < -UI_CONSENSUS_STRONG:
+    for v, _st, _mo in zip(norm_avg, _cs, _cm):
+        if v < -_st:
             avg_colors.append(chart_color("emerald")); avg_sizes.append(_SZ_STRONG)
-        elif v <= -UI_CONSENSUS_MODERATE:
+        elif v <= -_mo:
             avg_colors.append(chart_rgba("emerald", _A_MODERATE)); avg_sizes.append(_SZ_MODERATE)
-        elif v > UI_CONSENSUS_STRONG:
+        elif v > _st:
             avg_colors.append(chart_color("rose")); avg_sizes.append(_SZ_STRONG)
-        elif v >= UI_CONSENSUS_MODERATE:
+        elif v >= _mo:
             avg_colors.append(chart_rgba("rose", _A_MODERATE)); avg_sizes.append(_SZ_MODERATE)
         else:
             avg_colors.append(chart_rgba("slate", _A_FLAT)); avg_sizes.append(_SZ_FLAT)
@@ -427,16 +490,16 @@ def render_convergence_tab(ts_filtered=None):
     # ── Row 2: Base Conviction ────────────────────────────────────────
     conv_vals = [float(v) if v is not None else np.nan for v in aligned_conv_raw]
     conv_colors, conv_sizes = [], []
-    for v in aligned_conv_raw:
+    for v, _st, _mo in zip(aligned_conv_raw, _vs, _vm):
         if v is None:
             conv_colors.append(chart_rgba("slate", _A_FLAT)); conv_sizes.append(_SZ_FLAT)
-        elif v > UI_CONVRAW_STRONG:
+        elif v > _st:
             conv_colors.append(chart_color("rose")); conv_sizes.append(_SZ_STRONG)
-        elif v >= UI_CONVRAW_MODERATE:
+        elif v >= _mo:
             conv_colors.append(chart_rgba("rose", _A_MODERATE)); conv_sizes.append(_SZ_MODERATE)
-        elif v < -UI_CONVRAW_STRONG:
+        elif v < -_st:
             conv_colors.append(chart_color("emerald")); conv_sizes.append(_SZ_STRONG)
-        elif v <= -UI_CONVRAW_MODERATE:
+        elif v <= -_mo:
             conv_colors.append(chart_rgba("emerald", _A_MODERATE)); conv_sizes.append(_SZ_MODERATE)
         else:
             conv_colors.append(chart_rgba("slate", _A_FLAT)); conv_sizes.append(_SZ_FLAT)
@@ -462,11 +525,12 @@ def render_convergence_tab(ts_filtered=None):
     # TWO tiers here, not three: Swayam has a single threshold, so there is no
     # moderate band to draw. (The comment that used to sit here claimed three,
     # which the code never implemented.)
-    swayam_colors = [chart_color("emerald") if v < -UI_SWAYAM_AVG_THRESHOLD
-                     else chart_color("rose") if v > UI_SWAYAM_AVG_THRESHOLD
-                     else chart_rgba("slate", _A_FLAT) for v in aligned_swayam_raw]
-    swayam_sizes = [_SZ_STRONG if abs(v) > UI_SWAYAM_AVG_THRESHOLD else _SZ_FLAT
-                    for v in aligned_swayam_raw]
+    swayam_colors = [chart_color("emerald") if v < -_t
+                     else chart_color("rose") if v > _t
+                     else chart_rgba("slate", _A_FLAT)
+                     for v, _t in zip(aligned_swayam_raw, _ss)]
+    swayam_sizes = [_SZ_STRONG if abs(v) > _t else _SZ_FLAT
+                    for v, _t in zip(aligned_swayam_raw, _ss)]
 
     fig.add_trace(go.Scatter(
         x=aligned_dates, y=np.clip(aligned_swayam_raw, 0, None),
