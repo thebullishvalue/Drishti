@@ -167,6 +167,44 @@ Sections used: **Added · Changed · Deprecated · Removed · Fixed · Security 
   render instead of at import, so both themes get their own palette.
 
 ### Added
+- **`research/test_repaint_real_full.py` — the remaining components, on real
+  data.** Closes the gap the other two harnesses left: the Swayam view bank,
+  the convergence dimension weights and the Precedent analog walk-forward were
+  only ever asserted against a synthetic generator. All three now run on real
+  yfinance history for Bitcoin (native 7-day spine, 834 weekend bars) and Gold
+  (weekday spine), withholding 250 sessions. Ten checks, every one at
+  `max drift 0.000e+00`.
+
+  Two things the harness had to get right before it meant anything. First,
+  `FairValueEngine.ts_data` carries a RangeIndex, not dates — an index
+  intersection of two RangeIndexes silently compares by POSITION while looking
+  like it compares by date; that is exact here only because truncation removes
+  the tail, and the file says so rather than leaving it to be discovered.
+  Second, the guarantee is "a value once PUBLISHED is never revised", not "the
+  two runs are identical": the analog walk-forward leaves `Realized` NaN until
+  a forward window completes, so the shorter run legitimately holds NaN where
+  the longer one holds a number. Comparing that as a difference reported `inf`
+  and called a correct component broken. The comparator now restricts to cells
+  the truncated run actually committed to, which is the assertion that carries
+  the meaning — a record extending is the opposite of a repaint.
+
+- **`research/test_repaint_24h.py` — the non-repainting guarantee on the
+  calendars that actually occur.** `test_reproducibility.py` proves the
+  mechanism is causal, but it runs on a synthetic `bdate_range`, so it never
+  sees the two things that make a 24-hour instrument different: bars on days
+  the macro cross-section is shut, and a current bar that is still forming.
+  This drives the same engine and the same causal primitives with real
+  yfinance history for Bitcoin, Ethereum, Brent and Gold, on two spines — the
+  weekday spine the app builds, and the instrument's own 7-day spine with
+  weekend bars included, which is the case that would expose an alignment
+  quietly re-indexing. It also perturbs the final bar 3% to simulate an
+  unfinished session and asserts that nothing before it moves.
+
+  All 26 checks pass at `max drift 0.000e+00`, including Bitcoin on its native
+  spine — 2672 shared dates, 834 weekend bars, 20,108 finite cells — and the
+  partial-bar case at 2921 prior dates. The final bar itself does move when it
+  is revised, which is not repainting but the bar changing.
+
 - **A target no longer has to be a predictor in order to be fetchable.** The
   macro batch pulls exactly the columns in `GLOBAL_MACRO_MAP` +
   `MACRO_SYMBOLS_YF` (plus the index levels merged into it), so a target whose
@@ -254,6 +292,16 @@ Sections used: **Added · Changed · Deprecated · Removed · Fixed · Security 
 - `optuna` from `requirements.txt` — nothing imports it any more.
 
 ### Fixed
+- **The threshold lines moved while the markers no longer did.** Once markers
+  were classified per date, the flat `add_hline` at today's tier level became
+  the last moving element on the figure: the dots stopped being re-labelled but
+  the bar they were measured against still slid with each run, so a dot could
+  sit the wrong side of its own threshold. All five tier-based reference lines
+  across the three rows are now step traces driven by the same per-date arrays
+  the markers use, so line and dots always tell one story. Verified live: 6 of
+  7 dotted traces vary over time; the only flat lines left are the fixed
+  zero-lines, which should be flat.
+
 - **The Unified Signal plot re-labelled its own history.** Markers were
   classified against `tier_now(...)` — a single scalar, the p90/p75 of the
   whole series "as of the last row", which that function's own docstring

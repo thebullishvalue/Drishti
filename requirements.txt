@@ -70,7 +70,7 @@ plotly>=5.18.0
 # there is no stable wheel to choose and pip falls back to the beta. Capping
 # numpy does NOT change this (verified: capped, Intel macOS still resolves the
 # beta) — it just constrains numpy for no gain. Local Intel-Mac concern only;
-# it does not reach the deployment
+# it does not reach the deployment.
 numba
 
 # Scientific Computing
