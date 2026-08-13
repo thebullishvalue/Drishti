@@ -815,7 +815,7 @@ def main():
                 _end = pd.Timestamp.today()
                 # Walk-forward needs MIN_DATA_POINTS (1500) daily observations.
                 # ~9 years of calendar history clears that with headroom.
-                _start = _end - pd.Timedelta(days=365 * 9)
+                _start = pd.Timestamp(_end) - pd.Timedelta(days=365 * 9)
                 df, error = fetch_commodity_dataset(_start, _end)
                 if error or df is None:
                     progress_container.empty()
