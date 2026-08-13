@@ -254,30 +254,6 @@ Sections used: **Added · Changed · Deprecated · Removed · Fixed · Security 
 - `optuna` from `requirements.txt` — nothing imports it any more.
 
 ### Fixed
-- **The Unified Signal plot re-labelled its own history.** Markers were
-  classified against `tier_now(...)` — a single scalar, the p90/p75 of the
-  whole series "as of the last row", which that function's own docstring
-  reserves for "display code that colours a SINGLE CURRENT reading". Applied
-  across a series it re-tests every past point against a level that moves each
-  time data arrives, so any dot near a tier boundary changes size and colour.
-  The VALUES never moved — `causal_normalize` guarantees that, and the
-  reproducibility harness asserts it — but the chart was asserting something
-  different about a past date than it had the day before, which is repainting
-  as far as a reader is concerned.
-
-  All three rows (consensus, base conviction, Swayam average) now classify
-  against `adaptive_tiers`, the column form of the same statistic already used
-  by the FVO engine, where each row's level is built from strictly earlier
-  rows. Measured on a 1700-point series with a late regime shift: withholding
-  ONE day changed a past marker under the old path and 250 days changed 108 of
-  1450 (7.4%); under the fix, zero past markers change at any horizon.
-
-  Scope was narrower than first thought. The other thirteen `tier_now` call
-  sites in the UI colour a metric card or draw a "today's level" reference
-  line from one current reading, which is exactly what the scalar form is for.
-  The convergence plot's three marker loops were the only place a card
-  statistic was being asked to label a series.
-
 - **The landing page is now on the section-rhythm contract, and so is every
   header that has no description.** The landing sat at 24px above its first
   rule and 8px between a header and its content, against 40/24 everywhere
