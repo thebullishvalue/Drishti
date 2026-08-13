@@ -448,12 +448,28 @@ def _compute_hero_verdict(nishkarsh_norm, agreement, fvo_signal) -> dict:
     if (div_events is not None
             and hasattr(div_events, "__len__") and len(div_events)):
         try:
-            _div_dates = pd.to_datetime(div_events.index, errors="coerce")
+            _idx = div_events.index
+            if isinstance(_idx, pd.DatetimeIndex):
+                _div_dates = _idx
+            elif _idx.inferred_type in ("string", "date", "datetime", "datetime64"):
+                _div_dates = pd.DatetimeIndex(pd.to_datetime(_idx, errors="coerce"))
+            else:
+                # A POSITIONAL index must not be parsed as dates. `pd.to_datetime`
+                # accepts bare integers and reads them as epoch NANOSECONDS, so a
+                # RangeIndex silently becomes 1970-01-01+0ns … +2ns: the cutoff
+                # lands in 1970, every row clears it, and n_div reports the whole
+                # history — precisely the permanent meaningless alarm the window
+                # above exists to prevent. It also trips NumPy 2.x's
+                # generic-unit timedelta deprecation ("implicit conversion of
+                # bare integers"), which is scheduled to become an error.
+                _div_dates = pd.DatetimeIndex([])
             _valid_dates = _div_dates.dropna()
             if len(_valid_dates):
-                _cutoff = _valid_dates.max() - pd.Timedelta(days=int(DIV_LOOKBACK * 1.5))
+                _cutoff = pd.Timestamp(_valid_dates.max()) - pd.Timedelta(days=int(DIV_LOOKBACK * 1.5))
                 n_div = int((_div_dates >= _cutoff).sum())
             else:
+                # No usable dates — fall back to the raw count rather than a
+                # window computed from nothing.
                 n_div = int(len(div_events))
         except Exception:
             n_div = int(len(div_events))
