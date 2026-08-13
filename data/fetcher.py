@@ -461,9 +461,58 @@ def fetch_commodity_dataset(
     for _name, _series in _fetch_exogenous_targets(df.index).items():
         df[_name] = _series
 
+    # Catalogue targets that are yfinance symbols but NOT members of the macro
+    # universe. A target arrives above only if it is also a PREDICTOR — true of
+    # the commodities and FX that predate crypto and the base metals, false of
+    # those. Injected here, once, because this frame is the shared model matrix:
+    # the app reads it, the research preflight reads it, and each tuning study
+    # loads it independently. Patching any one consumer leaves the others with a
+    # different universe — which is how the suite reported "36/45 targets" and
+    # the Swayam study died on `KeyError: ['Aluminium']` while the app itself
+    # ran that target perfectly well through its own per-target injection.
+    for _name, _series in _fetch_catalogue_targets(df.index, df.columns).items():
+        df[_name] = _series
+
     df.insert(0, "DATE", pd.to_datetime(df.index))
     df = df.reset_index(drop=True)
     return df, None
+
+
+#: Tickers naming a SOURCE rather than a yfinance symbol; each has its own
+#: fetch path above, and sending one to yf.download is a guaranteed 404.
+_NON_YF_TICKER_SUFFIXES = (".NCDEX", ".SHEET")
+
+
+def _fetch_catalogue_targets(index: pd.Index, have: pd.Index) -> dict[str, pd.Series]:
+    """Price columns for catalogue targets the macro universe does not carry.
+
+    Aligned to the macro index and forward-filled, exactly as the exogenous
+    (sheet) targets are — same spine, same treatment, so a target's column
+    means the same thing regardless of which map it came from. A ticker that
+    fails to fetch is simply omitted, leaving the existing "target column
+    missing" guard to report it, rather than breaking the whole dataset.
+    """
+    from core.config import ALL_TARGETS
+    missing = [(n, t) for n, t in ALL_TARGETS.items()
+               if n not in have and t and not t.endswith(_NON_YF_TICKER_SUFFIXES)]
+    if not missing:
+        return {}
+    out: dict[str, pd.Series] = {}
+    try:
+        got = fetch_constituent_ohlcv([t for _, t in missing],
+                                      index.min(), index.max()) or {}
+    except Exception as e:  # noqa: BLE001
+        log.warning("Catalogue target fetch skipped: %s", e)
+        return {}
+    for _name, _tkr in missing:
+        o = got.get(_tkr)
+        if o is None or getattr(o, "empty", True) or "Close" not in o.columns:
+            continue
+        ser = o["Close"]
+        ser.index = pd.DatetimeIndex(ser.index).normalize()
+        ser = ser[~ser.index.duplicated(keep="last")]
+        out[_name] = ser.reindex(index).ffill()
+    return out
 
 
 def _fetch_exogenous_targets(index: pd.Index) -> dict[str, pd.Series]:
