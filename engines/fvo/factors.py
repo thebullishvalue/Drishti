@@ -51,16 +51,24 @@ from analytics.causal import EPS, VAR_FLOOR, halflife_to_lambda
 
 #: Hard ceiling on retained factors.  Storage bound, not a modelling choice:
 #: the Marchenko-Pastur edge decides the actual count and only exceeds this
-#: in degenerate panels.
+#: in degenerate panels.  (Baked into downstream array shapes — changing it
+#: at runtime breaks the latent-factor bank's broadcast.)
 K_MAX = 20
 
-#: Winsorisation of standardised returns, in sigmas.  A robustness device
 #: Width of the band around the Marchenko-Pastur edge inside which `k` is held
 #: at its previous value (scaled by 1/sqrt(t_eff) — see _clip_spectrum). Small
 #: enough that a genuine factor still enters promptly; large enough that an
 #: eigenvalue sitting on the edge stops rewriting the regressor set each run.
+#:
+#: MEASURED, 2026-08-17: this matters far less than it looks. Refitting the
+#: real 10y panel with one predictor dropped moved `k` on 1 row out of ~2350,
+#: yet fair values still drifted a median 0.56% (p95 4.6%). Composition
+#: repainting is eigenvector ROTATION, not factor-count churn — so do not
+#: expect changes here to fix it.  See the note on truncation in
+#: _clip_spectrum before proposing shrinkage as an improvement.
 MP_EDGE_HYSTERESIS: float = 2.0
 
+#: Winsorisation of standardised returns, in sigmas.  A robustness device
 #: from outlier-resistant covariance estimation, not a signal threshold: a
 #: single 20-sigma print would otherwise rotate the entire eigenbasis.
 Z_CLIP = 6.0
@@ -212,6 +220,32 @@ def _clip_spectrum(C: np.ndarray, t_eff: float,
     counting instruments that have never traded inflates N and moves the
     threshold.  Eigenvectors are scattered back to the full index with zeros
     on the inactive rows, so downstream indexing is unaffected.
+
+    DO NOT REPLACE THE TRUNCATION WITH SHRINKAGE.  It was tried, measured, and
+    reverted on 2026-08-17.  The argument for it is seductive: the edge moves
+    with the panel's composition, so a hard rule is discontinuous in its own
+    input, and weighting each eigenvalue by a sigmoid of its distance from the
+    edge — lam~ = delta + rho * (lam - delta) — makes that discontinuity
+    vanish.  It does.  It also makes the repainting WORSE.
+
+    Refitting the real 10y macro panel with one predictor dropped:
+
+                        median drift    p95      max
+        hard truncation     0.56%      4.55%    13.0%
+        sigmoid shrinkage   1.15%      7.74%    17.9%
+
+    The reason is that truncation is not only a threshold, it is a NOISE
+    FILTER.  Eigenvalues near the edge are poorly separated, so their
+    eigenvectors have tiny eigengaps and rotate violently under any
+    perturbation of the panel.  Admitting them at partial weight imports
+    exactly that rotation into the fitted values; zeroing them suppressed it.
+
+    The same measurement showed `k` differing on ONE row out of ~2350 between
+    the two panels, so factor-count churn was never the mechanism.  Composition
+    repainting here is eigenvector rotation, and it is a property of refitting
+    a basis on a different panel — no estimator is invariant to its own input
+    set.  The lever that works is the data contract (a fixed, declared
+    universe), not the spectrum.
     """
     n_full = C.shape[0]
     if active is not None:
@@ -237,12 +271,12 @@ def _clip_spectrum(C: np.ndarray, t_eff: float,
     edge = (1.0 + math.sqrt(q)) ** 2
     # HYSTERESIS. `k` selects the regressor set, so a bare `w > edge` makes the
     # model discontinuous in its own input: an eigenvalue resting ON the edge
-    # flips k between 12 and 13 on a perturbation far too small to mean
-    # anything, and every date's factor set changes with it. Requiring an
-    # eigenvalue to clear the edge by a margin — and, once counted, to fall a
-    # matching margin below before it is dropped — turns a knife-edge into a
-    # band. `k_prev` carries the previous step's count so the band can be
-    # applied asymmetrically; without it this is just a stricter threshold.
+    # flips k on a perturbation far too small to mean anything, and every
+    # date's factor set changes with it. Requiring an eigenvalue to clear the
+    # edge by a margin — and, once counted, to fall a matching margin below
+    # before it is dropped — turns a knife-edge into a band. `k_prev` carries
+    # the previous step's count so the band can be applied asymmetrically;
+    # without it this is just a stricter threshold.
     #
     # The margin scales with the edge's own sampling noise, so it tightens as
     # the effective sample grows rather than being a hand-set constant.
@@ -259,6 +293,7 @@ def _clip_spectrum(C: np.ndarray, t_eff: float,
     total = float(np.sum(w))
     delta = (total - float(np.sum(w[:k]))) / max(n - k, 1)
     delta = max(delta, 1e-6)
+    lam = w[:k].copy()
 
     # deterministic sign convention: the largest-magnitude loading is positive
     Vk = v[:, :k].copy()
@@ -266,7 +301,7 @@ def _clip_spectrum(C: np.ndarray, t_eff: float,
         idx = int(np.argmax(np.abs(Vk[:, j])))
         if Vk[idx, j] < 0:
             Vk[:, j] *= -1.0
-    return Vk, w[:k].copy(), delta, k
+    return Vk, lam, delta, k
 
 
 def _align(V_new: np.ndarray, lam_new: np.ndarray, V_old: np.ndarray,
