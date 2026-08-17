@@ -1223,6 +1223,14 @@ def main():
             console.item("Instruments · dropped (raw yield levels, not prices)",
                          _prep["yield_cols_dropped"])
         console.item("Instruments · in valuation panel", _prep.get("feats_kept", "?"))
+        # The fingerprint makes a composition change visible. Same digest across
+        # two runs = same cross-section, so any difference in output came from
+        # the data's VALUES or the code. A changed digest says the panel itself
+        # moved, which rewrites every published date — see the note in
+        # data/fetcher.py::_panel_fingerprint.
+        _fp = (df.attrs or {}).get("panel_fingerprint") if hasattr(df, "attrs") else None
+        if _fp:
+            console.item("Panel fingerprint", _fp)
         console.item("Rows · after dropna (final spine)", _prep.get("rows_final", "?"))
         if "burn_in" in _prep and isinstance(_prep.get("rows_final"), int):
             # Unlike a rolling momentum window there is no warm-up head to trim
