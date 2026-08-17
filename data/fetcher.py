@@ -52,13 +52,19 @@ def _yfinance_batch_download(
     start_yf: str,
     end_yf: str,
 ) -> pd.DataFrame:
-    """Single raw yfinance batch call — wrapped with retry."""
+    """Single raw yfinance batch call — wrapped with retry.
+
+    ``auto_adjust=False`` — UNADJUSTED prices, deliberately. See the note on
+    the macro batch below: adjusted history is rewritten backwards on every
+    corporate action, which is incompatible with this system's non-repainting
+    guarantee.
+    """
     raw = yf.download(
         list(symbols_tuple),
         start=start_yf,
         end=end_yf,
         progress=False,
-        auto_adjust=True,
+        auto_adjust=False,
         group_by="ticker",
     )
     if raw is None or (hasattr(raw, "empty") and raw.empty):
@@ -340,16 +346,39 @@ def _yfinance_batch_download_macro(
 ) -> pd.DataFrame:
     """Macro yfinance batch fetch — separated to allow distinct retry budget.
 
-    Uses ``auto_adjust=True`` and ``threads=True`` (matching Sanket's
+    Uses ``auto_adjust=False`` (immutable history — see below) and
+    ``threads=True`` (matching Sanket's
     ``fetch_batch_data``) so the macro universe is pulled in parallel by
     yfinance's internal pool.
     """
+    # ── auto_adjust=False — the non-repainting guarantee lives here ──────
+    # Adjusted prices are not a fixed history. yfinance applies each dividend
+    # and split BACKWARDS across the whole series, so a past close is rewritten
+    # every time an instrument distributes. Measured on current panel members:
+    # a close one year back had already been rescaled by 5.67% (HYG), 4.42%
+    # (LQD), 4.38% (TLT), 3.73% (VNQ) — and 13 ex-dividend events landed across
+    # just eight names in 90 days. The panel carries ~209 instruments, mostly
+    # distributing ETFs, so on a typical day several have their history moved.
+    #
+    # A deterministic engine fed a rewritten history publishes different values
+    # for dates it had already published. That is exactly the repaint two runs
+    # 20 minutes apart showed: identical row counts and date range, fair value
+    # 23,449 -> 23,832 (45x the spot move), instruments admitted 61 -> 62, two
+    # walk-forward windows flipping sign. The engine was never at fault — the
+    # reproducibility harness holds one dataset fixed and truncates it, which
+    # proves the engine does not look ahead but cannot see the INPUT change
+    # underneath it.
+    #
+    # Unadjusted closes are immutable once printed. The cost is that a dividend
+    # shows as a real price drop in the ETF predictors; for a valuation on the
+    # LEVEL of log price that is defensible (the traded level is what it is),
+    # and the index / futures / FX targets carry no adjustment at all.
     raw = yf.download(
         list(tickers_tuple),
         start=start,
         end=end,
         progress=False,
-        auto_adjust=True,
+        auto_adjust=False,
         threads=True,
     )
     if raw is None or (hasattr(raw, "empty") and raw.empty):
