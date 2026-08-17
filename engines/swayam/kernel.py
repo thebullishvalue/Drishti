@@ -161,6 +161,13 @@ def calculate_msf(
 # ─── Macro-Micro Regime ──────────────────────────────────────────────────────
 
 
+#: |log-log correlation| above which a macro candidate is treated as a COPY of
+#: the target rather than a driver of it, and dropped from the MMR pool. Guards
+#: the silent-death mode described in calculate_mmr. Set high deliberately: the
+#: point is to catch replicas (r ~ 1.0), not to thin genuinely correlated macro.
+MMR_REPLICA_MAX_CORR: float = 0.98
+
+
 def calculate_mmr(
     df: pd.DataFrame,
     length: int = 20,
@@ -195,6 +202,40 @@ def calculate_mmr(
         macro_columns = []
     available_macros = [v for v in macro_columns if v in df.columns]
     target = df["Close"]
+
+    # REPLICA SCREEN — structural, because the name-based one cannot see this.
+    #
+    # core.config.swayam_macro_columns drops the target's own column and its
+    # TARGET_EXCLUDED_PREDICTORS near-replicas, which handles everything it can
+    # NAME. A series that happens to track the target ~1.0 under an unrelated
+    # name is invisible to it, and that is the failure this function is most
+    # exposed to: driver selection locks onto the replica, predicted tracks
+    # actual, the deviation collapses to ~0, and the MMR half of every
+    # macro-anchored member dies while mmr_quality reads perfect. Silent, and
+    # indistinguishable downstream from "no macro relationship today".
+    #
+    # Screened here rather than in config because only this function has the
+    # DATA. Correlation is computed on the FULL sample and used solely to
+    # exclude — it never selects, weights or scales anything, so it cannot leak
+    # a forward-looking preference into the signal; the per-bar driver ranking
+    # below stays causal (shift(1)) exactly as before. On the live 240-column
+    # pool this removes nothing (measured 2026-08-17: 0 survivors above 0.98 on
+    # Gold/Copper/Silver), so it is a guard against a future addition, not a
+    # change to today's output.
+    if available_macros and len(df) > 200:
+        _t = np.log(target.clip(lower=1e-12))
+        _keep = []
+        for _c in available_macros:
+            _v = pd.to_numeric(df[_c], errors="coerce")
+            _m = _v.notna() & _t.notna() & (_v > 0)
+            if _m.sum() < 100:
+                _keep.append(_c)
+                continue
+            _r = np.corrcoef(_t[_m], np.log(_v[_m]))[0, 1]
+            if np.isfinite(_r) and abs(_r) > MMR_REPLICA_MAX_CORR:
+                continue                      # a copy of the target, not a driver
+            _keep.append(_c)
+        available_macros = _keep
 
     if len(df) < length + 10 or not available_macros:
         return (pd.Series(0.0, index=df.index), [], pd.Series(0.0, index=df.index))
@@ -477,6 +518,16 @@ def run_full_analysis(
 # ─── Constituent Aggregation ─────────────────────────────────────────────────
 
 
+#: How much of the raw skill differential to keep, 0.0 = equal weight,
+#: 1.0 = the unshrunk estimator. Set from measurement, not taste: split-half
+#: rank correlation of the weights is -0.379 / -0.007 / -0.054 on Gold /
+#: Copper / Silver, i.e. no evidence the ranking persists, while raw spreads
+#: reach 9x. Halving keeps the differentiation where it is real (Bitcoin
+#: measures +0.744 persistence) and halves the cost where it is not.
+#: See the note in view_skill_weights and research/test_swayam_invariants.py.
+SKILL_WEIGHT_SHRINK: float = 0.5
+
+
 def view_skill_weights(
     view_results: dict[str, pd.DataFrame],
     horizon: int = 10,
@@ -545,6 +596,41 @@ def view_skill_weights(
         if s >= 0:
             skill.observe(S[s], fwd[s])   # resolved at t; never before
         W[t] = skill.weights() * n        # rows sum to n, preserving count scale
+
+    # SHRINK TOWARD EQUAL WEIGHT.
+    #
+    # The weights above are causal and never revised — that part is sound. What
+    # was never checked is whether the skill they measure PERSISTS, and measured
+    # on the app path (with macro, so MMR live) it does not:
+    #
+    #   split-half rank corr of view weights   Gold -0.379 · Copper -0.007 · Silver -0.054
+    #   raw spread between best and worst view Gold  9.0x  · Copper  4.4x  · Silver  4.9x
+    #
+    # Negative persistence means a view that scored well in the first half tends
+    # to score WORSE in the second, so a 9x weight differential is being assigned
+    # on evidence that does not survive out of sample. Comparing the aggregate
+    # against a plain equal-weighted one at h=10 confirms the cost:
+    #
+    #   Gold   skill IC -0.0104 (0.1σ)  vs equal -0.0324 (0.5σ)   equal 3x better
+    #   Copper skill IC -0.0380 (0.5σ)  vs equal -0.0493 (0.7σ)   equal better
+    #   Silver skill IC -0.0121 (0.2σ)  vs equal -0.0107 (0.2σ)   tie
+    #
+    # Neither IC is individually significant, so that comparison alone would be
+    # weak — but it agrees in direction with the independent persistence
+    # measurement, and two independent readings pointing the same way is what
+    # justifies acting.
+    #
+    # Shrinkage rather than deletion, because skill weighting is NOT uniformly
+    # useless: Bitcoin measured +0.744 persistence on the same test. A fixed
+    # pull toward 1.0 caps the damage where the ranking is noise while keeping
+    # half the differentiation where it is real. SKILL_WEIGHT_SHRINK = 1.0
+    # restores the previous behaviour exactly.
+    if SKILL_WEIGHT_SHRINK < 1.0:
+        W = 1.0 + SKILL_WEIGHT_SHRINK * (W - 1.0)
+        # Re-normalise so rows still sum to n; aggregate_views relies on that
+        # scale for its counts and percentages.
+        rs = W.sum(axis=1, keepdims=True)
+        W = np.divide(W * n, rs, out=np.full_like(W, 1.0), where=rs > 0)
     return pd.DataFrame(W, index=idx, columns=names)
 
 
