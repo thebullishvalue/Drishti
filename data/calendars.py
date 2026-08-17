@@ -50,6 +50,17 @@ CALENDAR_BACKEND = "exchange_calendars" if _HAVE_EC else "weekday"
 # (spot FX is ~24×5). These use the Mon–Fri weekmask, which is correct for them.
 _FX = "FX"
 
+# Sentinel for instruments that never close at all — crypto is 24×7×365.
+# Distinct from _FX because the weekday mask is WRONG here, not approximate:
+# BTC-USD prints on Saturdays and on Christmas Day. Before this existed the
+# bare-symbol branch below resolved BTC-USD to XNYS, so every crypto instrument
+# was modelled as shut whenever New York was.
+_CRYPTO = "CRYPTO"
+
+# yfinance quotes crypto as PAIR-QUOTE (BTC-USD, ETH-USDT). Matching on the
+# quote-currency suffix keeps share-class tickers (BRK-B) out of this branch.
+_CRYPTO_QUOTES = ("-USD", "-USDT", "-USDC", "-EUR", "-GBP", "-JPY", "-BTC", "-ETH")
+
 # Yahoo ticker SUFFIX → exchange MIC (home market of a stock/ETF listed there).
 # A MIC the library doesn't ship degrades to the weekday mask automatically
 # (_get_calendar → None), so it is safe to map liberally. India (NSE/BSE) and China
@@ -108,6 +119,11 @@ def resolve_exchange(ticker: str | None) -> str:
         return _FX              # spot FX — 24×5, weekday mask
     if tu.endswith("=F"):
         return "CMES"           # CME Globex futures (proxy for ICE Brent too)
+
+    # Crypto — 24×7×365, and it must be caught BEFORE the bare-symbol branch,
+    # which would otherwise read BTC-USD as a US equity.
+    if tu.endswith(_CRYPTO_QUOTES):
+        return _CRYPTO
 
     # Tattva sentinels (non-yfinance sources) — Indian-session instruments.
     if tu.endswith(".SHEET") or tu.endswith(".NCDEX"):
@@ -168,7 +184,10 @@ def is_session(ticker: str | None, day) -> bool:
     Never raises.
     """
     ts = pd.Timestamp(day).normalize()
-    cal = _get_calendar(resolve_exchange(ticker))
+    mic = resolve_exchange(ticker)
+    if mic == _CRYPTO:
+        return True                     # 24x7x365 — weekends and holidays included
+    cal = _get_calendar(mic)
     if cal is None:
         return bool(ts.dayofweek < 5)
     try:
@@ -190,7 +209,10 @@ def session_mask(ticker: str | None, dates) -> np.ndarray:
     if len(dts) == 0:
         return np.zeros(0, dtype=bool)
     weekday = np.asarray(dts.dayofweek < 5)
-    cal = _get_calendar(resolve_exchange(ticker))
+    mic = resolve_exchange(ticker)
+    if mic == _CRYPTO:
+        return np.ones(len(dts), dtype=bool)   # 24x7x365
+    cal = _get_calendar(mic)
     if cal is None:
         return weekday
     try:
@@ -234,3 +256,47 @@ def trading_days_behind(ticker: str | None, latest: date, today: date) -> int:
     except Exception as e:
         log.debug("session count failed for %s/%s: %s; weekday fallback", ticker, mic, e)
         return _busday_behind(latest, today)
+
+
+def panel_session_matrix(names, dates) -> np.ndarray:
+    """``(len(dates), len(names))`` bool — was each instrument's venue in session?
+
+    Resolves friendly panel column names to tickers through the config maps, then
+    walks ONE calendar per distinct venue rather than per column: a 241-column
+    panel spans ~14 venues, so this is ~14 calendar queries instead of 241.
+
+    Exists because "what fraction of the panel printed" is the wrong question to
+    ask of a global panel. Measured against every admitted instrument, Christmas
+    Day looks identical to a data outage — NYSE alone is 124 of 241 columns, so
+    the ratio collapses whenever New York is shut regardless of whether anything
+    is actually missing. Measured against the instruments whose exchanges were
+    OPEN, Good Friday 2024 turns out to be 42 of 45 printed: a complete session.
+
+    Unmapped names fall back to the weekday mask, matching the rest of the module.
+    """
+    dts = pd.DatetimeIndex(pd.to_datetime(dates)).normalize()
+    names = list(names)
+    out = np.ones((len(dts), len(names)), dtype=bool)
+    if len(dts) == 0 or not names:
+        return out
+    try:
+        from core.config import (GLOBAL_MACRO_MAP, MACRO_SYMBOLS_YF,
+                                 INDEX_TARGETS_MAP, ALL_TARGETS)
+        n2t = {**GLOBAL_MACRO_MAP, **MACRO_SYMBOLS_YF,
+               **INDEX_TARGETS_MAP, **ALL_TARGETS}
+    except Exception as e:                      # pragma: no cover - config drift
+        log.debug("panel_session_matrix: no name->ticker map (%s); assuming open", e)
+        return out
+
+    groups: dict[str, list[int]] = {}
+    reps: dict[str, str | None] = {}
+    for j, nm in enumerate(names):
+        tick = n2t.get(nm)
+        mic = resolve_exchange(tick)
+        groups.setdefault(mic, []).append(j)
+        reps.setdefault(mic, tick)
+    for mic, cols in groups.items():
+        m = session_mask(reps[mic], dts)
+        for j in cols:
+            out[:, j] = m
+    return out
