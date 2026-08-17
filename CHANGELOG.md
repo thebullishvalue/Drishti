@@ -11,7 +11,53 @@ Sections used: **Added · Changed · Deprecated · Removed · Fixed · Security 
 
 ## [Unreleased]
 
+### Fixed
+- **Panel completeness is measured against the exchanges that were OPEN, not
+  against the whole admitted universe.** The FVO panel spans ~14 venues and NYSE
+  alone is 124 of 241 predictor columns, so a `printed / admitted` ratio collapsed
+  whenever New York was shut — whether or not any data was actually missing. The
+  gate was therefore wrong on **83 of the 88 rows it withheld**: Good Friday 2024
+  printed 42 of the 45 instruments that *could* trade (a complete session) and
+  scored 0.175, indistinguishable from Christmas Day's 10 of 53. Only four
+  historical sessions are genuinely thin (Christmas, Good Friday, two New Year's
+  Days, at 0.19–0.22 of scheduled). Coverage now runs through
+  `data.calendars.panel_session_matrix`, which walks one calendar per venue rather
+  than one per column, and the row count trusted by the statistics moved
+  **2262 → 2345**. A new `NScheduled` column exposes the denominator.
+- **`PANEL_MIN_PRINTS` added alongside the coverage ratio**, because a ratio
+  cannot express estimability: a session where 10 instruments were scheduled and
+  all 10 printed scores a perfect 1.00 and still cannot support the realised
+  `k` of 13. Set to 30, roughly 2.3× median `k`.
+- **Crypto was modelled as closed whenever New York was.**
+  `resolve_exchange("BTC-USD")` fell through to the bare-symbol branch and
+  returned `XNYS`, so every crypto instrument was treated as shut on weekends and
+  US holidays. Added a `_CRYPTO` always-open sentinel, matched on the
+  quote-currency suffix so share classes (`BRK-B`) still resolve to NYSE.
+- **Convergence conviction cards rendered the string `+nan`.** The
+  panel-completeness gate publishes NaN for an unsettled session, and all four
+  cards guarded with `is not None` — which NaN passes. They now fall back to the
+  last settled reading, labelled with the session it belongs to, and relabel the
+  signal through `classify_normalized_signal` rather than a locally invented
+  threshold.
+
 ### Changed
+- **The newest session is published as `Provisional` rather than withheld.**
+  Thin panels have two causes and only one is permanent: a live session is still
+  filling (105 of 238 scheduled instruments had printed at 12:15 UTC and climbing),
+  while a holiday never will. Withholding both cost the live reading to protect
+  against four holiday rows. `publish` (the value is emitted) is now separate from
+  `Valid` (the value may be *trusted*), with `Provisional = publish & ~Valid`.
+  `Valid` still gates the analog precedent pool, adaptive tier estimation and the
+  regime distribution, so a partial cross-section never becomes a precedent that
+  today is matched against. "Forming" requires the row to be the current date —
+  keying it to "last row of the slice" would have published a value in a truncated
+  backtest that the untruncated run withdrew, which is itself a repaint.
+- **The valuation family follows `publish`.** `FairValue`, its CI bounds,
+  `Residual`, `ModelSpread`, `FVO`, `PctMispricing` and `Confidence` are masked on
+  sessions the gate rejects, matching `AvgZ`/`ConvictionRaw`. On those four dates
+  the target did not trade either, so `Actual` was a carried-forward quote and the
+  fair value a regression against a tenth of the panel. `Actual` is deliberately
+  left unmasked — it is an observed price, not a claim of ours.
 - **Basket breadth removed; Swayam is the only breadth engine.** Nirnay ran a
   per-series MSF/MMR/regime kernel across a *basket* — an index's constituents,
   or a hand-curated proxy basket for a commodity/FX target — and aggregated the

@@ -136,24 +136,42 @@ say so than pretend otherwise: the DDM filter constants, the analog blend
 weights, and the Swayam kernel knobs. The research suite is eight studies —
 one per constant that is still swept rather than estimated.
 
-**Nothing repaints, and it is asserted.** Every published value is a function of
-data available at its own date, so re-running on more data extends the record
-rather than rewriting it. With one stated exception, which is a property of live
-data rather than of the model: the NEWEST bar is still forming until its session
-closes — continuously, for a 24/7 instrument like crypto — so the reading for
-today can differ from the reading for today once today is over. It is verified
-that this does not leak backwards: perturbing the final close and re-running
-leaves all 2,921 earlier dates bit-identical. Everything before the last bar is
-final. That is not a claim about intent — it is a mechanical
-property with a mechanical test: `research/test_reproducibility.py` runs the
-system on `data[:T]` and on `data[:T-250]` and requires the two to agree
-**exactly** on every shared date, across the FVO engine, the Swayam view
+**The engine never looks ahead, and it is asserted.** Every published value is a
+function of data available at its own date, so re-running on more data extends
+the record rather than rewriting it. That is not a claim about intent — it is a
+mechanical property with a mechanical test: `research/test_reproducibility.py`
+runs the system on `data[:T]` and on `data[:T-250]` and requires the two to
+agree **exactly** on every shared date, across the FVO engine, the Swayam view
 weights, the aggregated breadth, the convergence dimension weights and the
 adaptive thresholds. A component that consulted the future cannot pass it. The
 test also fails on all-NaN output, so a component that quietly stopped
 producing anything cannot pass it either.
 
-**Causal factors, no repainting.** The factor structure is estimated recursively
+**Two things can still move a past reading, and neither is look-ahead.**
+
+*The newest bar is still forming* until its session closes — continuously, for a
+24/7 instrument like crypto — so the reading for today can differ from the
+reading for today once today is over. Verified not to leak backwards: perturbing
+the final close and re-running leaves all 2,921 earlier dates bit-identical.
+A session fitted on a fraction of the cross-section is withheld outright rather
+than published provisionally, so a half-open panel reads as "no value yet"
+instead of a confident wrong one.
+
+*The panel's composition can change between runs* — a rate-limited fetch, a
+holiday, an instrument admitted for the first time — and the factor basis is
+estimated from whichever instruments are present. Different panel, different
+eigenvectors, so published history moves. Measured by dropping one predictor
+from the live 242-column panel and refitting: **median 0.04-0.14%, p95
+3.1-5.0%** (`research/test_composition_sensitivity.py`, which pins the size of
+this exposure so a change that worsens it fails loudly). This is not fixable
+inside the model — no estimator is invariant to its own input set, and
+replacing Marchenko-Pastur truncation with eigenvalue shrinkage was measured to
+make it 2-8x worse. Closing it requires a declared universe that the realised
+panel is asserted against, which does not exist yet. Until it does, the panel
+fingerprint printed in the run console is how a composition change is detected
+after the fact.
+
+**Causal factors.** The factor structure is estimated recursively
 from an exponentially weighted correlation matrix, with the number of factors set
 by the **Marchenko-Pastur** edge — the eigenvalues that stand above what pure
 noise of that dimension would produce — and the memory chosen online from a bank
@@ -161,7 +179,8 @@ of half-lives by predictive likelihood. Everything is one-sided: an instrument
 joins the cross-section on the day its own accumulated print count first reaches
 the estimability floor, and contributes only on days it actually printed, so
 admission never retroactively changes and a foreign market's holiday cannot enter
-as a fabricated zero return. Adding new data never rewrites history.
+as a fabricated zero return. Adding new data never rewrites history — though
+changing which instruments are in the panel does, per the exception above.
 
 **Why the coefficient memory is slow.** Scoring discount factors by one-step
 predictive likelihood is degenerate for a *level* regression: the model that
