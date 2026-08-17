@@ -37,8 +37,12 @@ from __future__ import annotations
 
 from typing import Iterable
 
+import logging
+
 import numpy as np
 import pandas as pd
+
+log = logging.getLogger(__name__)
 
 
 # ── Signal classification thresholds (warm-up priors) ──────────────────────
@@ -198,6 +202,7 @@ def align_fvo_swayam(
     dates: list = []
     raw_a: list[float] = []
     raw_n: list[float] = []
+    n_failed = 0
     for d_val in date_series:
         ts_key = str(d_val.date()) if hasattr(d_val, "date") else str(pd.Timestamp(d_val).date())
         if filter_set is not None and ts_key not in filter_set:
@@ -209,7 +214,29 @@ def align_fvo_swayam(
             raw_n.append(swayam_lookup[ts_key])
             dates.append(d_val if hasattr(d_val, "date") else pd.Timestamp(ts_key))
         except Exception:
-            pass
+            n_failed += 1
+
+    # A TOTAL failure must not read as "no overlap".
+    #
+    # `.loc[d_val]` indexes by the frame's INDEX while `d_val` comes from the
+    # Date COLUMN when one exists. Those agree in production (app.py does
+    # `set_index("Date")`, leaving no column) but not for a caller that keeps a
+    # RangeIndex and adds a Date column — then every lookup raises, the bare
+    # except swallowed all of them, and the function returned empty lists that
+    # are indistinguishable from two series with genuinely no shared dates.
+    # The hero card, the TATTVA CONVICTION card and the Unified Signal plot all
+    # read this, so a shape mismatch would silently blank the app's headline
+    # with no diagnostic anywhere. Warn instead: an empty result is now either
+    # honestly empty, or loud.
+    if n_failed and not dates:
+        log.warning(
+            "align_fvo_swayam: every one of %d candidate rows failed lookup — "
+            "fvo_ts has a 'Date' column but its index is %s, so .loc(date) "
+            "cannot resolve. Pass a date-indexed frame (app.py uses "
+            "set_index('Date')). Returning empty, which callers render as "
+            "'no overlap'.",
+            n_failed, type(a_dedup.index).__name__,
+        )
     return dates, raw_a, raw_n
 
 
