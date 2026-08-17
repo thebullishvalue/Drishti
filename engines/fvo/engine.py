@@ -221,6 +221,14 @@ class FairValueEngine:
         self.feature_names = list(feature_names or expl_px.columns)
         expl_px.columns = self.feature_names
         self.n_samples = len(target_px)
+        # Kept solely so the completeness gate can tell a STILL-FORMING session
+        # from a closed one. ts_data carries a RangeIndex, so without this the
+        # gate can only ask "is this the last row I was given?" — which is true
+        # of the final row of a truncated backtest too, and would publish a
+        # provisional value there that the untruncated run withholds. That is a
+        # value published and later withdrawn, i.e. exactly the repainting the
+        # gate exists to prevent.
+        self._row_index = target_px.index
         self.price = target_px.to_numpy(dtype=np.float64)
         # `y` is the modelled quantity: log price. Kept under the historical
         # name because the analytics stack and the Data tab read `self.y`.
@@ -688,6 +696,29 @@ class FairValueEngine:
         # every admitted instrument prints, so this sits near 1.0 and costs
         # nothing; on a half-open session it falls far below the floor and the
         # row is published Valid=False, exactly as burn-in rows are.
+        # THIN FOR TWO DIFFERENT REASONS, and only one of them is permanent.
+        # The NEWEST row is thin because its session is still filling: at 12:15
+        # UTC on a Monday 105 of 240 admitted instruments had printed, and that
+        # number climbs through the day. A HISTORICAL thin row is thin because
+        # it was a holiday — Christmas Day 2025 posted 10 of 240, Good Friday
+        # 12 — and it will never fill.
+        #
+        # Folding both into `Valid` withheld today's reading (which the user
+        # legitimately wants to see, and which is minutes away from settling)
+        # to buy protection that only the 88 holiday rows actually need. So the
+        # two are separated:
+        #
+        #   publish   -- the value is emitted, and the UI may show it
+        #   Valid     -- the value may be TRUSTED by the statistics
+        #
+        # `Valid` is not a display flag. It gates the analog/precedent feature
+        # pool (analytics/analogs.py), adaptive tier estimation (tab_fvo), and
+        # the regime distribution. A conviction computed on 4% of the panel must
+        # not become a historical precedent that today gets matched against, so
+        # holidays stay Valid=False AND unpublished, exactly as before. Today's
+        # forming row is published, flagged `Provisional`, and still excluded
+        # from all of the above.
+        publish = valid_row
         _av = self.ts_data.get("NAvailable")
         _ad = self.ts_data.get("NAdmitted")
         if _av is not None and _ad is not None:
@@ -697,6 +728,22 @@ class FairValueEngine:
                 with np.errstate(invalid="ignore", divide="ignore"):
                     cover = np.where(_ad > 0, _av / _ad, 1.0)
                 complete = ~np.isfinite(cover) | (cover >= PANEL_MIN_COVERAGE)
+                # "Forming" means the session has not closed yet — NOT merely
+                # "the last row of this slice". A truncated backtest's final row
+                # is a closed session, and publishing a provisional value there
+                # would make the untruncated run withdraw it. So this requires
+                # the row to actually be the current date; when it is not, the
+                # publish mask collapses to `valid_row` and behaviour is
+                # byte-identical to a plain completeness gate.
+                forming = np.zeros(len(valid_row), dtype=bool)
+                _ix = getattr(self, "_row_index", None)
+                if len(forming) and _ix is not None and len(_ix) == len(forming):
+                    try:
+                        _last = pd.Timestamp(_ix[-1]).normalize()
+                        forming[-1] = _last >= pd.Timestamp.today().normalize()
+                    except (TypeError, ValueError):
+                        pass                    # non-dated index: never forming
+                publish = valid_row & (complete | forming)
                 valid_row = valid_row & complete
 
         # nanmean legitimately warns "Mean of empty slice" on the burn-in rows
@@ -714,13 +761,17 @@ class FairValueEngine:
         self.ts_data["ExtremeOverbought"] = extreme_ob / num_lb * 100
         self.ts_data["BuySignalBreadth"] = buy_count
         self.ts_data["SellSignalBreadth"] = sell_count
-        self.ts_data["AvgZ"] = np.where(valid_row, avg_z, np.nan)
+        self.ts_data["AvgZ"] = np.where(publish, avg_z, np.nan)
         conviction_raw = (
             (overbought - oversold) / num_lb * 100
             + (extreme_ob - extreme_os) / num_lb * 100 * 1.5
         )
-        self.ts_data["ConvictionRaw"] = np.where(valid_row, conviction_raw, np.nan)
+        self.ts_data["ConvictionRaw"] = np.where(publish, conviction_raw, np.nan)
         self.ts_data["Valid"] = valid_row
+        # Published but not trusted: the newest session, still filling. Consumers
+        # that must not learn from a partial cross-section filter on `Valid`;
+        # the UI reads this to label what it is showing.
+        self.ts_data["Provisional"] = publish & ~valid_row
 
     def _compute_ddm_conviction(self) -> None:
         raw = self.ts_data["ConvictionRaw"].values
