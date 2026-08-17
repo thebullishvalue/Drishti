@@ -253,28 +253,68 @@ def _backfill_missing_columns(combined: pd.DataFrame, tickers: tuple[str, ...]) 
     frame_end = combined.index.max()
     filled: list[str] = []
     dropped: list[str] = []
-    for snap in _load_macro_snapshots_newest_first():
-        if not missing:
+    # SELECT BY COVERAGE, NOT BY RECENCY.
+    #
+    # This loop used to take the newest snapshot that merely CONTAINED the
+    # ticker. The snapshot pool is not homogeneous — observed spans on one
+    # machine were 2610, 2089, 783 and 2351 rows — so "newest" can be a frame
+    # covering seven fewer years. Reindexed onto the current calendar the
+    # missing head becomes NaN, ffill cannot fill backwards, and the rebuilt
+    # column silently loses ~1800 rows of history. That instrument's admission
+    # and print counts change, the factor basis changes with them, and every
+    # published date moves.
+    #
+    # Measured 2026-08-17: two fetches minutes apart rebuilt different tickers
+    # (transient timeouts differ run to run) and 1563 settled input cells
+    # differed, moving 5743 published output cells from the first post-burn-in
+    # row onward — on 1 of 4 fetch pairs. The snapshots themselves are NOT the
+    # problem: on shared dates they match a live pull to ~1e-4, with zero dates
+    # invented by ffill. The defect was choosing among them by mtime.
+    #
+    # So rank candidates per ticker by how much of the REQUIRED index each one
+    # actually covers, and use recency only to break ties.
+    _snapshots = _load_macro_snapshots_newest_first()
+
+    def _ranked_snapshots(ticker):
+        # Snapshots carrying `ticker`, best coverage of combined.index first.
+        scored = []
+        for order, snap in enumerate(_snapshots):
+            if ticker not in snap.columns:
+                continue
+            col = snap[ticker]
+            if col.dropna().empty:
+                continue
+            covered = int(col.reindex(combined.index).notna().sum())
+            scored.append((-covered, order, snap))     # order = recency tiebreak
+        scored.sort(key=lambda z: (z[0], z[1]))
+        return [z[2] for z in scored]
+
+    for t in list(missing):
+        for snap in _ranked_snapshots(t):
+            # True last-native date for this ticker WITHIN the snapshot,
+            # before our own ffill/reindex — i.e. how old the underlying
+            # observation actually is, not how far we carried it forward.
+            native = snap[t].dropna()
+            last_native = native.index.max() if len(native) else None
+            if last_native is not None:
+                days_behind = int(np.busday_count(
+                    pd.Timestamp(last_native).date(), pd.Timestamp(frame_end).date()
+                ))
+                if days_behind > STALE_BACKFILL_DAYS:
+                    # Too stale to carry — but try the remaining candidates
+                    # before giving up. Previously the first stale hit dropped
+                    # the ticker outright, discarding a usable older snapshot.
+                    continue
+                registry[t] = str(pd.Timestamp(last_native).date())
+            combined[t] = snap.reindex(combined.index).ffill()[t]
+            filled.append(t)
+            missing.remove(t)
             break
-        snap_aligned = snap.reindex(combined.index).ffill()
-        for t in list(missing):
-            if t in snap_aligned.columns and not snap_aligned[t].isna().all():
-                # True last-native date for this ticker WITHIN the snapshot,
-                # before our own ffill/reindex — i.e. how old the underlying
-                # observation actually is, not how far we carried it forward.
-                native = snap[t].dropna()
-                last_native = native.index.max() if len(native) else None
-                if last_native is not None:
-                    days_behind = int(np.busday_count(
-                        pd.Timestamp(last_native).date(), pd.Timestamp(frame_end).date()
-                    ))
-                    if days_behind > STALE_BACKFILL_DAYS:
-                        dropped.append(t)
-                        missing.remove(t)
-                        continue
-                    registry[t] = str(pd.Timestamp(last_native).date())
-                combined[t] = snap_aligned[t]
-                filled.append(t)
+        else:
+            # No candidate was both present and fresh enough.
+            registry.pop(t, None)
+            dropped.append(t)
+            if t in missing:
                 missing.remove(t)
 
     if filled:
@@ -527,22 +567,48 @@ def fetch_commodity_dataset(
 _NON_YF_TICKER_SUFFIXES = (".NCDEX", ".SHEET")
 
 
-def _panel_fingerprint(df: "pd.DataFrame") -> str:
-    """A short, stable digest of the panel's SHAPE and MEMBERSHIP.
+def _panel_fingerprint(df: "pd.DataFrame", *, content: bool = True) -> str:
+    """A short digest of the panel — membership, span, and SETTLED CONTENT.
 
-    Deliberately excludes the values: prices legitimately change on the newest
-    bar every run, and a digest that moved every time would say nothing. What
-    must not change silently is which instruments are in the cross-section and
-    over what span — so that is what is hashed.
+    The original version hashed shape and membership only, on the reasoning that
+    prices legitimately move on the newest bar so a content digest would change
+    every run and say nothing. That reasoning was half right and the omission was
+    material: two fetches minutes apart produced IDENTICAL fingerprints while the
+    engine's settled `ConvictionRaw` differed by 50% on a past date. The digest
+    reported "nothing changed" during an actual repaint, which is the one job it
+    had.
+
+    The fix is to hash content while EXCLUDING the newest row. Intraday ticking
+    lives entirely in that last bar, so dropping it keeps the digest stable
+    through a session — but any change to a settled value, from a vendor
+    revision, a snapshot/live mismatch, or a differing fill, moves it
+    immediately. A digest that is stable when it should be and moves when
+    history moves is the one worth printing to the console.
+
+    `content=False` recovers the old membership-only behaviour, for callers that
+    genuinely want to ask "is this the same cross-section" independently of the
+    values in it.
     """
     import hashlib
+    h = hashlib.sha256()
     cols = sorted(str(c) for c in df.columns)
+    h.update(("\n".join(cols)).encode("utf-8"))
     try:
-        span = f"{df.index.min()}|{df.index.max()}|{len(df)}"
+        h.update(f"||{df.index.min()}|{df.index.max()}|{len(df)}".encode("utf-8"))
     except Exception:            # noqa: BLE001 - a digest must never break a run
-        span = "?"
-    payload = ("\n".join(cols) + "||" + span).encode("utf-8")
-    return hashlib.sha256(payload).hexdigest()[:12]
+        h.update(b"||?")
+    if content:
+        try:
+            settled = df.iloc[:-1] if len(df) > 1 else df.iloc[:0]
+            # float64 bytes in a fixed column order: exact, and independent of
+            # however pandas chooses to lay the frame out internally.
+            for c in cols:
+                if c in settled.columns:
+                    v = pd.to_numeric(settled[c], errors="coerce").to_numpy(dtype="float64")
+                    h.update(np.ascontiguousarray(v).tobytes())
+        except Exception:        # noqa: BLE001 - never break a run over a digest
+            h.update(b"||content-unavailable")
+    return h.hexdigest()[:12]
 
 
 def _fetch_catalogue_targets(index: pd.Index, have: pd.Index) -> dict[str, pd.Series]:
