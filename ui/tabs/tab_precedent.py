@@ -283,25 +283,62 @@ def render_precedent_tab(
         )
         _hs_sorted = sorted(_scored.keys())
         _ic_vals = [_scored[h]["ic"] for h in _hs_sorted]
-        _bar_colors = [chart_color("emerald") if v > 0 else chart_color("rose") for v in _ic_vals]
-        _cust = [[_scored[h]["hit"], _scored[h]["n"], _scored[h]["pval"]] for h in _hs_sorted]
+        # COLOUR BY EDGE, NOT BY IC. They disagree, and colouring by IC paints
+        # the worst horizon green: measured 2026-08-17, Gold +60d had IC +0.19
+        # (positive, green) while its directional edge was -11.1pp — the matcher
+        # called direction worse than a constant guess. IC ranks magnitudes;
+        # edge is what a directional read is worth. A "can this be believed?"
+        # panel must be coloured by the second.
+        _edges = [_scored[h].get("edge", float("nan")) for h in _hs_sorted]
+        _bar_colors = [
+            chart_color("emerald") if (np.isfinite(e) and e > 0)
+            else chart_color("rose") if np.isfinite(e)
+            else (chart_color("emerald") if v > 0 else chart_color("rose"))
+            for e, v in zip(_edges, _ic_vals)
+        ]
+        # Carry the hit-rate's NULL alongside it. A bare "hit-rate 50%" reads as
+        # a coin flip when the benchmark is the unconditional majority direction
+        # of the same windows — 57.8% on Gold, so 50% is materially WORSE than
+        # ignoring the state entirely. `edge` = hit - base is the honest number.
+        _cust = [[_scored[h]["hit"], _scored[h]["n"], _scored[h]["pval"],
+                  _scored[h].get("base", float("nan")),
+                  _scored[h].get("edge", float("nan"))] for h in _hs_sorted]
         _fig_ts = go.Figure()
         _fig_ts.add_trace(go.Bar(
             x=[f"+{h}d" for h in _hs_sorted], y=_ic_vals,
             marker=dict(color=_bar_colors, opacity=0.85),
             customdata=_cust,
             hovertemplate=("Horizon %{x}<br>IC %{y:+.2f}<br>Hit-rate %{customdata[0]:.0f}%"
+                           " vs base %{customdata[3]:.0f}%"
+                           "<br>Edge %{customdata[4]:+.1f}pp"
                            "<br>n=%{customdata[1]} · p=%{customdata[2]:.3f}<extra></extra>"),
         ))
         _fig_ts.add_hline(y=0, line_color=chart_rgba("slate", 0.35), line_width=1)
         _layout_ts = chart_layout(height=300, show_legend=False)
         _fig_ts.update_layout(**_layout_ts)
         style_axes(_fig_ts, y_title="Walk-forward IC (Spearman)", x_title="Holding horizon")
+        # Bar HEIGHT is IC, bar COLOUR is edge, and they can disagree — a tall
+        # green-looking bar with a negative edge is exactly the case this panel
+        # exists to expose, so the mismatch is deliberate and has to be stated
+        # or it reads as a rendering bug.
+        render_note(
+            "Bar height = rank IC (does the prediction order outcomes?). "
+            "Bar colour = directional edge vs the base rate (is acting on the "
+            "direction worth anything?). A tall bar in red means the matcher "
+            "ranks magnitudes but calls direction worse than assuming the "
+            "majority — hover for both numbers."
+        )
         render_chart_panel(_fig_ts, "analog_skill_term_structure", units="Spearman IC", window=True)
 
         # Plain-language read: best horizon + whether the forecast horizon is
         # where the edge actually lives.
-        _best_h = max(_scored, key=lambda h: _scored[h]["ic"])
+        # "Strongest" must mean strongest AT DECIDING, so rank by edge where it
+        # exists. Ranking by IC announced +60d as strongest on Gold — the
+        # horizon with the most negative edge in the whole term structure.
+        def _rank_key(h):
+            e = _scored[h].get("edge", float("nan"))
+            return (0, e) if np.isfinite(e) else (-1, _scored[h]["ic"])
+        _best_h = max(_scored, key=_rank_key)
         _best = _scored[_best_h]
         _lens_note = ""
         if fwd_horizon in _scored and _best_h != fwd_horizon:
@@ -309,10 +346,25 @@ def render_precedent_tab(
                           f"{_scored[fwd_horizon]['ic']:+.2f}, not the strongest")
         elif fwd_horizon in _scored:
             _lens_note = f" · forecast horizon {fwd_horizon}d is also the strongest"
+        _edge = _best.get("edge", float("nan"))
+        _base = _best.get("base", float("nan"))
+        _edge_txt = (f" · hit-rate {_best['hit']:.0f}% vs base rate {_base:.0f}% "
+                     f"({_edge:+.1f}pp)") if np.isfinite(_edge) else (
+                     f" · hit-rate {_best['hit']:.0f}%")
         render_note(
-            f"Strongest at +{_best_h}d · IC {_best['ic']:+.2f} (p={_best['pval']:.3f}) · "
-            f"hit-rate {_best['hit']:.0f}% over {_best['n']} windows{_lens_note}"
+            f"Strongest at +{_best_h}d · IC {_best['ic']:+.2f} (p={_best['pval']:.3f})"
+            f"{_edge_txt} over {_best['n']} windows{_lens_note}"
         )
+        # State it plainly when the matching is not adding anything. Measured
+        # 2026-08-17 the edge was negative at every horizon on Gold and Copper,
+        # so this is the expected reading, not an exceptional warning.
+        if np.isfinite(_edge) and _edge <= 0:
+            render_note(
+                "Negative edge: at this horizon the analog matching did not beat "
+                "simply assuming the majority direction of the same windows. Read "
+                "the base rate below as context for what the state has historically "
+                "preceded, not as a directional forecast."
+            )
 
     # (The 'Analog Predictions Over Time' section stood here: a per-as-of-date
     # predicted-vs-realised scatter for the active horizon. It restated, at
