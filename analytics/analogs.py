@@ -657,10 +657,35 @@ def analog_skill_by_horizon(
         done = np.isfinite(real) & np.isfinite(pred)
         n_done = int(done.sum())
         ic = hit = pval = float("nan")
+        base = edge = float("nan")
         if n_done >= int(min_windows):
             _ic, _pv = _spearmanr(pred[done], real[done])
             ic = float(_ic) if np.isfinite(_ic) else float("nan")
             pval = float(_pv) if np.isfinite(_pv) else float("nan")
             hit = float(np.mean(np.sign(pred[done]) == np.sign(real[done])) * 100.0)
-        out[H] = {"ic": ic, "hit": hit, "n": n_done, "pval": pval, "df": df}
+
+            # THE HIT RATE'S OWN NULL, reported beside it.
+            #
+            # `hit` alone is unreadable, and reads FLATTERINGLY wrong. A 50%
+            # directional hit rate looks like a coin flip — neutral, no harm
+            # done — but the benchmark is not 50%. It is the unconditional
+            # majority direction of the SAME realized windows, which on a
+            # trending asset is well above half: measured 2026-08-17 the base
+            # rate was 57.8% (Gold) and 53.5-57.0% (Copper), while the matcher
+            # scored 43.0-51.8%. Every horizon tested was WORSE than always
+            # predicting the majority direction, and nothing on screen said so.
+            #
+            # This is the same failure the convergence agreement tooltip had —
+            # a number judged against an assumed 50% null that was never its
+            # null — so the null now travels with the number rather than being
+            # something a reader is expected to know.
+            #
+            # `edge` is the honest headline: hit minus what a constant
+            # prediction would have scored. Negative means the matching added
+            # nothing over ignoring the state entirely.
+            up = float(np.mean(real[done] > 0))
+            base = float(max(up, 1.0 - up) * 100.0)
+            edge = float(hit - base)
+        out[H] = {"ic": ic, "hit": hit, "base": base, "edge": edge,
+                  "n": n_done, "pval": pval, "df": df}
     return out
