@@ -113,11 +113,58 @@ def _settled(vals, dates=None):
     return float(arr[i]), (stamp or "earlier session")
 
 
-def _asof(subtext: str, stamp: str | None) -> str:
-    """Append the as-of qualifier when a card is showing a prior session."""
-    if not stamp:
-        return subtext
-    return f"{subtext} · as of {stamp}" if subtext else f"As of {stamp}"
+def _forming(fvo_ts) -> str | None:
+    """How much of the cross-section has printed, when today is not yet trusted.
+
+    Returns e.g. "105/240 printed", or None when the newest session is settled.
+    The engine now PUBLISHES the forming session (flagged `Provisional`) rather
+    than withholding it, so this is what tells the reader that the number on the
+    card is today's-so-far and still moving — not a final reading.
+
+    Reads `Provisional` where present and falls back to `~Valid`, so a cached
+    frame from before that column existed still labels correctly.
+    """
+    if fvo_ts is None:
+        return None
+    cols = set(getattr(fvo_ts, "columns", ()))
+    if not {"NAvailable", "NAdmitted"} <= cols:
+        return None
+    try:
+        if "Provisional" in cols:
+            unsettled = bool(fvo_ts["Provisional"].iloc[-1])
+        elif "Valid" in cols:
+            unsettled = not bool(fvo_ts["Valid"].iloc[-1])
+        else:
+            return None
+        if not unsettled:
+            return None
+        av = float(pd.to_numeric(fvo_ts["NAvailable"], errors="coerce").iloc[-1])
+        ad = float(pd.to_numeric(fvo_ts["NAdmitted"], errors="coerce").iloc[-1])
+    except (IndexError, KeyError, TypeError, ValueError):
+        return None
+    if not (np.isfinite(av) and np.isfinite(ad)) or ad <= 0:
+        return None
+    return f"{int(av)}/{int(ad)} printed"
+
+
+def _asof(subtext: str, stamp: str | None, forming: str | None = None) -> str:
+    """Card subtitle, qualified by which session the number on display belongs to.
+
+    Three states, and the middle one is the common case during a live session:
+
+      settled today          -> the descriptive subtext, unchanged
+      today, still forming    -> "Provisional · 105/240 printed"
+      an earlier session      -> "As of 2026-08-14 · today 105/240 printed"
+
+    REPLACES rather than appends: the descriptive subtext ("Market breadth:
+    oversold vs overbought") is the less useful half once the number on display
+    is not a final one, and appending overflows the card at narrow widths.
+    """
+    if stamp:
+        return f"As of {stamp} · today {forming}" if forming else f"As of {stamp}"
+    if forming:
+        return f"Provisional · {forming}"
+    return subtext
 
 
 def render_convergence_tab(ts_filtered=None):
@@ -283,6 +330,10 @@ def render_convergence_tab(ts_filtered=None):
 
     col1, col2, col3, col4 = st.columns(4, gap="small")
 
+    # Shared across the four cards: if the newest session is being withheld, this
+    # is why. Computed once so every card gives the same reason.
+    _fill = _forming(fvo_ts)
+
     with col1:
         # Mirrors Row 1 of the Unified Signal plot: average of normalized FVO
         # + Swayam z-scores, in [-1, +1].
@@ -298,7 +349,7 @@ def render_convergence_tab(ts_filtered=None):
             sig = nishkarsh_norm["signal"] if (nishkarsh_norm and not stale) \
                 else classify_normalized_signal(score)
             color = "success" if "BUY" in sig else "danger" if "SELL" in sig else "neutral"
-            render_metric_card("TATTVA CONVICTION", f"{score:+.2f}", _asof(sig, stale), color,
+            render_metric_card("TATTVA CONVICTION", f"{score:+.2f}", _asof(sig, stale, _fill), color,
                                tooltip=TOOLTIPS["nishkarsh_conviction"])
         else:
             render_metric_card("TATTVA CONVICTION", "N/A", "Not computed", "neutral")
@@ -314,7 +365,7 @@ def render_convergence_tab(ts_filtered=None):
             a_conv, stale = None, None
         if a_conv is not None:
             render_metric_card("FVO CONVICTION", f"{a_conv:+.2f}",
-                               _asof("Market breadth: oversold vs overbought", stale),
+                               _asof("Market breadth: oversold vs overbought", stale, _fill),
                                "success" if a_conv < -CONVICTION_MODERATE else "danger" if a_conv > CONVICTION_MODERATE else "neutral",
                                tooltip=TOOLTIPS["fvo_conviction"])
         else:
@@ -326,7 +377,7 @@ def render_convergence_tab(ts_filtered=None):
             has_overlap and len(aligned_swayam_raw)) else (None, None)
         if n_avg is not None:
             render_metric_card("SWAYAM AVG SIGNAL", f"{n_avg:.2f}",
-                               _asof(f"Bottom-up {_units[:-1]} momentum", stale),
+                               _asof(f"Bottom-up {_units[:-1]} momentum", stale, _fill),
                                "success" if n_avg < UI_SWAYAM_BULLISH else "danger" if n_avg > UI_SWAYAM_BEARISH else "neutral",
                                tooltip=TOOLTIPS["swayam_avg"])
         else:
@@ -337,7 +388,7 @@ def render_convergence_tab(ts_filtered=None):
                                     convergence_df.index)
         if agreement is not None:
             render_metric_card("AGREEMENT", f"{agreement:.0%}",
-                               _asof("FVO and Swayam alignment", stale),
+                               _asof("FVO and Swayam alignment", stale, _fill),
                                "success" if agreement > UI_AGREEMENT_STRONG else "warning" if agreement > UI_AGREEMENT_MODERATE else "neutral",
                                tooltip=TOOLTIPS["agreement"])
         else:
