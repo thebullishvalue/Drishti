@@ -12,7 +12,7 @@ import streamlit as st
 from datetime import datetime
 
 from ui.components import (render_section_header, render_table_panel,
-                           render_note)
+                           render_note, provisional_note)
 
 
 def render_data_tab(ts_filtered, ts, active_target):
@@ -23,6 +23,10 @@ def render_data_tab(ts_filtered, ts, active_target):
         icon="database",
         accent="cyan",
     )
+
+    _pn = provisional_note(st.session_state.get("fvo_ts"))
+    if _pn:
+        render_note(_pn)
 
     display_cols = [
         "Date", "Actual", "FairValue", "Residual", "ModelSpread", "AvgZ",

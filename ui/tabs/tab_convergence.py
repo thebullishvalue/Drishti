@@ -65,8 +65,12 @@ TOOLTIPS = {
         "top-down view."
     ),
     "agreement": (
-        "How often FVO and Swayam point in the same direction. Above 70% = both systems "
-        "agree — trust the signal. Below 50% = they disagree — stay flat until alignment improves."
+        "How often FVO and Swayam point in the same direction. THE BASELINE IS NOT 50%: "
+        "both engines are causal transforms of the same target price, and two such "
+        "transforms of even a pure random walk agree ~60% of the time by construction "
+        "(measured, research/test_audit_invariants.py). So ~60% is neutral, not agreement. "
+        "Above 80% is where a reading starts to clear that floor; above 89% is strong. "
+        "Below ~60% is genuine disagreement — stand aside."
     ),
 }
 

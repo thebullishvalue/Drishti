@@ -34,7 +34,9 @@ from ui.components import (
     render_interpretation_card,
     render_section_header,
     render_chart_panel,
-    )
+    render_note,
+    provisional_note,
+)
 from core.config import (
     OU_PROJECTION_DAYS,
     get_instrument_config, InstrumentConfig,  # per-instrument display tiers (resolved
@@ -484,6 +486,10 @@ def _render_fair_value_chart(engine, ts_filtered, x_axis, ts, active_target):
             fill="tonexty", fillcolor=chart_rgba("violet", 0.10), name="95% band",
             hoverinfo="skip",
         ), row=1, col=1)
+
+    _pn = provisional_note(st.session_state.get("fvo_ts"))
+    if _pn:
+        render_note(_pn)
 
     fig.add_trace(go.Scatter(
         x=x_axis, y=ts_filtered["FairValue"], mode="lines", name="Fair Value",
