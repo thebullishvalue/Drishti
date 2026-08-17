@@ -31,6 +31,7 @@ from ui.components import (render_metric_card, render_section_header,           
 from convergence.normalization import (
     align_fvo_swayam,
     causal_normalize,
+    classify_normalized_signal,
 )
 from core.config import (
     get_instrument_config, InstrumentConfig,  # per-instrument marker/tier anchors
@@ -79,6 +80,44 @@ def _dynamic_range(vals, padding=0.15):
     span = mx - mn if mx != mn else 1.0
     pad = span * padding
     return (round(mn - pad, 2), round(mx + pad, 2))
+
+
+def _settled(vals, dates=None):
+    """Last SETTLED reading in a series, and its date if it is not the latest.
+
+    The panel-completeness gate publishes NaN for any session fitted on a
+    fraction of the cross-section: a live half-open row typically carries ~0.39
+    of the admitted panel, so `ConvictionRaw.iloc[-1]` is NaN for most of the
+    trading day. Every card here reads `[-1]`, and every one of those guards
+    tested `is not None` — which NaN passes, so the card rendered the string
+    "+nan" rather than falling back.
+
+    Three outcomes, and the distinction between the last two is the point:
+    a settled current reading, a settled EARLIER reading (returned with its
+    date, so the caller can say which session it belongs to), or nothing.
+    Showing the stale number unlabelled would defeat the gate that produced
+    the blank in the first place.
+    """
+    arr = np.asarray([np.nan if v is None else v for v in np.atleast_1d(vals)],
+                     dtype=np.float64)
+    finite = np.flatnonzero(np.isfinite(arr))
+    if not len(finite):
+        return None, None
+    i = int(finite[-1])
+    if i == len(arr) - 1:
+        return float(arr[i]), None            # current session is settled
+    stamp = None
+    if dates is not None and i < len(dates):
+        d = dates[i]
+        stamp = str(d.date()) if hasattr(d, "date") else str(d)
+    return float(arr[i]), (stamp or "earlier session")
+
+
+def _asof(subtext: str, stamp: str | None) -> str:
+    """Append the as-of qualifier when a card is showing a prior session."""
+    if not stamp:
+        return subtext
+    return f"{subtext} · as of {stamp}" if subtext else f"As of {stamp}"
 
 
 def render_convergence_tab(ts_filtered=None):
@@ -247,44 +286,62 @@ def render_convergence_tab(ts_filtered=None):
     with col1:
         # Mirrors Row 1 of the Unified Signal plot: average of normalized FVO
         # + Swayam z-scores, in [-1, +1].
-        if nishkarsh_norm:
-            score = nishkarsh_norm["value"]
-            sig = nishkarsh_norm["signal"]
+        score, stale = (nishkarsh_norm["value"], None) if nishkarsh_norm else (None, None)
+        if score is not None and not np.isfinite(score):
+            # The stored headline belongs to an unsettled session. Recover the
+            # last settled point from the same normalized average the plot draws.
+            score, stale = _settled(norm_avg, aligned_dates) if has_overlap else (None, None)
+        if score is not None:
+            # When falling back to an earlier session the stored label belongs to
+            # the wrong value, so relabel through the same classifier that
+            # produced it rather than inventing a threshold here.
+            sig = nishkarsh_norm["signal"] if (nishkarsh_norm and not stale) \
+                else classify_normalized_signal(score)
             color = "success" if "BUY" in sig else "danger" if "SELL" in sig else "neutral"
-            render_metric_card("TATTVA CONVICTION", f"{score:+.2f}", sig, color, tooltip=TOOLTIPS["nishkarsh_conviction"])
+            render_metric_card("TATTVA CONVICTION", f"{score:+.2f}", _asof(sig, stale), color,
+                               tooltip=TOOLTIPS["nishkarsh_conviction"])
         else:
             render_metric_card("TATTVA CONVICTION", "N/A", "Not computed", "neutral")
 
     with col2:
-        # Mirrors Row 2 of the plot — reads the SAME aligned ConvictionRaw last point
-        # (falls back to the raw last ts row only when there is no Swayam overlap).
-        a_conv = None
-        if has_overlap and aligned_conv_raw and aligned_conv_raw[-1] is not None:
-            a_conv = aligned_conv_raw[-1]
+        # Mirrors Row 2 of the plot — reads the SAME aligned ConvictionRaw series
+        # (falls back to the raw ts column only when there is no Swayam overlap).
+        if has_overlap and aligned_conv_raw:
+            a_conv, stale = _settled(aligned_conv_raw, aligned_dates)
         elif fvo_ts is not None and "ConvictionRaw" in fvo_ts.columns:
-            a_conv = float(fvo_ts["ConvictionRaw"].iloc[-1])
+            a_conv, stale = _settled(fvo_ts["ConvictionRaw"].to_numpy(), fvo_ts.index)
+        else:
+            a_conv, stale = None, None
         if a_conv is not None:
-            render_metric_card("FVO CONVICTION", f"{a_conv:+.2f}", "Market breadth: oversold vs overbought",
+            render_metric_card("FVO CONVICTION", f"{a_conv:+.2f}",
+                               _asof("Market breadth: oversold vs overbought", stale),
                                "success" if a_conv < -CONVICTION_MODERATE else "danger" if a_conv > CONVICTION_MODERATE else "neutral",
                                tooltip=TOOLTIPS["fvo_conviction"])
         else:
-            render_metric_card("FVO CONVICTION", "N/A", "", "neutral")
+            render_metric_card("FVO CONVICTION", "N/A", "Session incomplete", "neutral")
 
     with col3:
-        # Mirrors Row 3 of the plot — reads the SAME aligned Swayam Avg Signal point.
-        if has_overlap and len(aligned_swayam_raw):
-            n_avg = float(aligned_swayam_raw[-1])
-            render_metric_card("SWAYAM AVG SIGNAL", f"{n_avg:.2f}", f"Bottom-up {_units[:-1]} momentum",
+        # Mirrors Row 3 of the plot — reads the SAME aligned Swayam Avg Signal series.
+        n_avg, stale = _settled(aligned_swayam_raw, aligned_dates) if (
+            has_overlap and len(aligned_swayam_raw)) else (None, None)
+        if n_avg is not None:
+            render_metric_card("SWAYAM AVG SIGNAL", f"{n_avg:.2f}",
+                               _asof(f"Bottom-up {_units[:-1]} momentum", stale),
                                "success" if n_avg < UI_SWAYAM_BULLISH else "danger" if n_avg > UI_SWAYAM_BEARISH else "neutral",
                                tooltip=TOOLTIPS["swayam_avg"])
         else:
             render_metric_card("SWAYAM AVG SIGNAL", "N/A", f"No {_units[:-1]} data", "neutral")
 
     with col4:
-        agreement = convergence_df["agreement_ratio"].iloc[-1]
-        render_metric_card("AGREEMENT", f"{agreement:.0%}", "FVO and Swayam alignment",
-                           "success" if agreement > UI_AGREEMENT_STRONG else "warning" if agreement > UI_AGREEMENT_MODERATE else "neutral",
-                           tooltip=TOOLTIPS["agreement"])
+        agreement, stale = _settled(convergence_df["agreement_ratio"].to_numpy(),
+                                    convergence_df.index)
+        if agreement is not None:
+            render_metric_card("AGREEMENT", f"{agreement:.0%}",
+                               _asof("FVO and Swayam alignment", stale),
+                               "success" if agreement > UI_AGREEMENT_STRONG else "warning" if agreement > UI_AGREEMENT_MODERATE else "neutral",
+                               tooltip=TOOLTIPS["agreement"])
+        else:
+            render_metric_card("AGREEMENT", "N/A", "Session incomplete", "neutral")
 
 
     # ═══════════════════════════════════════════════════════════════════════
