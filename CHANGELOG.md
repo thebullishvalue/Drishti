@@ -12,6 +12,109 @@ Sections used: **Added · Changed · Deprecated · Removed · Fixed · Security 
 ## [Unreleased]
 
 ### Fixed
+- **Envelope tests measured the calendar, not the code.**
+  `test_composition_sensitivity` and `test_fvo_invariants` fetched
+  `today - 3650 days`, so at midnight the window START rolled forward and
+  dropped the oldest bar. FVO is a recursive filter, so initialising one day
+  later shifts EVERY subsequent state: settled values moved **0.49%-1.55%**,
+  roughly 10x the drop-one-predictor sensitivity the first test exists to
+  bound. It passed on 2026-08-17 and failed on 2026-08-18 with no code change
+  between — the fastest way to teach someone to ignore a red suite. Both now
+  PIN THE START and let the end roll, which keeps them current because
+  appending data is precisely the property the system guarantees (and
+  `test_reproducibility` measures at `0.000e+00`); moving the start is not.
+  Verified: with the window pinned, FVO reproduces prior values to
+  **0.000000%**, confirming no regression from the day's engine changes.
+- **Snapshot backfill silently truncated an instrument's history, rewriting
+  published output.** When yfinance rate-limits a ticker its column is rebuilt
+  from a cached snapshot — but the candidate snapshots were ranked by *mtime*,
+  and the pool is not homogeneous (observed spans: 2610, 2089, 783 and 2351
+  rows). Whenever the newest happened to be the short one, the rebuilt column
+  lost ~1800 rows of history; that instrument's admission and print counts
+  changed, the factor basis changed with them, and every published date moved.
+  Two fetches minutes apart hit *different* transient timeouts, so each rebuilt
+  a different set of tickers: **1563 settled input cells differed, moving 5743
+  published output cells from the first post-burn-in row onward, on 1 of 4 fetch
+  pairs.** This is the mechanism behind the "markers change on previous dates"
+  reports. Candidates are now ranked by **actual coverage of the required
+  index**, with recency only as a tiebreak; a too-stale snapshot no longer drops
+  the ticker outright but falls through to the remaining candidates. After the
+  fix the same probe measured 1 differing input cell at row 2602 of 2607 (the
+  last week) instead of 1563 from row 251. The snapshots themselves were never
+  the problem — on shared dates they match a live pull to ~1e-4 with zero dates
+  invented by forward-fill.
+- **`_panel_fingerprint` could not see the change it existed to detect.** It
+  hashed column names and index span only, so two fetches whose settled
+  `ConvictionRaw` differed by 50% on a past date both reported
+  `3daceb55a97a`. It now hashes settled CONTENT with the newest row excluded —
+  stable through intraday ticking, moves the instant history moves. It flagged
+  a real repaint (`fp DIFF`) on the run that exposed the backfill defect.
+- **FVO confidence bands understated risk by up to 14 points.**
+  `FairValueLo/Hi` was `exp(fv ± 1.96·sd)`, which assumes the standardised
+  residual is unit-normal. Realised coverage of the nominal-95% band was
+  **81.0% / 89.6% / 87.0%** (Gold / Copper / Silver) — an interval a position
+  is sized against, systematically too narrow. Replaced with an
+  **adaptive conformal** band: `pred_sd` still sets the scale, but the
+  multiplier is the causal empirical quantile of realised `|fvo|`, and the level
+  itself tracks realised coverage (Gibbs & Candès 2021) because residual
+  dispersion is non-stationary and an expanding-window quantile lags it. Now
+  **94.4% / 95.1% / 94.2%**, with widths flat and Silver's *narrower*
+  (29.54% → 23.67%). A fixed conformal level was tried first and reached only
+  91.7 / 93.3 / 94.0; splitting warm-up from post-warm-up refuted the
+  hypothesis that the shortfall was the Gaussian opening year.
+- **MMR was never exercised by any repaint test.**
+  `research/test_repaint_real_full.py` called
+  `build_swayam_frames(ohlcv, None, [], …)`, and `calculate_mmr` returns
+  all-zeros with an empty candidate pool — so `MMR_Weight` was 0.0,
+  `MSF_Weight` 1.0, and `Unified_Osc` bit-identical to `MSF_Osc`. Every
+  non-repainting guarantee for Swayam covered the MSF half only, while MMR's
+  rolling top-N driver selection over ~100 macro candidates — the most
+  look-ahead-prone code in either engine — had no coverage at all. The harness
+  now passes macro, and `assert_mmr_live()` guards against vacuous success: a
+  dead MMR passes every determinism check, because a column of zeros never
+  repaints.
+- **MMR's leakage guard could not see an unnamed replica.**
+  `swayam_macro_columns` excludes by NAME, so a series tracking the target at
+  r ≈ 1.0 under an unrelated name survived it — the documented silent-death
+  mode (driver selection locks on, deviation collapses, `mmr_quality` reads
+  perfect). A structural screen now drops candidates above
+  `MMR_REPLICA_MAX_CORR` inside `calculate_mmr`, where the data actually is.
+  Correlation is used only to EXCLUDE, never to select or weight, so the
+  per-bar driver ranking stays `shift(1)` causal. Removes nothing from today's
+  240-column pool (0 survivors measured) — it guards a future addition.
+
+### Changed
+- **Swayam view skill-weighting is shrunk halfway toward equal weight**
+  (`SKILL_WEIGHT_SHRINK = 0.5`). The weights are causal and never revised, but
+  the skill they measure does not persist: split-half rank correlation of the
+  weights is **-0.379 / -0.007 / -0.054** on Gold / Copper / Silver while raw
+  spreads reach **9x**, and equal-weighting beat skill-weighting at h=10 on both
+  Gold (-0.0324 vs -0.0104) and Copper (-0.0493 vs -0.0380). Shrunk rather than
+  removed because Bitcoin is the counter-case (+0.744 persistence, and
+  skill-weighting genuinely wins there). `1.0` restores the previous behaviour
+  exactly. NOTE: none of those ICs is individually significant (0.0–0.7σ); what
+  justifies the change is that the IC ordering agrees with the independent
+  persistence measurement on all four instruments.
+- **Snapshot-backfill notice raised from info to warning.** The old copy said
+  only that momentum goes flat, which understates it — a rebuilt column is a
+  different series, so the run's published history may differ from one that
+  fetched cleanly.
+
+### Added
+- `research/test_swayam_invariants.py` — leakage, MMR liveness, determinism,
+  weight scale, shrinkage bounds, redundancy disclosure.
+- `research/test_fvo_invariants.py` — CI coverage, over-coverage, width
+  usability, band ordering, adaptive-level clamps.
+- `research/test_repaint_live_refetch.py` — two independent live fetches, full
+  pipeline, every published column, date-aligned; treats a value published by
+  one fetch and withheld by the other as a failure. Dumps every differing cell
+  to CSV on failure.
+- `research/repaint_rate_probe.py` — measures how OFTEN the live repaint fires,
+  and separates a DATA cause (inputs changed) from a LEAK (outputs moved while
+  inputs held), which need different fixes.
+- `research/test_composition_sensitivity.py` — drop-one-predictor drift envelope.
+
+### Fixed
 - **Panel completeness is measured against the exchanges that were OPEN, not
   against the whole admitted universe.** The FVO panel spans ~14 venues and NYSE
   alone is 124 of 241 predictor columns, so a `printed / admitted` ratio collapsed

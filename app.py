@@ -1087,10 +1087,23 @@ def main():
                     _sb_preview = ", ".join(f"{k} (as of {v})" for k, v in _sb_items[:5])
                     _sb_more = f" +{len(_sb_items) - 5} more" if len(_sb_items) > 5 else ""
                     _notice(
-                        "info", "Predictors carried from snapshot",
+                        # WARNING, not info. The old copy said only that momentum
+                        # goes flat, which understates it: a snapshot-reconstructed
+                        # column is reindexed onto this run's calendar and ffilled
+                        # (data.fetcher._backfill_missing_columns), so it is a
+                        # DIFFERENT SERIES from a live pull, not a staler one.
+                        # Measured 2026-08-17: two fetches minutes apart that hit
+                        # different timeouts backfilled different tickers, and 1563
+                        # settled input cells then differed — moving 5743 published
+                        # output cells, from the first post-burn-in row onward. That
+                        # happened on 1 of 4 fetch pairs.
+                        "warning", "Predictors carried from snapshot — history differs",
                         f"{len(_sb_items)} predictor(s) were rate-limited this fetch and refilled "
-                        f"from a prior cached snapshot: {_sb_preview}{_sb_more}. Their momentum is "
-                        f"flat until the next successful live fetch.",
+                        f"from a prior cached snapshot: {_sb_preview}{_sb_more}. A rebuilt column "
+                        f"is not merely staler than a live one — it is a different series, so "
+                        f"THIS RUN'S PUBLISHED HISTORY MAY DIFFER from a run that fetched cleanly. "
+                        f"Compare the panel fingerprint before treating this run's past values as "
+                        f"final; re-run once the source is healthy for an authoritative record.",
                     )
 
                 # Session completeness (Phase 2 — exchange-aware): of the inputs whose
