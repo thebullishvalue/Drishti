@@ -55,6 +55,12 @@ from analytics.causal import EPS, VAR_FLOOR, halflife_to_lambda
 K_MAX = 20
 
 #: Winsorisation of standardised returns, in sigmas.  A robustness device
+#: Width of the band around the Marchenko-Pastur edge inside which `k` is held
+#: at its previous value (scaled by 1/sqrt(t_eff) — see _clip_spectrum). Small
+#: enough that a genuine factor still enters promptly; large enough that an
+#: eigenvalue sitting on the edge stops rewriting the regressor set each run.
+MP_EDGE_HYSTERESIS: float = 2.0
+
 #: from outlier-resistant covariance estimation, not a signal threshold: a
 #: single 20-sigma print would otherwise rotate the entire eigenbasis.
 Z_CLIP = 6.0
@@ -192,7 +198,8 @@ class _CorrMemory:
 
 
 def _clip_spectrum(C: np.ndarray, t_eff: float,
-                   active: np.ndarray | None = None
+                   active: np.ndarray | None = None,
+                   k_prev: int = 0,
                    ) -> tuple[np.ndarray, np.ndarray, float, int]:
     """Marchenko-Pastur eigenvalue clipping.
 
@@ -211,7 +218,7 @@ def _clip_spectrum(C: np.ndarray, t_eff: float,
         idx = np.flatnonzero(active)
         if len(idx) < 3:
             return np.zeros((n_full, 0)), np.zeros(0), 1.0, 0
-        Vs, ls, delta, k = _clip_spectrum(C[np.ix_(idx, idx)], t_eff, None)
+        Vs, ls, delta, k = _clip_spectrum(C[np.ix_(idx, idx)], t_eff, None, k_prev)
         V = np.zeros((n_full, Vs.shape[1]))
         V[idx, :] = Vs
         return V, ls, delta, k
@@ -228,7 +235,24 @@ def _clip_spectrum(C: np.ndarray, t_eff: float,
 
     q = n / max(t_eff, 1.0)
     edge = (1.0 + math.sqrt(q)) ** 2
-    k = int(np.sum(w > edge))
+    # HYSTERESIS. `k` selects the regressor set, so a bare `w > edge` makes the
+    # model discontinuous in its own input: an eigenvalue resting ON the edge
+    # flips k between 12 and 13 on a perturbation far too small to mean
+    # anything, and every date's factor set changes with it. Requiring an
+    # eigenvalue to clear the edge by a margin — and, once counted, to fall a
+    # matching margin below before it is dropped — turns a knife-edge into a
+    # band. `k_prev` carries the previous step's count so the band can be
+    # applied asymmetrically; without it this is just a stricter threshold.
+    #
+    # The margin scales with the edge's own sampling noise, so it tightens as
+    # the effective sample grows rather than being a hand-set constant.
+    margin = MP_EDGE_HYSTERESIS / math.sqrt(max(t_eff, 1.0))
+    if k_prev <= 0:
+        k = int(np.sum(w > edge * (1.0 + margin)))
+    else:
+        n_up = int(np.sum(w > edge * (1.0 + margin)))     # decisively above
+        n_dn = int(np.sum(w > edge * (1.0 - margin)))     # not yet decisively below
+        k = min(max(k_prev, n_up), n_dn)
     # cap by estimability of the downstream regression, and by storage
     k = max(1, min(k, K_MAX, int(max(2, t_eff // 25))))
 
@@ -339,7 +363,7 @@ class OnlineFactorModel:
             drift = float(np.linalg.norm(C - m.C_ref) / denom)
             if drift < 1.0 / math.sqrt(max(t_eff, 1.0)):
                 return
-        Vk, lk, delta, k = _clip_spectrum(C, t_eff, self.ever_active)
+        Vk, lk, delta, k = _clip_spectrum(C, t_eff, self.ever_active, m.k)
         Vk, lk, _ = _align(Vk, lk, m.V, m.k)
         m.V = np.zeros((self.n, K_MAX))
         m.V[:, :Vk.shape[1]] = Vk

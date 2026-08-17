@@ -89,7 +89,8 @@ from analytics.utils import (
     _detect_crossover_signals,
 )
 
-from .valuation import BURN_IN, MIN_PRINTS, VALUATION_DELTAS, MarketValuationEngine
+from .valuation import (BURN_IN, MIN_PRINTS, PANEL_MIN_COVERAGE,
+                        VALUATION_DELTAS, MarketValuationEngine)
 
 log = logging.getLogger(__name__)
 
@@ -629,6 +630,7 @@ class FairValueEngine:
             "WLatent": _col("w_latent"),
             "WBlock": _col("w_block"),
             "NAvailable": _col("n_available", 0),
+            "NAdmitted": _col("n_admitted", 0),
             "MarketRegime": _col("regime_label", "initialising"),
         }, index=pd.RangeIndex(n))
         for lb, data in self.lookback_data.items():
@@ -671,6 +673,31 @@ class FairValueEngine:
         # calibration frame and the analog feature pool must be able to drop.
         finite_stack = np.vstack([np.isfinite(z) for z in z_scores_list]) if z_scores_list else np.zeros((0, n), dtype=bool)
         valid_row = finite_stack.any(axis=0) if len(finite_stack) else np.zeros(n, dtype=bool)
+
+        # ---- panel-completeness gate ------------------------------------
+        # A row fitted on a fraction of the cross-section is not a valuation,
+        # it is a valuation of whoever happened to be open. Two runs twenty
+        # minutes apart during a live session saw 61 then 62 of ~209
+        # instruments posted, and published fair values 1.6% apart — 45x the
+        # move in spot. That is not repainting (the past was untouched) but it
+        # is a number the reader has no way to discount.
+        #
+        # Measured against the ADMITTED set, not the universe: admission ramps
+        # over the record, so a fraction-of-universe floor would retroactively
+        # invalidate legitimate early history. On a settled session nearly
+        # every admitted instrument prints, so this sits near 1.0 and costs
+        # nothing; on a half-open session it falls far below the floor and the
+        # row is published Valid=False, exactly as burn-in rows are.
+        _av = self.ts_data.get("NAvailable")
+        _ad = self.ts_data.get("NAdmitted")
+        if _av is not None and _ad is not None:
+            _av = pd.to_numeric(_av, errors="coerce").to_numpy(dtype=float)
+            _ad = pd.to_numeric(_ad, errors="coerce").to_numpy(dtype=float)
+            if len(_av) == len(valid_row) and len(_ad) == len(valid_row):
+                with np.errstate(invalid="ignore", divide="ignore"):
+                    cover = np.where(_ad > 0, _av / _ad, 1.0)
+                complete = ~np.isfinite(cover) | (cover >= PANEL_MIN_COVERAGE)
+                valid_row = valid_row & complete
 
         # nanmean legitimately warns "Mean of empty slice" on the burn-in rows
         # (all-NaN across every lookback window) — expected and handled (the

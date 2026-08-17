@@ -80,6 +80,15 @@ BURN_IN = 252
 #: retroactively changes.
 MIN_PRINTS = 250
 
+#: Fraction of the ADMITTED cross-section that must actually have printed on a
+#: date for that date's valuation to be published Valid. A settled session
+#: sits near 1.0; a half-open one (observed: 61 of ~209 during a live run)
+#: falls far below and is withheld rather than published as if complete.
+#: 0.60 leaves room for genuine holiday overlap across the global panel — many
+#: dates legitimately have a fraction of markets shut — while still catching a
+#: session that has merely not finished posting.
+PANEL_MIN_COVERAGE: float = 0.60
+
 #: Discount grid for the valuation regression, spanning implied coefficient
 #: memories of ~4 years, ~8 years, ~40 years and permanent.
 #:
@@ -216,6 +225,16 @@ class MarketValuationEngine:
         attrib_rows: list[np.ndarray] = []
 
         avail_hist = np.zeros(T, dtype=int)
+        # How many instruments were ELIGIBLE to print on t (past the print
+        # floor), as distinct from how many actually did. The ratio of the two
+        # is the only stable measure of panel completeness: a raw count cannot
+        # separate "early history, few instruments admitted yet" from "live
+        # session, most of the panel has not posted", and those need opposite
+        # treatment. Admission ramps from ~0 to the full universe over the
+        # record, so gating on a fraction of the UNIVERSE would invalidate
+        # legitimate early history; gating on a fraction of the ADMITTED set
+        # does not.
+        admit_hist = np.zeros(T, dtype=int)
 
         # -----------------------------------------------------------------
         for t in range(T):
@@ -226,6 +245,7 @@ class MarketValuationEngine:
             avail = (np.isfinite(r) & PR[t] & (n_prints[t] >= self.min_prints)
                      & (sig > 1e-7))
             avail_hist[t] = int(avail.sum())
+            admit_hist[t] = int(np.sum(n_prints[t] >= self.min_prints))
 
             z = np.where(avail, (r - mu) / np.maximum(sig, 1e-8), 0.0)
             z = np.nan_to_num(z, nan=0.0, posinf=0.0, neginf=0.0)
@@ -453,6 +473,7 @@ class MarketValuationEngine:
         df = pd.DataFrame({k: v for k, v in out.items()}, index=idx)
         df["price"] = np.exp(P)
         df["n_available"] = avail_hist
+        df["n_admitted"] = admit_hist
 
         return {
             "series": df,
