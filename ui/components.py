@@ -1509,3 +1509,44 @@ def render_warning_box(title: str, content: str) -> None:
         """,
         unsafe_allow_html=True,
     )
+
+
+def provisional_note(fvo_ts) -> str:
+    """One sentence naming the newest session as unsettled, or "" when it is not.
+
+    The engine separates `publish` (the value is emitted) from `Valid` (the value
+    may be trusted), and marks the difference `Provisional`. That distinction was
+    introduced for the convergence cards and initially surfaced only there — so
+    the FVO chart drew today's forming fair value as an ordinary point and the
+    Data tab listed it unlabelled, which is the same misreading the cards were
+    fixed to prevent. This is the shared accessor, so every surface that shows a
+    number can say whether it has settled.
+
+    Empty string when the newest session is settled, so callers can treat it as
+    falsy and render nothing.
+    """
+    try:
+        import pandas as _pd
+        import numpy as _np
+        if fvo_ts is None:
+            return ""
+        cols = set(getattr(fvo_ts, "columns", ()))
+        if "Provisional" in cols:
+            unsettled = bool(fvo_ts["Provisional"].iloc[-1])
+        elif "Valid" in cols:
+            unsettled = not bool(fvo_ts["Valid"].iloc[-1])
+        else:
+            return ""
+        if not unsettled:
+            return ""
+        if {"NAvailable", "NScheduled"} <= cols:
+            av = float(_pd.to_numeric(fvo_ts["NAvailable"], errors="coerce").iloc[-1])
+            sc = float(_pd.to_numeric(fvo_ts["NScheduled"], errors="coerce").iloc[-1])
+            if _np.isfinite(av) and _np.isfinite(sc) and sc > 0:
+                return (f"Latest session is still forming — {int(av)} of {int(sc)} "
+                        f"scheduled instruments have printed. Its reading will move "
+                        f"until the session settles; earlier dates are final.")
+        return ("Latest session is still forming. Its reading will move until the "
+                "session settles; earlier dates are final.")
+    except (IndexError, KeyError, TypeError, ValueError):
+        return ""
