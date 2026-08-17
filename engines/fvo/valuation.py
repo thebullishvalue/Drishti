@@ -62,6 +62,7 @@ import math
 import numpy as np
 import pandas as pd
 
+from analytics.adaptive import AdaptiveThreshold
 from analytics.causal import (EPS, BatchDLM, DynamicModelAverage, EWMA,
                               ExpandingRank, OnlineAR1, norm_cdf_scalar)
 from .factors import K_MAX, AdaptiveVolPanel, OnlineFactorModel
@@ -96,6 +97,27 @@ PANEL_MIN_COVERAGE: float = 0.60
 #: cannot pin a factor structure at all. Realised `k` runs to 13, so ~2.3x that
 #: is the minimum cross-section worth estimating one from.
 PANEL_MIN_PRINTS: int = 30
+
+#: Two-sided coverage the FairValueLo/Hi band targets, and the minimum number of
+#: resolved residuals before the empirical multiplier replaces the Gaussian one.
+#: The band is conformal (see the note in `run`): `pred_sd` sets the scale and
+#: this quantile of realised |fvo| sets the width, so coverage is calibrated to
+#: the engine's own errors instead of assuming they are normal. Measured before
+#: this change, the nominal-95% band covered 81.0% / 89.6% / 87.0% on
+#: Gold / Copper / Silver.
+CI_LEVEL: float = 0.95
+CI_MIN_OBS: int = 252
+
+#: Adaptive-conformal step size. Each published interval nudges the working
+#: miscoverage level by at most this much, so the band chases realised coverage
+#: without lurching on any single outcome. 0.01 moves the level ~1pp per miss,
+#: i.e. it re-calibrates over ~100 observations — fast enough to follow a
+#: dispersion regime, slow enough that a fortnight of quiet does not collapse
+#: the band. The clamps stop a pathological stretch driving the level to a
+#: degenerate 0% or 50% interval.
+CI_ADAPT_GAMMA: float = 0.01
+CI_ALPHA_MIN: float = 0.005      # never wider than a ~99.5% interval
+CI_ALPHA_MAX: float = 0.20       # never tighter than an ~80% interval
 
 #: Discount grid for the valuation regression, spanning implied coefficient
 #: memories of ~4 years, ~8 years, ~40 years and permanent.
@@ -206,6 +228,13 @@ class MarketValuationEngine:
 
         gap_ar = OnlineAR1(halflife=504.0)
         gap_rank = ExpandingRank()
+        # Causal empirical quantile of |fvo| — the conformal band multiplier.
+        # min_obs guards the opening stretch where a quantile of a handful of
+        # residuals is noise; below it the Gaussian constant is used unchanged.
+        fvo_rank = AdaptiveThreshold(min_obs=CI_MIN_OBS)
+        # Working miscoverage level for the adaptive-conformal band; starts at
+        # the nominal and is driven by realised coverage from there.
+        ci_alpha = 1.0 - CI_LEVEL
         resid_ewma = EWMA(halflife=252.0)
         agree_ew = 0.0
         agree_w = 0.0
@@ -421,7 +450,54 @@ class MarketValuationEngine:
             contrib_b = beta_b[1:] * block_levels
 
             pct = math.expm1(gap)
-            zc = 1.959963984540054                      # 95% two-sided
+
+            # CONFORMAL BAND WIDTH, not a Gaussian one.
+            #
+            # `sd` is the model-averaging MIXTURE sd: it carries the two views'
+            # own uncertainty and their disagreement, but nothing about how far
+            # price actually lands from the fitted value. Multiplying it by the
+            # Gaussian 1.96 therefore assumes the standardised residual `fvo` is
+            # unit-normal, and it is not. Measured 2026-08-17 on 10y panels, the
+            # realised coverage of the nominal-95% band was:
+            #
+            #     Gold 81.0%   ·   Copper 89.6%   ·   Silver 87.0%
+            #
+            # Under-covering by up to 14 points is not a cosmetic problem: these
+            # bands are what a position would be sized against, so the interval
+            # understates risk exactly when it is being relied on.
+            #
+            # The fix keeps `sd` as the SCALE and calibrates only the multiplier,
+            # from the engine's own realised |fvo| — a conformal interval.
+            # Distribution-free, so fat tails are absorbed rather than assumed
+            # away, and strictly causal: `quantile()` is read BEFORE `update()`,
+            # so the width used at t reflects only residuals resolved before t.
+            # Below `min_obs` it returns the Gaussian constant, so early history
+            # is unchanged and the estimate takes over only once better informed.
+            # ADAPTIVE level, because a plain conformal quantile still misses.
+            #
+            # A fixed-level empirical quantile is only calibrated if the |fvo|
+            # distribution is STATIONARY, and residual dispersion plainly is not:
+            # `ExpandingRank` never forgets, so a calm early stretch holds the
+            # quantile down and the band lags every rise in dispersion. Measured
+            # with a fixed level, coverage came in at 91.7% / 93.3% / 94.0%
+            # (Gold / Copper / Silver) POST warm-up — better than the Gaussian
+            # 81.0% / 89.6% / 87.0%, but still short, and Copper was worse after
+            # warm-up than during it, which rules out the opening year as the
+            # cause.
+            #
+            # So the level tracks realised coverage instead of being fixed
+            # (adaptive conformal inference; Gibbs & Candes 2021). Miss too often
+            # and alpha falls, widening the next band; cover too often and it
+            # rises, tightening. The update uses only whether the interval
+            # published at t contained the outcome AT t, so it stays causal, and
+            # it drives long-run coverage to CI_LEVEL under drift rather than
+            # assuming the dispersion that held a decade ago still holds.
+            zc = fvo_rank.quantile(1.0 - ci_alpha, fallback=1.959963984540054)
+            _missed = 1.0 if abs(fvo) > zc else 0.0
+            ci_alpha = float(np.clip(
+                ci_alpha + CI_ADAPT_GAMMA * ((1.0 - CI_LEVEL) - _missed),
+                CI_ALPHA_MIN, CI_ALPHA_MAX))
+            fvo_rank.update(abs(fvo))
             gap_pct = gap_rank.cdf(gap)                 # rank among prior gaps
             gap_rank.update(gap)
 
