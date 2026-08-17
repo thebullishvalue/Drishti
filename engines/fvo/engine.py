@@ -89,7 +89,7 @@ from analytics.utils import (
     _detect_crossover_signals,
 )
 
-from .valuation import (BURN_IN, MIN_PRINTS, PANEL_MIN_COVERAGE,
+from .valuation import (BURN_IN, MIN_PRINTS, PANEL_MIN_COVERAGE, PANEL_MIN_PRINTS,
                         VALUATION_DELTAS, MarketValuationEngine)
 
 log = logging.getLogger(__name__)
@@ -241,6 +241,10 @@ class FairValueEngine:
             printed = pd.DataFrame(printed).reindex(
                 columns=self.feature_names).fillna(False).astype(bool)
             printed.index = target_px.index
+        # Retained for the panel-completeness gate, which needs per-instrument
+        # prints (not just the daily count) to ask "did the instruments whose
+        # exchanges were OPEN actually print?" — see _compute_breadth_metrics.
+        self._printed = printed
 
         # Full-sample retrospective diagnostic, surfaced as `break_detected`
         # in get_current_signal(). It never selects an estimation boundary —
@@ -690,12 +694,21 @@ class FairValueEngine:
         # move in spot. That is not repainting (the past was untouched) but it
         # is a number the reader has no way to discount.
         #
-        # Measured against the ADMITTED set, not the universe: admission ramps
-        # over the record, so a fraction-of-universe floor would retroactively
-        # invalidate legitimate early history. On a settled session nearly
-        # every admitted instrument prints, so this sits near 1.0 and costs
-        # nothing; on a half-open session it falls far below the floor and the
-        # row is published Valid=False, exactly as burn-in rows are.
+        # MEASURED AGAINST THE INSTRUMENTS WHOSE EXCHANGES WERE OPEN, not against
+        # every admitted instrument. The panel spans ~14 venues and NYSE alone is
+        # 124 of 241 columns, so a fraction-of-admitted ratio collapses whenever
+        # New York is shut -- whether or not anything is actually missing. That
+        # made the gate wrong on 83 of the 88 rows it withheld: Good Friday 2024
+        # printed 42 of the 45 instruments that could trade (a complete session)
+        # and scored 0.175 on the old denominator, indistinguishable from
+        # Christmas Day's 10 of 53. Only 4 historical rows are genuinely thin
+        # (Christmas, Good Friday, and two New Year's Days, at 0.19-0.22).
+        #
+        # Two conditions, because a ratio alone cannot express the second:
+        #   coverage  -- did the instruments that COULD print actually print?
+        #   headcount -- are there enough of them to estimate a factor structure?
+        # A day on which 10 instruments were scheduled and all 10 printed scores
+        # a perfect ratio and still cannot support k=13.
         # THIN FOR TWO DIFFERENT REASONS, and only one of them is permanent.
         # The NEWEST row is thin because its session is still filling: at 12:15
         # UTC on a Monday 105 of 240 admitted instruments had printed, and that
@@ -719,32 +732,44 @@ class FairValueEngine:
         # forming row is published, flagged `Provisional`, and still excluded
         # from all of the above.
         publish = valid_row
-        _av = self.ts_data.get("NAvailable")
-        _ad = self.ts_data.get("NAdmitted")
-        if _av is not None and _ad is not None:
-            _av = pd.to_numeric(_av, errors="coerce").to_numpy(dtype=float)
-            _ad = pd.to_numeric(_ad, errors="coerce").to_numpy(dtype=float)
-            if len(_av) == len(valid_row) and len(_ad) == len(valid_row):
-                with np.errstate(invalid="ignore", divide="ignore"):
-                    cover = np.where(_ad > 0, _av / _ad, 1.0)
-                complete = ~np.isfinite(cover) | (cover >= PANEL_MIN_COVERAGE)
-                # "Forming" means the session has not closed yet — NOT merely
-                # "the last row of this slice". A truncated backtest's final row
-                # is a closed session, and publishing a provisional value there
-                # would make the untruncated run withdraw it. So this requires
-                # the row to actually be the current date; when it is not, the
-                # publish mask collapses to `valid_row` and behaviour is
-                # byte-identical to a plain completeness gate.
-                forming = np.zeros(len(valid_row), dtype=bool)
-                _ix = getattr(self, "_row_index", None)
-                if len(forming) and _ix is not None and len(_ix) == len(forming):
-                    try:
-                        _last = pd.Timestamp(_ix[-1]).normalize()
-                        forming[-1] = _last >= pd.Timestamp.today().normalize()
-                    except (TypeError, ValueError):
-                        pass                    # non-dated index: never forming
-                publish = valid_row & (complete | forming)
-                valid_row = valid_row & complete
+        _pr = getattr(self, "_printed", None)
+        if _pr is not None and len(_pr) == len(valid_row):
+            pr = _pr.to_numpy(dtype=bool)
+            # Admission the same way the factor bank does it: an instrument joins
+            # once its own cumulative print count reaches the estimability floor.
+            adm = np.cumsum(pr, axis=0) >= self.min_prints
+            try:
+                from data.calendars import panel_session_matrix
+                sched = panel_session_matrix(self.feature_names, self._row_index)
+            except Exception as _e:            # never let the gate break the run
+                log.debug("session matrix unavailable (%s); assuming all open", _e)
+                sched = np.ones_like(pr)
+            open_adm = adm & sched                       # could have printed
+            n_open = open_adm.sum(axis=1).astype(float)
+            n_printed = (pr & open_adm).sum(axis=1).astype(float)
+            with np.errstate(invalid="ignore", divide="ignore"):
+                cover = np.where(n_open > 0, n_printed / n_open, 1.0)
+            complete = ((~np.isfinite(cover) | (cover >= PANEL_MIN_COVERAGE))
+                        & (n_printed >= PANEL_MIN_PRINTS))
+            self.ts_data["NScheduled"] = n_open
+
+            # "Forming" means the session has not closed yet — NOT merely "the
+            # last row of this slice". A truncated backtest's final row is a
+            # closed session, and publishing a provisional value there would make
+            # the untruncated run withdraw it. So this requires the row to
+            # actually be the current date; when it is not, the publish mask
+            # collapses to `valid_row` and behaviour is byte-identical to a plain
+            # completeness gate.
+            forming = np.zeros(len(valid_row), dtype=bool)
+            _ix = getattr(self, "_row_index", None)
+            if len(forming) and _ix is not None and len(_ix) == len(forming):
+                try:
+                    _last = pd.Timestamp(_ix[-1]).normalize()
+                    forming[-1] = _last >= pd.Timestamp.today().normalize()
+                except (TypeError, ValueError):
+                    pass                        # non-dated index: never forming
+            publish = valid_row & (complete | forming)
+            valid_row = valid_row & complete
 
         # nanmean legitimately warns "Mean of empty slice" on the burn-in rows
         # (all-NaN across every lookback window) — expected and handled (the
@@ -772,6 +797,41 @@ class FairValueEngine:
         # that must not learn from a partial cross-section filter on `Valid`;
         # the UI reads this to label what it is showing.
         self.ts_data["Provisional"] = publish & ~valid_row
+
+        # ---- the valuation family follows the same publish rule -------------
+        # A fair value is a statement about a cross-section. On the four sessions
+        # that fail the gate outright (Christmas, Good Friday, two New Year's
+        # Days: 10-17 instruments printing of 49-75 scheduled) the TARGET did not
+        # trade either, so `Actual` is a carried-forward quote and `FairValue` is
+        # a regression against a tenth of the panel. Publishing that as a point
+        # on the chart asserts a valuation that was never made.
+        #
+        # `Actual` is deliberately NOT masked — it is an observed price, not a
+        # claim of ours, and the Data tab should still show what the vendor
+        # returned. AvgZ/ConvictionRaw above already follow `publish`, so this
+        # makes the rest of the family consistent with them rather than
+        # introducing a new convention. Today's forming row is in `publish`, so
+        # the live reading is unaffected.
+        for _c in ("FairValue", "FairValueLo", "FairValueHi", "Residual",
+                   "ModelSpread", "FVO", "PctMispricing", "Confidence"):
+            if _c in self.ts_data.columns:
+                _v = pd.to_numeric(self.ts_data[_c], errors="coerce").to_numpy(float)
+                self.ts_data[_c] = np.where(publish, _v, np.nan)
+
+        # ---- diagnostic: which instruments SHOULD have printed and did not ---
+        # Now that "closed" and "missing" are distinguishable, an instrument whose
+        # exchange held a session and which still did not print is either
+        # genuinely untraded or a failed fetch — and the latter is the panel
+        # composition channel that moves published history. Naming them turns a
+        # coverage number into something actionable. Diagnosis only: the gate
+        # above already decides what gets withheld.
+        self.panel_absent: list[str] = []
+        if _pr is not None and len(_pr) == len(valid_row) and len(valid_row):
+            try:
+                _miss = open_adm[-1] & ~pr[-1]
+                self.panel_absent = [n for n, m in zip(self.feature_names, _miss) if m]
+            except Exception:                       # never break a run to report
+                self.panel_absent = []
 
     def _compute_ddm_conviction(self) -> None:
         raw = self.ts_data["ConvictionRaw"].values

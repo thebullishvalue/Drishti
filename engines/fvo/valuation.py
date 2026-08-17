@@ -89,6 +89,14 @@ MIN_PRINTS = 250
 #: session that has merely not finished posting.
 PANEL_MIN_COVERAGE: float = 0.60
 
+#: Absolute floor on the number of instruments that actually printed, applied
+#: alongside PANEL_MIN_COVERAGE. A RATIO CANNOT EXPRESS THIS. Christmas Day 2025
+#: had 10 of the 53 instruments whose exchanges were open — if only 10 had been
+#: scheduled and all 10 printed, the ratio would read 1.00 and admit a row that
+#: cannot pin a factor structure at all. Realised `k` runs to 13, so ~2.3x that
+#: is the minimum cross-section worth estimating one from.
+PANEL_MIN_PRINTS: int = 30
+
 #: Discount grid for the valuation regression, spanning implied coefficient
 #: memories of ~4 years, ~8 years, ~40 years and permanent.
 #:
