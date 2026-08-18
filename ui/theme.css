@@ -1877,7 +1877,38 @@
     box-shadow: var(--shadow-pop) !important;
     padding: var(--s1) !important;
 }
+/* MENU ROWS MUST NOT PAINT THEIR OWN GROUND.
+   .streamlit/config.toml is STATICALLY dark (base="dark",
+   secondaryBackgroundColor=#0F1217) and cannot know about Paper — it exists
+   for native controls that read Streamlit's theme system instead of our CSS
+   variables, and the main menu is one of them. The result on Paper was our
+   white popover shell with Streamlit's near-black pills painted inside it, and
+   low-contrast grey label text on top: the menu was the one surface in the app
+   still wearing the dark theme while everything around it had swapped.
+   Rather than fight over which colour a row should be, take the row out of the
+   argument: paint nothing, and let the popover's own --surface-2 show through.
+   That is correct in BOTH appearances by construction, and it keeps working if
+   Streamlit renames a row's role or testid, because it does not depend on
+   guessing which element carries the background. Hover and selected still win
+   on pseudo-class specificity below. */
+[data-baseweb="popover"] li,
+[data-baseweb="popover"] [role="menuitem"],
+[data-baseweb="popover"] [role="option"],
+[data-baseweb="popover"] li > div,
+[data-baseweb="popover"] [role="menuitem"] > div {
+    background: transparent !important;
+    background-color: transparent !important;
+}
+/* Disabled rows (e.g. "Developer options") read as unavailable via INK, not
+   via a different ground — a second background here would reintroduce exactly
+   the pill this block removes. */
+[data-baseweb="popover"] [aria-disabled="true"],
+[data-baseweb="popover"] [role="menuitem"][disabled] {
+    color: var(--ink-muted) !important;
+    opacity: 0.7 !important;
+}
 [data-baseweb="popover"] li[role="option"],
+[data-baseweb="popover"] [role="menuitem"],
 [data-baseweb="popover"] [role="option"] {
     font-family: var(--mono) !important; font-size: var(--fs-xs) !important;
     color: var(--ink-secondary) !important;
@@ -1887,7 +1918,9 @@
     transition: background var(--motion-fast) var(--ease-standard),
                 color var(--motion-fast) var(--ease-standard);
 }
-[data-baseweb="popover"] [role="option"]:hover {
+[data-baseweb="popover"] [role="option"]:hover,
+[data-baseweb="popover"] [role="menuitem"]:hover,
+[data-baseweb="popover"] li:hover {
     background: var(--surface-3) !important; color: var(--ink) !important;
 }
 /* The current value is marked by WEIGHT and a rule, not by a filled bar —
