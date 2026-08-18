@@ -1587,7 +1587,38 @@ def main():
         console.item("Gap Half-Life", f"{sig['gap_half_life']:.0f}d (online AR1) · OU {sig['ou_half_life']:.0f}d")
         console.item("Gap Stationarity", f"ADF p={sig['adf_pvalue']:.4f} "
                      f"({'stationary — reversion licensed' if sig['adf_pvalue'] < 0.05 else 'unit root not rejected'})")
-        console.item("Factors", f"k={sig['k_factors']} above the MP edge · {sig['n_available']} instruments admitted today")
+        # `n_available` is the count that PRINTED today, not the count ADMITTED
+        # (that is NAdmitted, the instruments past the print floor). Labelling
+        # it "admitted" made a normal early-session reading look like a
+        # collapsed cross-section: a 05:49 UTC run shows ~87 of 234 printed
+        # because Asia is open and the US is not, which is not the same claim as
+        # "only 87 instruments qualify".
+        # Name any gap the reader can see on the chart. A break is never "the
+        # value was zero" — it is the system declining to publish — and the four
+        # causes want different responses. Only "incomplete fetch" is worth
+        # re-running for, so it is the only one reported as a warning.
+        try:
+            _wr = fvo_ts.get("WithheldReason") if fvo_ts is not None else None
+            if _wr is not None:
+                _c = _wr[_wr.astype(str) != ""].astype(str).value_counts()
+                if len(_c):
+                    console.item("Gaps in the trace",
+                                 " · ".join(f"{k}: {int(v)}" for k, v in _c.items()))
+                _bad = int(_c.get("incomplete fetch", 0))
+                if _bad:
+                    _dates = _wr.index[_wr.astype(str) == "incomplete fetch"]
+                    _shown = ", ".join(str(d)[:10] for d in list(_dates)[-3:])
+                    console.warning(
+                        f"{_bad} session(s) withheld as INCOMPLETE FETCH ({_shown}). "
+                        f"The calendar says those exchanges were open, so this is a "
+                        f"data gap in this run rather than a market closure — re-run "
+                        f"to fill it."
+                    )
+        except Exception:                       # noqa: BLE001 - never break a run to report
+            pass
+
+        console.item("Factors", f"k={sig['k_factors']} above the MP edge · "
+                                f"{sig['n_available']} instruments printed so far today")
         console.item("Market Regime", f"{sig['market_regime']} (stress pct {sig['stress']:.2f})")
         console.success(f"FVO engine complete | {len(engine.ts_data)} output rows "
                         f"({int(engine.ts_data['Valid'].sum())} valued, {engine.min_train_size} burn-in)")
