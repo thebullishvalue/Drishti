@@ -59,6 +59,20 @@
    a rewrite.
    ───────────────────────────────────────────────────────────────────────── */
 :root {
+    /* PIN THE UA CHROME TO THIS APP'S APPEARANCE, not the device's.
+       Every colour below is ours, but scrollbars, form controls, autofill
+       shading and the canvas the browser paints before our CSS lands are drawn
+       by the USER AGENT, and it takes those from the OS preference unless told
+       otherwise. On a machine set to light mode that produced pale scrollbars
+       and pale native controls inside Slate — the app's own surfaces correct,
+       the browser's chrome fighting them.
+       `color-scheme` is the only thing that overrides that, and it is declared
+       in BOTH token sets (light in LIGHT_TOKENS) so the guarantee is
+       symmetric: Slate stays dark on a light-mode device AND Paper stays light
+       on a dark-mode one. Forcing `dark` unconditionally would fix the first
+       and break the second. */
+    color-scheme: dark;
+
     /* Surfaces — a four-step GRAPHITE ramp, deliberately near-neutral.
        The predecessor ramp was a saturated navy (#04070D → #1E2C44): every
        panel carried a blue cast, so the accent had to shout to be seen as

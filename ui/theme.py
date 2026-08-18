@@ -54,6 +54,12 @@ CSS_PATH = Path(__file__).parent / "theme.css"
 # WCAG AA on a near-white surface.
 LIGHT_TOKENS = """
 :root {
+    /* Counterpart to the dark block's declaration — see the note there. This
+       is what keeps Paper light on a device whose system theme is dark; the
+       two together mean the OS preference is never consulted in either
+       direction. */
+    color-scheme: light;
+
     /* Paper — the reporting/print theme. Not "dark inverted": a near-white
        ground reflects far more light than a graphite one, so the semantic
        hues are DEEPENED rather than reused (a #2CA36B that clears 5.9:1 on
@@ -398,8 +404,23 @@ def chart_layout(
         legend=({**PLOTLY_LEGEND,
                  "font": {**PLOTLY_LEGEND["font"], "color": ct["font_color"]}}
                 if show_legend else None),
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
+        # PAINT THE CANVAS, never leave it transparent.
+        #
+        # These were rgba(0,0,0,0). A transparent Plotly canvas renders nothing
+        # of its own and shows whatever sits behind it, so the chart ground was
+        # never actually chosen by this app — it was inherited. On a device
+        # whose SYSTEM theme is light, any light bleed from the browser or from
+        # a Streamlit surface that has not been overridden lands inside the plot
+        # area, and Slate renders with pale patches behind dark-theme ink.
+        #
+        # Painting it with `panel_bg()` makes the ground explicit AND keeps it
+        # appearance-aware, which is the part a blanket "force dark" would get
+        # wrong: panel_bg() is #0F1217 under Slate and #FFFFFF under Paper, so
+        # Paper stays light on a dark-mode device by exactly the same mechanism
+        # that keeps Slate dark on a light-mode one. The device preference stops
+        # being consulted in either direction.
+        paper_bgcolor=panel_bg(),
+        plot_bgcolor=panel_bg(),
         font=dict(family="JetBrains Mono, monospace", color=ct["font_color"], size=10),
         hovermode="x unified",
         hoverlabel=dict(
