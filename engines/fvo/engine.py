@@ -90,6 +90,7 @@ from analytics.utils import (
 )
 
 from .valuation import (BURN_IN, MIN_PRINTS, PANEL_MIN_COVERAGE, PANEL_MIN_PRINTS,
+                        SESSION_SPARSE_FRACTION,
                         VALUATION_DELTAS, MarketValuationEngine)
 
 log = logging.getLogger(__name__)
@@ -732,6 +733,11 @@ class FairValueEngine:
         # forming row is published, flagged `Provisional`, and still excluded
         # from all of the above.
         publish = valid_row
+        # Pre-gate validity: a row can be withheld because no lookback z-score
+        # is finite yet (warm-up) OR because the panel was too thin (the gate
+        # below). Those are different answers to "why is there a gap here", so
+        # keep them separable before the two get ANDed together.
+        finite_ok = valid_row.copy()
         _pr = getattr(self, "_printed", None)
         if _pr is not None and len(_pr) == len(valid_row):
             pr = _pr.to_numpy(dtype=bool)
@@ -797,6 +803,67 @@ class FairValueEngine:
         # that must not learn from a partial cross-section filter on `Valid`;
         # the UI reads this to label what it is showing.
         self.ts_data["Provisional"] = publish & ~valid_row
+
+        # ---- WHY was a row withheld? holiday, or a degraded fetch? ----------
+        #
+        # Both look identical on coverage — Christmas 2025 printed 10 of 49
+        # scheduled (0.20) and Monday 2026-08-17 printed 51 of 238 (0.21) — so
+        # the gate withholds both and the chart shows an identical gap. They are
+        # not the same event: one is the market being shut, the other is this
+        # run's data being incomplete, and only the second is worth re-running
+        # for.
+        #
+        # `NScheduled` separates them cleanly and is already computed here, so
+        # the diagnosis costs nothing and needs no memory of previous runs —
+        # which matters because the deploy target has an ephemeral disk and no
+        # external store. A holiday has FEW instruments scheduled; a degraded
+        # fetch has a normal schedule and few prints.
+        reason = np.full(len(valid_row), "", dtype=object)
+        try:
+            _ns = pd.to_numeric(self.ts_data.get("NScheduled"), errors="coerce")
+            _ns = _ns.to_numpy(dtype=float) if _ns is not None else None
+        except Exception:                       # noqa: BLE001
+            _ns = None
+        _ad_arr = None
+        try:
+            _adm = pd.to_numeric(self.ts_data.get("NAdmitted"), errors="coerce")
+            _ad_arr = _adm.to_numpy(dtype=float) if _adm is not None else None
+        except Exception:                       # noqa: BLE001
+            _ad_arr = None
+        if (_ns is not None and _ad_arr is not None
+                and len(_ns) == len(valid_row) == len(_ad_arr)):
+            withheld = ~publish
+            # Burn-in is neither: nothing is published there by design.
+            burn = np.zeros(len(valid_row), dtype=bool)
+            burn[:min(self.burn_in, len(burn))] = True
+            # CONTEMPORANEOUS ratio, not a panel-wide median.
+            #
+            # Comparing NScheduled against the median across all history
+            # misreads the ADMISSION RAMP: in 2017 only ~31 instruments had
+            # cleared the print floor, so 31 of 31 were open — scheduled looked
+            # "sparse" against a median of 238 and five early rows were labelled
+            # "market closed" when the market was fine and the panel was just
+            # young. Scheduled OVER ADMITTED has no such failure: a holiday
+            # opens few of the admitted (49/240 = 0.20) while the ramp opens
+            # nearly all of them (31/31 = 1.00).
+            with np.errstate(invalid="ignore", divide="ignore"):
+                open_share = np.where(_ad_arr > 0, _ns / _ad_arr, 1.0)
+            closed = np.isfinite(open_share) & (open_share < SESSION_SPARSE_FRACTION)
+            # FOUR distinct reasons, and conflating any two of them produces a
+            # confidently wrong label. Two earlier versions of this classifier
+            # did exactly that: comparing NScheduled to a panel-wide median
+            # called the admission ramp a holiday, and then, once that was
+            # fixed, the ramp became "incomplete fetch" — because those rows
+            # pass BOTH the coverage test and the print floor (31 printed of 31
+            # scheduled of 31 admitted) and are withheld by the finite-z
+            # condition instead. A row is only a data problem if the GATE is
+            # what stopped it.
+            warming = withheld & ~finite_ok & ~burn
+            reason = np.where(withheld & burn, "burn-in",
+                      np.where(warming, "warming up",
+                      np.where(withheld & closed, "market closed",
+                      np.where(withheld, "incomplete fetch", ""))))
+        self.ts_data["WithheldReason"] = reason
 
         # ---- the valuation family follows the same publish rule -------------
         # A fair value is a statement about a cross-section. On the four sessions

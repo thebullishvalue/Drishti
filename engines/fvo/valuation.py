@@ -105,6 +105,14 @@ PANEL_MIN_PRINTS: int = 30
 #: the engine's own errors instead of assuming they are normal. Measured before
 #: this change, the nominal-95% band covered 81.0% / 89.6% / 87.0% on
 #: Gold / Copper / Silver.
+#: Share of the ADMITTED cross-section that must be scheduled-open for a session
+#: to count as a normal trading day. Below it the market was shut; at or above
+#: it, a withheld row means the DATA was incomplete, not the market.
+#: Contemporaneous by design — measured against admitted, never against a
+#: panel-wide median, because early history has few instruments admitted and all
+#: of them open, which a median comparison misreads as a holiday.
+SESSION_SPARSE_FRACTION: float = 0.60
+
 CI_LEVEL: float = 0.95
 CI_MIN_OBS: int = 252
 
