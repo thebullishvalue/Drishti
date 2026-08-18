@@ -570,9 +570,14 @@ def _render_model_passport_sidebar(current_universe: str, current_index: str | N
 _THEME_CHOICE = "theme_choice"
 
 
-#: The two appearances. Both are reading surfaces — Slate is the dark one you
-#: work on, Paper the light one you read a result on and print from.
-APPEARANCES = ("Slate", "Paper")
+#: The two appearances. Both are reading surfaces — Paper is the light one you
+#: read a result on and print from, Slate the dark one you work on.
+#:
+#: PAPER LEADS, and the order is the default: `theme_choice()` falls back to
+#: APPEARANCES[0] for any unset or unrecognised value, so first-in-tuple IS
+#: first-run. Kept as one fact rather than a separate DEFAULT_ constant, so the
+#: toggle's left-to-right order and the default can never disagree.
+APPEARANCES = ("Paper", "Slate")
 
 
 def theme_choice() -> str:
