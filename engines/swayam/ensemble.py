@@ -162,7 +162,7 @@ def build_swayam_frames(
 
     ``macro_cols`` MUST already be leakage-filtered by the caller (drop the
     target's own column + its excluded-predictor near-replicas — see
-    ``data.constituents.swayam_macro_columns``); this function does not
+    ``core.config.swayam_macro_columns``); this function does not
     re-filter.
     """
     if target_ohlcv is None or target_ohlcv.empty:
