@@ -11,6 +11,88 @@ Sections used: **Added · Changed · Deprecated · Removed · Fixed · Security 
 
 ## [Unreleased]
 
+### Removed
+- **The "V2 valuation core" rail selector.** With Mūla as the only valuation
+  engine and Swayam as the only breadth engine, there is nothing to choose
+  between — a migration-era control has no place in a shipped product (same
+  doctrine as every retired knob before it: removed, not retained inert).
+  app.py now always runs `MulaEngine`. The only fallback that survives is the
+  silent import guard: if `engines.mula` fails to import in a degraded
+  environment, the app runs the pipeline core without the ECM layer rather
+  than crashing. No user-facing control, no session key.
+
+### Ship-ready consolidation — MŪLA · Swayam
+- **Engine 1 is MŪLA (मूल), Engine 2 is Swayam — the whole system now says so.**
+  - **Package consolidation.** `engines/fvo/` is merged into **`engines/mula/`**:
+    `base.py` (the recursive fair-value pipeline core, class `FairValueEngine`),
+    `valuation.py` (long-run equilibrium leg), `factors.py`, `blocks.py`,
+    `regime.py`, `ecm.py` (the error-correction / expert-pooling layer), and
+    `engine.py` (`MulaEngine`, the class app.py runs). Public import surface:
+    `from engines.mula import MulaEngine, FairValueEngine`.
+  - **Dead UI removed.** `ui/tabs/tab_aarambh.py` and `tab_nirnay.py` were never
+    imported by app.py (Nirnay even imported a nonexistent `engines.nirnay_self`);
+    deleted. `data/constituents.py` (basket-mode routing with zero callers since
+    Swayam's self-ensemble replaced baskets) deleted.
+  - **Tab identity.** `tab_fvo.py` → `ui/tabs/tab_mula.py`
+    (`render_mula_tab`); sidebar page title, landing-page System-01 spec row,
+    theme band label, console phase names ("MŪLA ENGINE"), progress labels,
+    run-report items, hero-verdict copy, convergence-tab help texts, divergence
+    descriptions, and config header comments all read Mūla.
+  - **README** rewritten to the Mūla/Swayam pairing, including the engine table
+    (now describes the ECM read, κ̂ and drift decomposition) and project structure.
+  - **Stable wire format, documented.** Deliberately NOT renamed: the ts_data
+    column `FVO`, signal key `fvo`, per-instrument config fields `fvo_*`,
+    constants `FVO_BURN_IN` / `FVO_MIN_PRINTS` / `FVO_VALUATION_DELTAS`,
+    session keys `fvo_engine` / `fvo_ts` / `fvo_fit_key`, divergence type
+    `FVO_LEADS`, and the `nishkarsh_*` conviction-model fields (cross-fork port
+    contract, audit note F22). These are load-bearing across
+    analytics/analogs.py, convergence/* and the InstrumentConfig registry;
+    renaming them is a mechanical, grep-verified pass reserved for its own
+    change. Every such site carries a comment noting the stable key.
+
+
+### Removed
+- **SPANDA from the product path; engine pairing is now MŪLA (Engine 1) + Swayam (Engine 2).**
+  `engines/spanda/` is deleted along with its app.py Phase-3 branch, hero-card plumbing
+  (`spanda=` verdict input, `spanda_hero` session keys) and the `SpandaProb` precedent
+  feature hook. Rationale: after measuring both breadth engines on real data, the retained
+  Swayam ensemble already carries skill-weighted aggregation over a span-to-weight member
+  bank, and one orthogonal-views rebuild in the product was judged more surface than the
+  evidence demanded. The measured lessons survive in the changelog history below and inform
+  MŪLA's design (calibrated probabilities, multiple-testing discipline, two-way gates).
+  The rail toggle is now "V2 valuation core (MULA)" and covers Engine 1 only.
+  Superseded the SPANDA bullets in the Added entry below (pre-release; retracted here).
+
+### Added
+- **V2 engines behind the incumbent contract: MŪLA (मूल) valuation and SPANDA (स्पन्द) breadth**, toggled by the rail checkbox "V2 engines (MŪLA · SPANDA)" (`engine_v2_toggle`, default ON; auto-off if the packages fail to import).
+  - **MŪLA** (`engines/mula/`) subclasses `FairValueEngine` — the entire proven pipeline runs unchanged — and adds the short-run **error-correction read**: Δp_t regressed on the LAGGED LEVEL gap identifies the reversion speed κ̂ with fast memories, which the level regression cannot do (one-step likelihood is degenerate on integrated regressands, not differenced ones). Three forecast families (valuation-led {1,z}, momentum-led {1,r}, full) are pooled by exponentially-discounted cumulative log predictive density (Geweke & Amisano 2011). Publishes `MulaKappa`, `MulaDriftPct` (expected h-day gap-closure move), `MulaSdPct`, `WValuation/WMomentum/WFull`; republishes `MRProb := WValuation+WFull` (legacy value preserved as `GapRevProb`). Regression runs on EWMA-standardised inputs — unstandardised, the unit-variance DLM priors destabilise (measured κ̂→2e5).
+  - **SPANDA** (`engines/spanda/`) replaces lookback-variant ensembles with views over ORTHOGONAL information sets: UC trend/cycle (discounted local-linear-trend DLM), à-trous wavelet scale-consistency, TSMOM, vol-state, bipower jumps, Amihud illiquidity, OBV divergence, macro-orthogonalised momentum, Adams-MacKay changepoint drift, trailing-range position, macro-PC deviation. Each view is calibrated online to P(up|h) (ADF logistic, trained only once its horizon resolved), admitted/demoted by an expanding stationary-bootstrap Reality Check with Holm correction (Politis-Romano blocks preserve overlap-induced serial dependence), pooled by log-score softmax, and conviction-scaled by inverse realised vol (Barroso-Santa-Clara / Moreira-Muir direction). Output carries the legacy `Avg_Signal` schema (+`SpandaProb`, `PoolNeff`) so Phase-3 reduction and convergence consume it unchanged.
+  - **Precedent** state vector gains availability-guarded features when v2 columns exist: `ExpertW` (WValuation), `GapSpeed` (κ̂), `SpandaProb`.
+  - **Hero card** gains a conditional ECM gate (valuation-family weight × drift alignment) and SPANDA's pooled probability inside the breadth gate's detail.
+- **research/realdata_study.py** — S6/S7/S8/S10-lite harness. Measured 2026-08-26, yfinance daily 2020→2026-08 (~1,650–1,730 rows/target):
+  - Directional edge (pooled P(up) vs h=10d fwd return, Newey-West lag 10): **GC=F t≈+2.3…3.4, USDINR=X t≈+2.5, ^GSPC t≈+0.8 (no edge — honestly disclosed)**. Sign convention verified: prob-scale slopes positive where edge exists.
+  - Calibration: every view's mean predicted P tracks its realised base rate within ~0.03 across all three targets.
+  - Orthogonality: mean pairwise |ρ| ≈ 0.66–0.69 on real data (shared drift/base-rate component inflates it vs the synthetic 0.64); pool N_eff ≈ 8–10 of ~11.
+- **research/smoke_spanda.py, research/smoke_mula_hero.py** — synthetic validation. OU-world recovery: κ̂=0.054 vs true 0.050; WValuation=0.70 (valuation family owns a reverting world); drift-vs-theory corr 0.95. Regime-flip stress: two-way admission demotes stale views without repaint (prefix-determined decisions).
+
+### Fixed
+- **Landing page (and 38 other sites) rendered the engine name as "ūla" —
+  missing its leading M.** The identity sweep script had defined its
+  substitution variable as `\u016bla` (ū + la) instead of `M\u016bla`, so every
+  scripted replacement dropped the M: 36 sites in app.py — including the
+  landing page's System-01 panel, console phase names ("ŪLA ENGINE"), and a
+  dozen comments — plus two uppercase phase labels. A repo-wide repair pass
+  (negative lookbehind, so intact instances were untouched) fixed all of them
+  and asserts zero bare "ūla" remain across every .py/.md/.css; mojibake /
+  replacement-character audit clean. The landing page's System-01 spec rows
+  were additionally updated from the retired ensemble's descriptors
+  ("PCA-OLS + Huber", "Walk-forward OOS") to Mūla's actual machinery
+  (recursive discounted DLM · MP factors + asset blocks · ECM κ̂ by
+  predictive likelihood).
+- **SPANDA ensemble initially never trained** — the driver emitted predictions but never registered pending calls, so calibrators had zero samples and coverage was 0/N. Fixed via `ViewCalibrator.observe()`.
+- **Stale-view persistence under permanent admission** — one-way gates let first-regime winners survive a regime flip (measured: post-flip accuracy 0.38–0.43 on five views). Admission is now two-way; because expanding-window decisions are functions of their prefix, history remains bit-reproducible.
+
+
 ### Fixed
 - **Envelope tests measured the calendar, not the code.**
   `test_composition_sensitivity` and `test_fvo_invariants` fetched

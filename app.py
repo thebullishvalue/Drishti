@@ -54,7 +54,7 @@ import streamlit as st
 # not just the known-noisy sources it was meant to cover (audit finding C6).
 # The one legitimate source found by auditing (nanmean's "Mean of empty
 # slice" on the engine's own warm-up rows) is now scoped locally at its call
-# site (engines/fvo.py's _compute_breadth_metrics) instead. FutureWarning
+# site (engines/mula/base.py._compute_breadth_metrics) instead. FutureWarning
 # stays broadly suppressed — it's pandas/numpy API-deprecation noise, not a
 # correctness signal, so it doesn't carry the same risk of masking a real bug.
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -92,7 +92,7 @@ from ui.components import (
     render_notice_rail,
     render_rail_readout,
 )
-from ui.tabs.tab_fvo import render_fvo_tab
+from ui.tabs.tab_mula import render_mula_tab
 from ui.tabs.tab_swayam import render_swayam_tab
 from ui.tabs.tab_diagnostics import render_diagnostics_tab
 from ui.tabs.tab_data import render_data_tab
@@ -104,10 +104,23 @@ from data.calendars import trading_days_behind, is_session, session_mask, resolv
 from data.universe import resolve_stock_symbol
 
 # ── Engines ──────────────────────────────────────────────────────────────────
-from engines.fvo import FairValueEngine
-from engines.fvo.blocks import block_membership
+from engines.mula import FairValueEngine
+from engines.mula.blocks import block_membership
 from engines.swayam import aggregate_views
 from engines.swayam.kernel import view_skill_weights
+
+# ── Valuation engine (MŪLA) ─────────────────────────────────────────────────
+# MulaEngine SUBCLASSES FairValueEngine, so every isinstance check and cache
+# path downstream works unchanged. Engine 2 is Swayam, unchanged. There is no
+# engine selector: this import guard exists only so that a broken or missing
+# engines.mula package degrades silently to the pipeline core (no ECM layer)
+# instead of taking the app down.
+try:
+    from engines.mula import MulaEngine
+    _HAS_V2_ENGINES = True
+except Exception:  # pragma: no cover — degraded environments only
+    MulaEngine = None
+    _HAS_V2_ENGINES = False
 
 # ── Convergence ──────────────────────────────────────────────────────────────
 from convergence.cross_validator import CrossValidator
@@ -268,13 +281,13 @@ def _render_header(frame=None) -> None:
 #: blocks did (they already had: two said "Ensemble/Signal", one said
 #: "Fusion", and the label column was a <span> in one and a <div> in another).
 _SYSTEM_PANELS = (
-    ("fvo", "System 01", "FVO", "Top-down valuation",
+    ("mula", "System 01", "Mūla", "Top-down valuation",
      "Prices the target against the whole traded macro cross-section with a dynamic "
      "cointegrating regression on log price. It answers one question: is this instrument "
      "cheap or dear relative to everything it moves with?",
-     (("Estimator", "PCA-OLS + Huber"),
-      ("Validation", "Walk-forward OOS"),
-      ("Factors", "Marchenko-Pastur edge"))),
+     (("Estimator", "Recursive discounted DLM"),
+      ("Equilibrium", "MP factors + asset blocks"),
+      ("Reversion", "ECM κ̂ · predictive likelihood"))),
     ("swayam", "System 02", "SWAYAM", "Bottom-up breadth",
      "Reads the instrument's own internals through a self-referential bank of views "
      "spanning timescale, information set and mechanism, then aggregates them by "
@@ -286,7 +299,7 @@ _SYSTEM_PANELS = (
      "Scores the two systems against each other across four dimensions \u2014 direction, "
      "breadth, magnitude, regime \u2014 with weights learned forward from resolved "
      "outcomes, then filters the composite through a leaky DDM.",
-     (("Fusion", "FVO \u00d7 Swayam"),
+     (("Fusion", "Mūla \u00d7 Swayam"),
       ("Weights", "Learned online, causal"),
       ("Filter", "Leaky drift-diffusion"))),
 )
@@ -403,23 +416,26 @@ def _compute_hero_verdict(nishkarsh_norm, agreement, fvo_signal) -> dict:
     top-bar status chip / KPI strip without disagreeing with what Overview
     shows, since both read the identical dict computed once per rerun.
 
-    The card is a CONVICTION CHAIN: direction from FVO, then six gates whose
+    The card is a CONVICTION CHAIN: direction from Mūla, then gates whose
     product is the conviction, with the smallest gate named as the binding
-    constraint. Every engine contributes exactly one gate — FVO (mispricing
+    constraint. Every engine contributes exactly one gate — Mūla (mispricing
     and reversion), Swayam (breadth), Convergence (agreement + normalized
     consensus), the walk-forward read (edge), and Precedent (base rate).
     """
     wf          = st.session_state.get("wf_results")                   # list[dict] | None
     div_events  = st.session_state.get("divergence_events")            # DataFrame | None
     prec        = st.session_state.get("precedent_summary")            # dict | None
+    # MŪLA read (None on the legacy path — the ECM gate it feeds is
+    # conditional and the chain collapses to its incumbent shape).
+    mula_read   = st.session_state.get("mula_summary") or None
 
     # DEGENERATE-CONVERGENCE GATE: `nishkarsh_norm` is None exactly when the
-    # FVO/Swayam alignment found no overlap. The verdict handles that case
+    # Mūla/Swayam alignment found no overlap. The verdict handles that case
     # directly now — `swayam_breadth=None` leaves the corroboration gate at a
     # neutral 0.5 and says "no breadth read" on the card, rather than the
-    # signal quietly becoming half-weight FVO wearing a convergence label.
+    # signal quietly becoming half-weight Mūla wearing a convergence label.
     # Divergences are silenced for the same reason: the detector would be
-    # comparing FVO against breadth that does not exist.
+    # comparing Mūla against breadth that does not exist.
     if nishkarsh_norm is None:
         div_events = None
 
@@ -511,6 +527,7 @@ def _compute_hero_verdict(nishkarsh_norm, agreement, fvo_signal) -> dict:
         n_divergences=n_div,
         horizon_days=FWD_HORIZON,
         div_window=DIV_LOOKBACK,
+        mula=mula_read,
     )
     return verdict
 
@@ -796,6 +813,10 @@ def main():
         # The same facts are now key/value rows in the Source readout below —
         # scannable, aligned, and a third of the height.)
 
+        # (No engine selector: Mūla IS the valuation engine and Swayam is the
+        # breadth engine — there is nothing to choose between. The import
+        # guard above is the only fallback, and it is silent.)
+
         df = None
         has_data = "data" in st.session_state and "run_analysis" in st.session_state
 
@@ -808,7 +829,7 @@ def main():
                 df = st.session_state["data"]
         elif not has_data:
             # Initial load. The fetch pulls the entire macro universe once and
-            # is target-agnostic — the chosen commodity only selects FVO's
+            # is target-agnostic — the chosen commodity only selects Mūla's
             # target column and Swayam's basket.
             if st.button("Run Analysis", type="primary", width="stretch"):
                 # No spinner — drive the main-area progress bar from the very first
@@ -915,7 +936,7 @@ def main():
         # The valuation panel is the WHOLE macro cross-section, minus this
         # target's self-replicating near-duplicates (e.g. GLTR for a precious
         # metal, which would let the regression explain gold with gold). There
-        # is no predictor picker any more: the FVO engine prices the target
+        # is no predictor picker any more: the Mūla engine prices the target
         # against the traded opportunity set, and hand-deselecting instruments
         # from that set does not make it a better opportunity set — it makes it
         # a smaller one with an undocumented reason. The engine already handles
@@ -983,7 +1004,7 @@ def main():
                            "precedent_summary", "_prec_key", "_precedent_analogs_cache", "conv_norm_params",
                            # Horizon-independent Swayam cache (audit finding F17) —
                            # must be dropped on a live re-fetch too, else Refresh
-                           # Data re-pulls the FVO macro universe live but
+                           # Data re-pulls the Mūla macro universe live but
                            # silently keeps serving the PRE-refresh Swayam
                            # basket/constituent analysis.
                            "_swayam_fetch_cache", "_swayam_analysis_cache"):
@@ -1003,7 +1024,7 @@ def main():
 
     # ─── Resolve active configuration ──────────────────────────────────────
     active_target = st.session_state.get("active_target", target_col)
-    # Per-instrument config — every engine knob (Swayam/Swayam, FVO forecast,
+    # Per-instrument config — every engine knob (Swayam, Mūla forecast,
     # DDM, convergence weights, precedent) is read from THIS target's own config
     # (core.config.INSTRUMENT_CONFIGS), so an instrument can be retuned in
     # isolation. Falls back to the base defaults for any target that somehow
@@ -1287,7 +1308,7 @@ def main():
             data = data[_smask].reset_index(drop=True)
     _prep["rows_session"] = len(data)
     _prep["sessions_dropped"] = max(0, _rows_pre_session - len(data))
-    # NOTE on the FVO print mask. The engine admits an instrument to the
+    # NOTE on the Mūla print mask. The engine admits an instrument to the
     # cross-section only on days it genuinely traded — a carried-forward quote
     # otherwise enters as a fabricated zero return and drags whatever factor it
     # loads on toward zero on every foreign holiday. The exact answer is the
@@ -1359,7 +1380,7 @@ def main():
 
     # ── Valuation representation: price the target against the traded
     # opportunity set, rather than forecasting its next move.
-    #   • Panel   = the LEVEL of every macro predictor. The FVO engine takes
+    #   • Panel   = the LEVEL of every macro predictor. The Mūla engine takes
     #     its own logs and differences internally, integrates the resulting
     #     factors back into levels, and regresses log price on them with
     #     time-varying coefficients. It therefore wants prices, not the
@@ -1470,7 +1491,7 @@ def main():
 
             console.section("Macro Data")
             end_date = pd.Timestamp.today()
-            # Match the FVO model-dataset window (~9y) so the Swayam views and
+            # Match the Mūla model-dataset window (~9y) so the Swayam views and
             # macro drivers overlap the FULL series — convergence then runs on
             # real data, not neutral placeholders.
             start_date = end_date - pd.DateOffset(days=365 * 9)
@@ -1516,9 +1537,9 @@ def main():
                 "macro_cols_list": macro_cols_list,
             }
 
-        # ── Phase 2: FVO FairValueEngine ─────────────────────────────────
-        console.start_phase("FVO ENGINE", 2, 5)
-        progress_bar(progress_container, 20, "Running FVO Engine", f"Valuation · {len(active_features)} Instruments · {len(data)} Rows")
+        # ── Phase 2: Mūla (FairValueEngine) ─────────────────────────────────
+        console.start_phase("MŪLA ENGINE", 2, 5)
+        progress_bar(progress_container, 20, "Running Mūla Engine", f"Valuation · {len(active_features)} Instruments · {len(data)} Rows")
 
         _price_level = data[active_target].to_numpy(dtype=np.float64)
         _cal = (pd.to_datetime(data[active_date].values)
@@ -1543,7 +1564,7 @@ def main():
         console.item("Lookback Windows", f"{LOOKBACK_WINDOWS}")
 
         console.section("Recursive Valuation")
-        # Reuse an already-fit FVO engine for this exact config if a prior
+        # Reuse an already-fit Mūla engine for this exact config if a prior
         # (possibly interrupted) execution in THIS session already produced one.
         # `engine_cache` is only set at the end of Phase 5, so a Streamlit rerun
         # mid-pipeline (yfinance retry, cloud reconnect, stray interaction) would
@@ -1553,18 +1574,22 @@ def main():
                 and isinstance(st.session_state.get("fvo_engine"), FairValueEngine)):
             engine = st.session_state["fvo_engine"]
             console.item("Valuation", "reused cached fit (resumed run)")
-            progress_bar(progress_container, 40, "FVO Engine Reused", "Cached valuation pass")
+            progress_bar(progress_container, 40, "Mūla Engine Reused", "Cached valuation pass")
         else:
-            engine = FairValueEngine()
-            # `config=_icfg` threads this instrument's per-instrument FVO knobs
+            if _HAS_V2_ENGINES:
+                engine = MulaEngine()
+                console.item("Valuation Core", "Mūla — cointegrating core + ECM / expert pooling")
+            else:
+                engine = FairValueEngine()
+            # `config=_icfg` threads this instrument's per-instrument Mūla knobs
             # (burn-in, print floor, discount grid, lookback windows) into the
-            # valuation, so FVO is tuned per instrument / asset class exactly
+            # valuation, so Mūla is tuned per instrument / asset class exactly
             # like Swayam and Swayam.
             engine.fit(
                 _tgt_px, _expl_px,
                 feature_names=active_features, config=_icfg,
                 progress_callback=lambda pct, msg: progress_bar(
-                    progress_container, int(20 + pct * 20), "Running FVO Engine", msg),
+                    progress_container, int(20 + pct * 20), "Running Mūla Engine", msg),
             )
             # Carry the raw price LEVEL on the engine output too. `Actual` is
             # already the price here, but the analog matcher and Intelligence
@@ -1572,13 +1597,16 @@ def main():
             engine.ts_data["Price"] = _price_level
             st.session_state["fvo_engine"] = engine
             st.session_state["fvo_fit_key"] = cache_key
+        # MŪLA summary travels through session state for the hero card's ECM
+        # gate and the Precedent state vector (empty dict on the legacy path).
+        st.session_state["mula_summary"] = getattr(engine, "mula_summary", {})
 
         sig = engine.get_current_signal()
         stats = engine.get_model_stats()
         console.section("Engine Results")
         console.item("Signal", f"{sig['signal']} ({sig['strength']})")
         console.item("Conviction", f"{sig['conviction_score']:+.0f}")
-        console.item("FVO", f"{sig['fvo']:+.2f}σ ({sig['pct_mispricing'] * 100:+.2f}% vs fair value)")
+        console.item("Mūla Osc", f"{sig['fvo']:+.2f}σ ({sig['pct_mispricing'] * 100:+.2f}% vs fair value)")
         console.item("Fair Value", f"{sig['fair_value']:,.2f} vs price {sig['actual']:,.2f}")
         console.item("OOS R²", f"{stats['r2_oos']:.3f} (log price vs fitted level)")
         console.item("R² vs Trailing Mean", f"{stats['r2_vs_anchor']:+.3f} (edge over a 252d anchor)")
@@ -1625,10 +1653,10 @@ def main():
         console.item("Factors", f"k={sig['k_factors']} above the MP edge · "
                                 f"{sig['n_available']} instruments printed so far today")
         console.item("Market Regime", f"{sig['market_regime']} (stress pct {sig['stress']:.2f})")
-        console.success(f"FVO engine complete | {len(engine.ts_data)} output rows "
+        console.success(f"Mūla engine complete | {len(engine.ts_data)} output rows "
                         f"({int(engine.ts_data['Valid'].sum())} valued, {engine.min_train_size} burn-in)")
-        console.end_phase("FVO ENGINE")
-        progress_bar(progress_container, 40, "FVO Engine Complete", f"Signal: {sig['signal']} ({sig['strength']}) · Conviction: {sig['conviction_score']:+.0f}")
+        console.end_phase("MŪLA ENGINE")
+        progress_bar(progress_container, 40, "Mūla Engine Complete", f"Signal: {sig['signal']} ({sig['strength']}) · Conviction: {sig['conviction_score']:+.0f}")
 
         # ── Phase 3: Swayam Breadth ───────────────────────────────────────
         # HORIZON-INDEPENDENT (audit finding F17): the view bank and its
@@ -1791,7 +1819,7 @@ def main():
         else:
             fvo_ts["Date"] = np.arange(len(fvo_ts))
         fvo_ts = fvo_ts[~fvo_ts.index.duplicated(keep="last")]
-        console.item("FVO Dates", len(fvo_ts))
+        console.item("Mūla Dates", len(fvo_ts))
 
         swayam_by_date = {}
         if not swayam_daily.empty:
@@ -1813,7 +1841,7 @@ def main():
             if isinstance(row_a, pd.DataFrame):
                 row_a = row_a.iloc[-1]
             # Skip the engine's own [0, MIN_TRAIN_SIZE) warm-up rows — the
-            # `Valid` column (engines/fvo.py) is False there because no
+            # `Valid` column (engines/mula/base.py) is False there because no
             # genuine walk-forward forecast covers them (see A3 in the audit).
             # Scoring them would feed the Intelligence calibration frame and
             # the walk-forward IC a fabricated "neutral" convergence reading
@@ -1856,18 +1884,18 @@ def main():
                 pct_val = int(76 + (i + 1) / total_dates * 6)
                 progress_bar(progress_container, pct_val, "Computing Convergence", f"{i + 1}/{total_dates} Dates Scored")
 
-        console.item("Total FVO Dates", len(fvo_ts))
+        console.item("Total Mūla Dates", len(fvo_ts))
         console.item("Skipped (warm-up, no genuine forecast)", skipped_warmup)
         console.item("Overlap Dates", f"{overlap_count} ({native_overlap_count} native, "
                      f"{overlap_count - native_overlap_count} carried-forward)")
         console.success("Convergence scoring complete")
 
         # ── Online-weighting overlap gate ────────────────────────────────
-        # Skip the online re-weighting when the FVO/Swayam overlap is too thin.
+        # Skip the online re-weighting when the Mūla/Swayam overlap is too thin.
         # With no genuine overlap every date takes the same neutral swayam_stats
         # default, so the continuous consensus direction degenerates to
         # fvo_bull/2 and every Swayam-driven dim score is constant — the learner
-        # would then be scoring what is really a half-weight FVO-only signal and
+        # would then be scoring what is really a half-weight Mūla-only signal and
         # attributing its skill to dimensions that never varied.
         #
         # Gated on NATIVE overlap, not raw overlap (audit finding F21):
@@ -1881,7 +1909,7 @@ def main():
         if not _learn_weights:
             console.warning(
                 f"Online dimension weighting skipped: only {native_overlap_count} NATIVE "
-                f"FVO/Swayam overlap dates (< {_MIN_OVERLAP_FOR_LEARNING}; "
+                f"Mūla/Swayam overlap dates (< {_MIN_OVERLAP_FOR_LEARNING}; "
                 f"{overlap_count} total incl. carried-forward) — the dimensions would be "
                 f"constant and their measured skill meaningless. Prior weights stand."
             )
@@ -1977,10 +2005,10 @@ def main():
         )
 
         # ── 4d. NORMALIZED CONSENSUS ─────────────────────────────────────────
-        # The causal expanding-z average of FVO's ConvictionRaw and Swayam's
+        # The causal expanding-z average of Mūla's ConvictionRaw and Swayam's
         # Avg_Signal. It headlined the hero card until the card became a
         # conviction chain; it is now an INPUT to that chain's convergence
-        # gate (a consensus pointing against the FVO call shuts the gate), and
+        # gate (a consensus pointing against the Mūla call shuts the gate), and
         # the top row of the Unified Signal plot. `consensus_series` is the
         # single source for the full history; the dict is its last point.
         from convergence.normalization import (
@@ -1992,7 +2020,7 @@ def main():
             console.section("Normalized Consensus (headline)")
             console.item("Conviction", f"{_nishkarsh_norm['value']:+.2f}")
             console.item("Signal", _nishkarsh_norm['signal'])
-            console.item("  FVO contribution", f"{_nishkarsh_norm['fvo_norm']:+.2f}")
+            console.item("  Mūla contribution", f"{_nishkarsh_norm['fvo_norm']:+.2f}")
             console.item("  Swayam contribution",  f"{_nishkarsh_norm['swayam_norm']:+.2f}")
 
         # ── 4e. WEIGHTED COMPOSITE — the second construction ────────────────
@@ -2109,7 +2137,7 @@ def main():
             else (results[-1].nishkarsh_signal if results else "N/A")
         )
 
-        console.item("FVO Engine", "✅ Cached")
+        console.item("Mūla Engine", "✅ Cached")
         console.item("Swayam Daily", f"✅ {len(swayam_daily)} rows")
         console.item("View Bank", f"✅ {len(swayam_view_dfs)} views")
         console.item("Convergence DF", f"✅ {len(convergence_df)} rows")
@@ -2119,7 +2147,7 @@ def main():
 
         console.summary("RUN SUMMARY", {
             "Total Phases": "5/5 complete",
-            "FVO Rows": len(engine.ts_data),
+            "Mūla Rows": len(engine.ts_data),
             "Swayam Views": len(swayam_view_dfs),
             "Swayam Trading Days": len(swayam_daily),
             "Convergence Scores": len(convergence_df),
@@ -2399,11 +2427,11 @@ def main():
             {"label": "Swayam Breadth", "value": (f"{_sw_os:.0f}%" if _sw_os is not None else "—"),
              "subtext": "oversold share", "color_class": "neutral"},
             {"label": "Engine Agreement", "value": (f"{_agree:.0%}" if _agree is not None else "—"),
-             "subtext": "FVO vs Swayam", "color_class": "neutral"},
+             "subtext": "Mūla vs Swayam", "color_class": "neutral"},
         ], max_cols=6)
         render_section_header(
             "Conviction Chain",
-            "One directional claim from FVO, then every condition that can invalidate it. "
+            "One directional claim from Mūla, then every condition that can invalidate it. "
             "Conviction is their product, so the smallest gate is the binding constraint.",
             icon="target", accent="accent",
         )
@@ -2411,7 +2439,7 @@ def main():
 
     def _page_fvo() -> None:
         _top_bar()
-        _safe_render("FVO", lambda: render_fvo_tab(
+        _safe_render("Mūla", lambda: render_mula_tab(
             engine, ts_filtered, x_axis, x_title, signal, model_stats, regime_stats, ts, active_target))
 
     def _page_swayam() -> None:
@@ -2453,11 +2481,11 @@ def main():
     pages = {
         "": [st.Page(_page_overview, title="Overview", icon=":material/dashboard:", default=True)],
         # Convergence leads: it is the read that combines the other two, so it
-        # is the one a returning user opens first. FVO and Swayam follow as
+        # is the one a returning user opens first. Mūla and Swayam follow as
         # its inputs, Precedent as the independent check on all three.
         "Engines": [
             st.Page(_page_convergence, title="Convergence", icon=":material/merge_type:"),
-            st.Page(_page_fvo, title="FVO", icon=":material/monitoring:"),
+            st.Page(_page_fvo, title="Mūla", icon=":material/monitoring:"),
             st.Page(_page_swayam, title="Swayam", icon=":material/hub:"),
             st.Page(_page_precedent, title="Precedent", icon=":material/history:"),
         ],

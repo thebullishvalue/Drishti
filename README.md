@@ -31,7 +31,7 @@ terminal:
 
 | Engine | Question it answers | How |
 |---|---|---|
-| **FVO** | *Where should this be trading, given the state of the world?* | Recursive **dynamic cointegrating regression** of log price on the *integrated* common factors of ~200 macro instruments, with time-varying coefficients. Publishes a fair-value **level**, the mispricing gap against it, and the oscillator (gap in units of its own predictive SD). |
+| **Mūla** | *Where should this be trading, given the state of the world?* | Recursive **dynamic cointegrating regression** of log price on the *integrated* common factors of ~200 macro instruments, with time-varying coefficients — plus the **error-correction read**: Δp regressed on the lagged level gap identifies the reversion speed κ̂ and the expected gap-closure drift over the horizon, and three forecast families (valuation-led / momentum-led / full) are pooled by discounted log predictive density into a learned valuation-informativeness weight. Publishes a fair-value **level**, the mispricing gap against it, the oscillator (gap in units of its own predictive SD), κ̂, and the drift decomposition. |
 | **SWAYAM** | *Do independent views of this asset agree?* | MSF + MMR oscillators with HMM/GARCH/CUSUM regime detection, run as a 15-view ensemble (timescale × information-set × mechanism) on the target's **own** OHLCV, aggregated into breadth. Views are weighted by their own recursively-estimated skill, not counted equally. |
 | **CONVERGENCE** | *Do the two agree, and how strongly?* | Adaptive-weighted, **directional** composite across Direction / Breadth / Magnitude / Regime, smoothed with a Drift-Diffusion filter. |
 | **INTELLIGENCE** | *Which dimensions actually predict, and does it hold up?* | Dimension weights learned **online** from resolved outcomes — exponentially discounted directional skill, scaled by its own significance — plus a read-only expanding-window **walk-forward IC** durability check. Nothing is fitted to the whole sample and nothing is persisted. |
@@ -73,7 +73,7 @@ No configuration is required — there are no secrets or environment variables t
 
 ## How the model works
 
-**Valuation, in levels.** FVO regresses **log price** on the *integrated* common
+**Valuation, in levels.** Mūla regresses **log price** on the *integrated* common
 factors of the macro cross-section with time-varying coefficients:
 
 ```
@@ -141,7 +141,7 @@ function of data available at its own date, so re-running on more data extends
 the record rather than rewriting it. That is not a claim about intent — it is a
 mechanical property with a mechanical test: `research/test_reproducibility.py`
 runs the system on `data[:T]` and on `data[:T-250]` and requires the two to
-agree **exactly** on every shared date, across the FVO engine, the Swayam view
+agree **exactly** on every shared date, across the Mūla engine, the Swayam view
 weights, the aggregated breadth, the convergence dimension weights and the
 adaptive thresholds. A component that consulted the future cannot pass it. The
 test also fails on all-NaN output, so a component that quietly stopped
@@ -198,7 +198,7 @@ and nothing it returns feeds back into the signal. Scoring is
 **non-overlapping** (stride = the shortest hold horizon) rather than on every
 daily row — a daily-sampled IC on overlapping h-day forward returns overstates
 its own precision by roughly √h, so the trust chip's SOLID/MODEST/MARGINAL tiers
-are set on the non-overlapping scale. FVO itself has no labels to leak: it is fit to no forward
+are set on the non-overlapping scale. Mūla itself has no labels to leak: it is fit to no forward
 target, so there is no label overlap to purge and no horizon-specific refit. Its
 **burn-in** (the first `FVO_BURN_IN` rows, before an exponentially weighted
 correlation matrix over ~200 instruments has enough weight for the
@@ -244,7 +244,7 @@ absent, every check degrades to a plain Mon–Fri mask.
 
 **Everything is per-instrument.** Each instrument carries its own full
 `InstrumentConfig` — routing *and* every tunable knob across ALL layers: the
-FVO valuation (burn-in / print floor / coefficient-memory grid / lookback),
+Mūla valuation (burn-in / print floor / coefficient-memory grid / lookback),
 Swayam + Swayam breadth, convergence DDM + dimension weights, the
 classification thresholds, and the interpretation/display tiers (markers,
 conviction, breadth, agreement, model-spread) — in the `INSTRUMENT_CONFIGS`
@@ -266,7 +266,7 @@ is genuinely instrument-specific: to retune one instrument, add its knob to
 | **Per-instrument config (structure, floors, warm-up priors)** | `InstrumentConfig` / `INSTRUMENT_CONFIGS` in `core/config.py` |
 | **Per-asset-class config defaults** | `CLASS_CONFIG_DEFAULTS` (`commodity`, `fx`, `india_index`, `us_index`, `etf`, `stock_india`, `stock_us`) + `STOCK_CONFIGS` in `core/config.py` |
 | Individual-stock targets (free-form symbol, Swayam self-mode) | Sidebar **India Stocks** / **US Stocks** asset class → `data/universe.py::resolve_stock_symbol` + `core/config.py::register_stock_target` |
-| FVO valuation + scoring horizons (burn-in / print floor / discount grid / lookback / hold) | fields on each `InstrumentConfig` (`fvo_*`, `forecast_horizon`, `hold_horizons`) |
+| Mūla valuation + scoring horizons (burn-in / print floor / discount grid / lookback / hold) | fields on each `InstrumentConfig` (`fvo_*`, `forecast_horizon`, `hold_horizons`) |
 | DDM / dimension weights / thresholds / markers / display tiers / analog blend / Swayam grid | fields on each `InstrumentConfig` |
 | Macro predictor universe | `GLOBAL_MACRO_MAP` + `MACRO_SYMBOLS_YF` |
 | Constituent cap | `_DEFAULT_CAP` in `data/universe.py` (`0` = no cap, full index) |
@@ -287,7 +287,7 @@ India symbols are resolved by probing `SYMBOL.NS` (NSE) first, then `SYMBOL.BO`
 (BSE) — an explicit `.NS`/`.BO` suffix skips the probe; US symbols are used as
 typed (`.` → `-`, the yfinance convention — e.g. `BRK.B` → `BRK-B`). A resolved
 symbol is registered as a first-class target (`RELIANCE (NSE)`, `AAPL (US)`, …) —
-FVO values it and Swayam runs Swayam self-mode on it, with the same
+Mūla values it and Swayam runs Swayam self-mode on it, with the same
 per-target treatment as every other target. Successful resolutions are
 cached 7 days (`~/.cache/tattva/symbol_resolution/`); a not-found symbol is never
 cached, so a transient yfinance outage can't permanently brand it invalid.
@@ -303,7 +303,8 @@ core/                   config — macro universe, structure, floors, priors, an
 data/                   yfinance fetchers, index catalogue + constituent
                         resolution (universe), two-tier cache, circuit breakers,
                         per-exchange trading calendars (calendars.py)
-engines/                fvo/ (valuation: recursive cointegrating regression —
+engines/                mula/ (valuation: recursive cointegrating regression —
+                        ECM error-correction layer,
                         causal DLM/DMA primitives, online factor model with a
                         Marchenko-Pastur cut, regime filter, asset-class block
                         map), swayam/ (breadth: the per-series MSF/MMR/regime
@@ -314,10 +315,10 @@ analytics/              adaptive (causal thresholds + online skill weights),
                         analogs (Mahalanobis precedent matcher)
 convergence/            cross-validator, conviction (DDM), divergence,
                         normalization, intelligence (online weights + walk-forward)
-ui/                     theme, components, tabs (Convergence/FVO/Swayam/
+ui/                     theme, components, tabs (Convergence/Mūla/Swayam/
                         Precedent/Diagnostics/Data)
-research/               tuning & validation harnesses (Swayam/Swayam/analog
-                        sweeps, marker/hero studies) + run_tuning.py orchestrator
+research/               validation harnesses (identity sweep, Mūla ECM + hero
+                        verdict synthetic suite, real-data Swayam study)
 ```
 
 Re-tuning: `python3 research/run_tuning.py` opens an interactive menu (run the whole
@@ -333,8 +334,8 @@ applied by hand after review.
 
 ## Interpreting the output
 
-- **Hero card** — normalized convergence signal and the FVO / Swayam contributions.
-- **FVO tab** — price against the fair-value level the cross-section implies,
+- **Hero card** — normalized convergence signal and the Mūla / Swayam contributions.
+- **Mūla tab** — price against the fair-value level the cross-section implies,
   inside its 95% predictive band, with the mispricing gap that drives the signal
   stack below it. Model quality reads left to right as a chain: does the
   cross-section track this asset at all (OOS R²), does it beat the asset's own
@@ -344,7 +345,7 @@ applied by hand after review.
   tightly is fair value pinned today (**Model Spread**).
 - **Precedent tab** — the most statistically-similar historical states (Mahalanobis)
   and what the target did next, across a fixed **1/3/5/10/20/60d** term structure
-  (`PRECEDENT_HORIZONS`); an empirical base rate to read *alongside* FVO
+  (`PRECEDENT_HORIZONS`); an empirical base rate to read *alongside* Mūla
   (agreement strengthens conviction, disagreement is a divergence). The Analog Skill
   chart shows walk-forward IC at each horizon, so where the edge is genuinely present
   (typically ~10–20d) vs weak (the 1d and 60d ends) is visible, not assumed.
