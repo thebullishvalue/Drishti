@@ -901,8 +901,8 @@ _TABLE_FONTS = ("https://fonts.googleapis.com/css2?"
 # ONE claim and attaches a series of conditions to it, every one of which can
 # independently invalidate it:
 #
-#   the asset is mispriced          (FVO — the claim)
-#   ...the mispricing reverts       (mean-reversion evidence, FVO)
+#   the asset is mispriced          (Mūla — the claim)
+#   ...the mispricing reverts       (mean-reversion evidence, Mūla ECM)
 #   ...its own internals agree      (Swayam breadth)
 #   ...both engines converge        (agreement ratio + normalized consensus)
 #   ...this has historically paid   (walk-forward OOS IC)
@@ -925,7 +925,7 @@ _TABLE_FONTS = ("https://fonts.googleapis.com/css2?"
 # the most useful sentence a card of this kind can produce and which no amount
 # of vote-tallying can express. The card leads with it.
 #
-# Direction comes from FVO alone. It is the only component that makes a
+# Direction comes from Mūla alone. It is the only component that makes a
 # directional claim about the world ("this is cheap relative to the traded
 # opportunity set"); breadth, reversion evidence and historical skill are all
 # statements ABOUT that claim, not rival claims of their own. Averaging them
@@ -975,6 +975,7 @@ def build_hero_verdict(
     n_divergences: int,
     horizon_days: int,
     div_window: int | None = None,
+    mula: dict | None = None,
 ) -> dict:
     """Build the hero verdict from the conviction chain. Pure data in/out.
 
@@ -984,7 +985,7 @@ def build_hero_verdict(
     smallest one. Rendering is entirely separate (``render_hero_card``), so
     these rules stay unit-testable — see research/test_hero_verdict.py.
     """
-    # ── The claim: FVO's standardized mispricing ───────────────────────
+    # ── The claim: Mūla.s standardized mispricing ───────────────────────
     fvo = float(fvo_signal.get("fvo", 0.0) or 0.0)
     pct = float(fvo_signal.get("pct_mispricing", 0.0) or 0.0) * 100.0
     conf = float(fvo_signal.get("valuation_confidence", 0.0) or 0.0)
@@ -992,7 +993,7 @@ def build_hero_verdict(
     mr = float(fvo_signal.get("mr_prob", 0.0) or 0.0)
     half_life = float(fvo_signal.get("gap_half_life", 0.0) or 0.0)
 
-    # Direction is FVO's alone. A negative oscillator means the asset trades
+    # Direction is Mūla.s alone. A negative oscillator means the asset trades
     # below the level the cross-section implies — cheap, therefore bullish.
     if fvo <= -0.5:
         direction, verb = "bullish", "cheap"
@@ -1022,6 +1023,27 @@ def build_hero_verdict(
                    + (f", half-life {half_life:.0f}d." if half_life > 0 else ".")),
     })
 
+    # ── Gate 2b (MŪLA): does the error-correction read corroborate? ────
+    # WValuation+WFull is the pooled predictive weight on every design that
+    # lets the gap close the price (Geweke-Amisano pooling over valuation-led
+    # vs momentum-led families). When it is low, the mispricing has NOT been
+    # paying to trade against — whatever its size.
+    if mula:
+        wv_total = float(mula.get("w_valuation", 0.0)) + float(mula.get("w_full", 0.0))
+        kappa = float(mula.get("mula_kappa", 0.0) or 0.0)
+        drift = float(mula.get("expected_drift_pct", 0.0) or 0.0)
+        sd = float(mula.get("drift_sd_pct", 0.0) or 0.0)
+        g_ecm = _gate(wv_total, 0.25, 0.65)
+        drift_aligned = ((drift > 0) == (direction == "bullish")) if direction != "neutral" else False
+        gates.append({
+            "name": "ecm", "value": g_ecm * (1.0 if drift_aligned else 0.7),
+            "label": ("valuation leads" if wv_total >= 0.55 else
+                      "momentum leads" if wv_total <= 0.40 else "mixed evidence"),
+            "detail": (f"ECM κ̂={kappa:.3f}/d; expected {horizon_days}-d gap-closure "
+                       f"move {drift:+.1f}% ±{sd:.1f}%; valuation-family weight "
+                       f"{wv_total:.0%}."),
+        })
+
     # ── Gate 3: do the asset's own internals agree? ────────────────────
     if swayam_breadth:
         net = (float(swayam_breadth.get("oversold_pct", 50.0))
@@ -1042,7 +1064,7 @@ def build_hero_verdict(
     # ── Gate 4: do the two engines converge? ───────────────────────────
     # Two readings, multiplied: HOW OFTEN they have agreed (agreement ratio)
     # and WHETHER the normalized consensus currently points the same way as
-    # the FVO call. A high agreement ratio pointing the wrong way is not
+    # the Mūla call. A high agreement ratio pointing the wrong way is not
     # convergence, which is why one number could not carry this gate.
     if convergence:
         agree_ratio = float(convergence.get("agreement_ratio", 0.5) or 0.5)
@@ -1070,7 +1092,7 @@ def build_hero_verdict(
     else:
         g_conv = 0.5
         conv_label, conv_detail = ("no convergence read",
-                                   "FVO and Swayam had no overlapping history to converge over.")
+                                   "Mūla and Swayam had no overlapping history to converge over.")
     gates.append({"name": "convergence", "value": g_conv,
                   "label": conv_label, "detail": conv_detail})
 
@@ -1148,7 +1170,7 @@ def build_hero_verdict(
     # ── Standing risk flag, outside the chain ──────────────────────────
     risk = None
     if n_divergences > 0:
-        risk = (f"{n_divergences} FVO/Swayam divergence event"
+        risk = (f"{n_divergences} Mūla/Swayam divergence event"
                 f"{'s' if n_divergences != 1 else ''}"
                 + (f" in the last {div_window} sessions." if div_window else "."))
 
@@ -1517,7 +1539,7 @@ def provisional_note(fvo_ts) -> str:
     The engine separates `publish` (the value is emitted) from `Valid` (the value
     may be trusted), and marks the difference `Provisional`. That distinction was
     introduced for the convergence cards and initially surfaced only there — so
-    the FVO chart drew today's forming fair value as an ordinary point and the
+    the valuation chart drew today's forming fair value as an ordinary point and the
     Data tab listed it unlabelled, which is the same misreading the cards were
     fixed to prevent. This is the shared accessor, so every surface that shows a
     number can say whether it has settled.

@@ -632,10 +632,10 @@ def inject_css(theme: str = "dark") -> None:
 # DERIVED from the percentage: that keeps ~25 call sites free of a phase
 # argument they would have to keep in sync by hand, but it means a call site's
 # number decides which phase it is reported under. Data acquisition therefore
-# ends at 19 and not 20 — 20 is the FVO band's first number.
+# ends at 19 and not 20 — 20 is the Mūla band.s first number.
 RUN_PHASES = (
     (1, 0, 19, "Data Acquisition"),
-    (2, 20, 41, "FVO Engine"),
+    (2, 20, 41, "Mūla Engine"),
     (3, 42, 75, "Swayam Engine"),
     (4, 76, 95, "Convergence"),
     (5, 96, 100, "Final Assembly"),
