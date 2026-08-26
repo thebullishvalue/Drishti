@@ -5,7 +5,7 @@ Tattva — Configuration constants, thresholds, column mappings, and shared defa
 CORE — macro universe, target catalogue, structural knobs and warm-up priors.
 
 The engine-tuning constants below are the DEFAULTS of the per-instrument config
-registry: `InstrumentConfig` (routing + every FVO / Swayam / Swayam / DDM /
+registry: `InstrumentConfig` (routing + every Mūla / Swayam / DDM /
 convergence knob) → `CLASS_CONFIG_DEFAULTS` (per asset class) → `INSTRUMENT_CONFIGS`
 (one explicit entry per catalogue target). The five catalogue classes (commodity,
 fx, india_index, us_index, etf) are tuned PER INSTRUMENT via `PER_INSTRUMENT_TUNING`
@@ -22,8 +22,8 @@ VERSION = "2.7.0"
 PRODUCT_NAME = "Tattva"
 COMPANY = "@thebullishvalue"
 
-# ─── FVO Engine Defaults ─────────────────────────────────────────────────────
-# The FVO (Fair Value Oscillator) engine replaced FVO's walk-forward
+# ─── Mūla Engine Defaults ─────────────────────────────────────────────────────
+# The Mūla (मूल) engine replaced Aarambh's walk-forward
 # ensemble regression. It is a RECURSIVE dynamic cointegrating regression of
 # log price on the integrated factors of the macro cross-section — there is no
 # training window, no refit cadence and no ensemble, so the former
@@ -74,7 +74,7 @@ HOLD_HORIZONS = (5, 10)     # Intelligence Val-IC / calibration grid (analog 5d+
 # quantity, they merely shared a value, so it is named for the one that remains.
 ANALOG_MOM_WINDOW = 20
 
-# Predictors that are RAW YIELD LEVELS (e.g. ^TNX at 4.25), not prices. The FVO
+# Predictors that are RAW YIELD LEVELS (e.g. ^TNX at 4.25), not prices. The Mūla
 # cross-section is a panel of PRICES: it takes logs and first differences, and
 # a rate series can print ≤0 (zero-rate era), where log(≤0) is NaN. They are
 # excluded from the valuation panel rather than transformed — a yield level is
@@ -89,7 +89,7 @@ RAW_YIELD_PREDICTORS = frozenset({
 # ~20d). The hero's precedent second-opinion reads at FORECAST_HORIZON (10d).
 PRECEDENT_HORIZONS = (1, 3, 5, 10, 20, 60)
 
-# ENGINE ConvictionBounded → signal mapping (engines/fvo.py + the tabs that
+# ENGINE ConvictionBounded → signal mapping (engines/mula/base.py + the tabs that
 # display it). Data-anchored to |ConvictionBounded| p50/p75/p90 (study: ui_anchors).
 # NOT used by conviction_model.py (that bins the DDM-smoothed COMPOSITE on
 # COMPOSITE_THRESHOLDS). Stood pending a confirming run (last ui_anchors saw an
@@ -432,8 +432,8 @@ MACRO_SYMBOLS_YF = {
     "Soybean Oil": "ZL=F"}
 
 # ─── Commodity Targets & Baskets ─────────────────────────────────────────────
-# User-selectable FVO targets. Each maps to a yfinance front-month future
-# (already present in MACRO_SYMBOLS_YF). The FVO predictor pool is the rest
+# User-selectable Mūla targets. Each maps to a yfinance front-month future
+# (already present in MACRO_SYMBOLS_YF). The Mūla predictor pool is the rest
 # of MACRO_SYMBOLS_YF (commodities + FX) with the selected target excluded.
 
 COMMODITY_TARGETS = {
@@ -467,7 +467,7 @@ COMMODITY_TARGETS = {
     "Dogecoin": "DOGE-USD",
     # Jeera (NCDEX cumin) is NOT a yfinance symbol — its daily price is pulled
     # from a published Google Sheet (data/sheets.py) and injected as a column in
-    # the FVO matrix. The value here is a non-yfinance sentinel ticker: it
+    # the Mūla matrix. The value here is a non-yfinance sentinel ticker: it
     # documents the source and is deliberately kept OUT of MACRO_SYMBOLS_YF /
     # GLOBAL_MACRO_MAP so it is never sent to yf.download.
     "Jeera": "JEERA.NCDEX"}
@@ -481,7 +481,7 @@ COMMODITY_TARGETS = {
 # there is no proxy whose orientation could disagree and no routing decision
 # left to encode. See engines/swayam/ensemble.py for why the proxy read went.
 
-# Predictors that quasi-replicate a target and must be excluded from FVO
+# Predictors that quasi-replicate a target and must be excluded from Mūla
 # to avoid contaminating its fair-value residual (the spread the whole system
 # trades). GLTR is a precious-metals basket holding gold + silver, so it lets
 # the regression "explain" the metal with itself.
@@ -536,7 +536,7 @@ TARGET_EXCLUDED_PREDICTORS = {
               "RBOB Gasoline", "Heating Oil"]}
 
 # ─── Index targets (equity indices: India sectoral/broad, US, sector-ETF) ─────
-# The FVO target is the index price; the Swayam basket is the index's own
+# The Mūla target is the index price; the Swayam basket is the index's own
 # constituents (resolved live + cached in data/universe.py). Their price tickers
 # are merged into the fetched universe so the index level is an available column.
 from data.universe import INDEX_TARGETS, INDEX_TARGETS_MAP  # noqa: E402
@@ -586,7 +586,7 @@ for _sname, _smeta in SHEET_TARGETS.items():
     TARGET_EXCLUDED_PREDICTORS.setdefault(_sname, list(_INDEX_NAMES) + _INDIA_INDEX_ETFS)
 
 # ─── Stock targets (individual equities) ─────────────────────────────────────
-# The FVO target is the stock's own price; breadth is Swayam on that price —
+# The Mūla target is the stock's own price; breadth is Swayam on that price —
 # Swayam formulates breadth on the stock's own OHLCV
 # (engines/swayam/) instead.
 #
@@ -629,7 +629,7 @@ def register_stock_target(display_name: str, ticker: str, market: str) -> None:
     dicts survive reruns within a process but the registration must be
     replayed from st.session_state on each one; see app.py). Applies the
     same wiring the old static STOCK_TARGETS loop used: ALL_TARGETS,
-    and the market-based FVO predictor
+    and the market-based Mūla predictor
     exclusions (own-market index targets + broad ETFs — the same guard that
     feeds the Swayam MMR leakage filter via TARGET_EXCLUDED_PREDICTORS,
     see swayam_macro_columns above). Also installs the instrument's own
@@ -670,7 +670,7 @@ def swayam_macro_columns(target: str, macro_cols: list[str]) -> list[str]:
     deviation ≈ 0, and the MMR half of every macro-anchored member dies
     silently while mmr_quality reads perfect. This reuses the same
     self-explanation guard TARGET_EXCLUDED_PREDICTORS already applies to
-    FVO, applied here to the MMR driver pool instead.
+    Mūla, applied here to the MMR driver pool instead.
     """
     drop = {target, *TARGET_EXCLUDED_PREDICTORS.get(target, [])}
     return [c for c in macro_cols if c not in drop]
@@ -697,13 +697,13 @@ class InstrumentConfig:
     they are:
 
     **Structure** — what question to ask. Horizons (what you intend to hold),
-    the Swayam view bank and the FVO discount grid (the hypothesis space to
+    the Swayam view bank and the Mūla discount grid (the hypothesis space to
     average over), the leakage exclusions (which predictors would let a target
     explain itself). These are declared because no amount of data tells you
     what you are trying to do.
 
     **Estimability floors** — how much evidence before publishing anything.
-    The FVO burn-in and print floor. Argued from first principles, not swept.
+    The Mūla burn-in and print floor. Argued from first principles, not swept.
 
     **Warm-up priors** — the ``*_strong`` / ``*_moderate`` / ``ui_*`` numbers.
     These used to BE the thresholds, anchored by full-history studies. They are
@@ -722,7 +722,7 @@ class InstrumentConfig:
     """
 
     # ── Structure: leakage guard ────────────────────────────────────────────
-    excluded_predictors: tuple[str, ...] = ()      # FVO + Swayam-MMR leakage guard
+    excluded_predictors: tuple[str, ...] = ()      # Mūla + Swayam-MMR leakage guard
 
     # ── Structure: Swayam breadth ───────────────────────────────────────────
     # `swayam_lengths` is a SPAN to weight, not a length to pick — members are
@@ -740,7 +740,7 @@ class InstrumentConfig:
     hold_horizons: tuple[int, ...] = HOLD_HORIZONS
     analog_mom_window: int = ANALOG_MOM_WINDOW   # precedent state-feature window
 
-    # ── Estimability floors: FVO valuation engine ──────────────────────────
+    # ── Estimability floors: Mūla valuation engine ──────────────────────────
     # Default to the global constants; a per-instrument / asset-class override
     # (via _PER_INSTRUMENT_OVERRIDES / STOCK_CONFIGS) retunes them for one
     # target. Note what is NOT here: the engine is recursive, so it has no
@@ -905,13 +905,13 @@ PER_INSTRUMENT_TUNING: dict[str, dict] = {
 #   - ui_swayam_avg_threshold: KEPT (Gold/Jeera) — a data-anchored DISPLAY calibration
 #     (the target's own p75, gated >=25% divergence + n>=250), not an edge claim.
 #
-# The per-instrument ENGINE tunings that used to live here were all FVO
+# The per-instrument ENGINE tunings that used to live here were all Aarambh
 # walk-forward knobs (refit cadence / train window / ensemble roster / ridge
-# alphas / huber epsilon / PCA components). The FVO engine that replaced
-# FVO has none of them — it is recursive, so there is no window to size and
+# alphas / huber epsilon / PCA components). The Mūla engine that replaced
+# it has none of them — it is recursive, so there is no window to size and
 # no ensemble to select — and a tuning measured on a retired model is not
 # evidence about the current one, so they were removed rather than remapped.
-# The FVO knobs (fvo_burn_in / fvo_min_prints / fvo_valuation_deltas) are
+# The Mūla knobs (fvo_burn_in / fvo_min_prints / fvo_valuation_deltas) are
 # estimability floors and a memory grid, not free parameters, and stay at their
 # class defaults until a study measures otherwise.
 _PER_INSTRUMENT_OVERRIDES: dict[str, dict] = {
@@ -1064,7 +1064,7 @@ UI_SWAYAM_BEARISH = 2.9
 # extremeness on every row. EXTREMENESS markers, not actionable edges.
 UI_CONSENSUS_STRONG = 0.41      # Row 1 · norm_avg (consensus, [-1,1]) = p90 (markers 2026-07-20)
 UI_CONSENSUS_MODERATE = 0.28    #                                       = p75 (markers 2026-07-20)
-UI_CONVRAW_STRONG = 66.67       # Row 2 · ConvictionRaw (FVO, ~[-100,100]) = p90 (markers 2026-07-20)
+UI_CONVRAW_STRONG = 66.67       # Row 2 · ConvictionRaw (Mūla, ~[-100,100]) = p90 (markers 2026-07-20)
 UI_CONVRAW_MODERATE = 33.33     #                                              = p75 (markers 2026-07-20)
 UI_SWAYAM_AVG_THRESHOLD = 2.87   # Row 3 · Avg_Signal (Swayam, [-10,10]) —
                                 # single tier at p75, matching the other rows'
