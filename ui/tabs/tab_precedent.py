@@ -2,7 +2,7 @@
 Tattva — Precedent tab: what happened last time the state looked like this.
 
 Covariance-aware Mahalanobis analog matching over the state the SYSTEM
-measures — momentum, realised volatility, Swayam breadth, the FVO valuation
+measures — momentum, realised volatility, Swayam breadth, the Mūla valuation
 oscillator, market stress and valuation confidence — under a Theiler exclusion
 window so the returned analogs are distinct episodes rather than adjacent days
 of one episode. The output is an empirical base rate, independent of the model:
@@ -52,7 +52,7 @@ def _classify_state(fvo: float) -> tuple[str, str, str, str]:
     Describes WHERE the target sat versus its macro-implied level — cheap or
     rich — not what happened next; the forward tiles carry the realised outcome.
 
-    Keyed on FVO because that is what the analogs are MATCHED on. It previously
+    Keyed on Mūla because that is what the analogs are MATCHED on. It previously
     keyed on AvgZ, which the tuning study had already removed from the matching
     feature set, so the badge described a dimension the similarity score
     ignored: two cards labelled "Deep Oversold" could have been selected for
@@ -111,7 +111,7 @@ def _render_period_card(period: dict, target: str, hold_horizons: tuple[int, ...
     # the row instead of left-packing into the legacy 4-column track.
     grid_style = f"grid-template-columns:repeat({max(1, len(hold_horizons))},1fr);"
 
-    # Cheap (negative FVO) is the bullish pole, so it takes the positive colour.
+    # Cheap (negative Mūla) is the bullish pole, so it takes the positive colour.
     z_color = "pos" if fvo < 0 else "neg" if fvo > 0 else "neutral"
 
     # NOTE: the f-string below must stay flush-left with NO blank lines — Streamlit
@@ -133,7 +133,7 @@ def _render_period_card(period: dict, target: str, hold_horizons: tuple[int, ...
       <span class="analog-stat-value accent">{similarity_pct:.1f}%</span>
     </div>
     <div class="analog-stat">
-      <span class="analog-stat-label">Valuation (FVO)</span>
+      <span class="analog-stat-label">Valuation (Mūla)</span>
       <span class="analog-stat-value {z_color}">{fvo:+.2f}&sigma;</span>
     </div>
     <div class="analog-stat">
@@ -241,7 +241,7 @@ def render_precedent_tab(
             f"{html_mod.escape(active_target)} actually did after the most "
             "statistically-similar historical states (covariance-aware Mahalanobis "
             "on Tattva's own state features). Read it <strong>alongside</strong> the "
-            "FVO forecast: agreement strengthens conviction, disagreement is a "
+            "Mūla forecast: agreement strengthens conviction, disagreement is a "
             "divergence worth respecting."
         ),
         color="info",

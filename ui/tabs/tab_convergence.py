@@ -1,7 +1,7 @@
 """
 Tattva — Convergence tab: where the two engines agree, and where they do not.
 
-The headline object of the whole app: the normalized consensus of FVO's
+The headline object of the whole app: the normalized consensus of Mūla's
 valuation conviction and Swayam's breadth, plus the divergences worth knowing
 about when they disagree.
 
@@ -50,22 +50,22 @@ from core.config import (
 # ── Tooltip definitions ────────────────────────────────────────────────────
 TOOLTIPS = {
     "nishkarsh_conviction": (
-        "Composite score combining FVO (top-down) and Swayam (bottom-up) into a single "
+        "Composite score combining Mūla (top-down) and Swayam (bottom-up) into a single "
         "signal. Near 0 = both systems uncertain — avoid new positions. Large absolute values "
         "= high-conviction opportunities."
     ),
     "fvo_conviction": (
-        "FVO's fair-value breadth: how many lookback windows see the market as overbought "
+        "Mūla's fair-value breadth: how many lookback windows see the market as overbought "
         "vs. oversold. Below -20 = most stocks cheap (bullish); above +20 = most expensive (bearish)."
     ),
     "swayam_avg": (
         "Average technical signal across the Swayam bottom-up units — basket constituents, or "
         "self-ensemble views of the instrument's own price (Swayam self mode). Negative = net "
-        "bullish; positive = net bearish. Moves slowly and confirms (or contradicts) FVO's "
+        "bullish; positive = net bearish. Moves slowly and confirms (or contradicts) Mūla's "
         "top-down view."
     ),
     "agreement": (
-        "How often FVO and Swayam point in the same direction. THE BASELINE IS NOT 50%: "
+        "How often Mūla and Swayam point in the same direction. THE BASELINE IS NOT 50%: "
         "both engines are causal transforms of the same target price, and two such "
         "transforms of even a pure random walk agree ~60% of the time by construction "
         "(measured, research/test_audit_invariants.py). So ~60% is neutral, not agreement. "
@@ -230,7 +230,7 @@ def render_convergence_tab(ts_filtered=None):
     if convergence_df is None or convergence_df.empty:
         render_empty_state(
             "No convergence data available",
-            "Convergence fuses FVO's valuation read with Swayam's breadth — run an "
+            "Convergence fuses Mūla's valuation read with Swayam's breadth — run an "
             "analysis first so both engines have something to agree or disagree over.",
             eyebrow="Convergence",
             action_label="Run analysis in the sidebar, then return to this page.",
@@ -238,7 +238,7 @@ def render_convergence_tab(ts_filtered=None):
         return
 
     # ── SINGLE SOURCE OF TRUTH ───────────────────────────────────────────────
-    # Align FVO + Swayam ONCE, here, before anything renders. The metric cards
+    # Align Mūla + Swayam ONCE, here, before anything renders. The metric cards
     # AND the 3-row plot below both read these exact arrays, so a card can never
     # disagree with the plot point it mirrors (the old bug: card read the raw last
     # ts row, the plot read the Swayam-aligned last row → drift on calendar gaps).
@@ -265,7 +265,7 @@ def render_convergence_tab(ts_filtered=None):
     if has_overlap:
         # Key by the full engine config (target + features + horizon + date range) so
         # switching predictor sets with the same target never reuses stale z-scores.
-        # Also fold in content (row count + latest raw FVO/Swayam reading): a
+        # Also fold in content (row count + latest raw Mūla/Swayam reading): a
         # "Refresh Data" that updates the LAST bar's value without changing the
         # date-range fingerprint that engine_cache is built from would otherwise
         # keep this key unchanged and silently reuse pre-refresh z-scores against
@@ -328,7 +328,7 @@ def render_convergence_tab(ts_filtered=None):
     # ═══════════════════════════════════════════════════════════════════════
     render_section_header(
         "Convergence Analysis",
-        "FVO top-down vs Swayam bottom-up. Agreement = reliable signal. Divergence = stand aside.",
+        "Mūla top-down vs Swayam bottom-up. Agreement = reliable signal. Divergence = stand aside.",
         icon="target",
     )
 
@@ -339,7 +339,7 @@ def render_convergence_tab(ts_filtered=None):
     _fill = _forming(fvo_ts)
 
     with col1:
-        # Mirrors Row 1 of the Unified Signal plot: average of normalized FVO
+        # Mirrors Row 1 of the Unified Signal plot: average of normalized Mūla
         # + Swayam z-scores, in [-1, +1].
         score, stale = (nishkarsh_norm["value"], None) if nishkarsh_norm else (None, None)
         if score is not None and not np.isfinite(score):
@@ -368,12 +368,12 @@ def render_convergence_tab(ts_filtered=None):
         else:
             a_conv, stale = None, None
         if a_conv is not None:
-            render_metric_card("FVO CONVICTION", f"{a_conv:+.2f}",
+            render_metric_card("Mūla CONVICTION", f"{a_conv:+.2f}",
                                _asof("Market breadth: oversold vs overbought", stale, _fill),
                                "success" if a_conv < -CONVICTION_MODERATE else "danger" if a_conv > CONVICTION_MODERATE else "neutral",
                                tooltip=TOOLTIPS["fvo_conviction"])
         else:
-            render_metric_card("FVO CONVICTION", "N/A", "Session incomplete", "neutral")
+            render_metric_card("Mūla CONVICTION", "N/A", "Session incomplete", "neutral")
 
     with col3:
         # Mirrors Row 3 of the plot — reads the SAME aligned Swayam Avg Signal series.
@@ -392,7 +392,7 @@ def render_convergence_tab(ts_filtered=None):
                                     convergence_df.index)
         if agreement is not None:
             render_metric_card("AGREEMENT", f"{agreement:.0%}",
-                               _asof("FVO and Swayam alignment", stale, _fill),
+                               _asof("Mūla and Swayam alignment", stale, _fill),
                                "success" if agreement > UI_AGREEMENT_STRONG else "warning" if agreement > UI_AGREEMENT_MODERATE else "neutral",
                                tooltip=TOOLTIPS["agreement"])
         else:
@@ -410,19 +410,19 @@ def render_convergence_tab(ts_filtered=None):
     )
 
     # Aligned series already computed once at the top (single source of truth with
-    # the metric cards). FVO-only targets (no Swayam basket) have no overlap →
+    # the metric cards). Mūla-only targets (no Swayam basket) have no overlap →
     # the cards above still rendered; the plot just can't be drawn.
     if not has_overlap:
         render_empty_state(
             "No engine overlap",
-            "FVO and Swayam share no dates for this target, so the consensus overlay "
-            "cannot be drawn. The metric cards above are FVO-only reads and remain valid.",
+            "Mūla and Swayam share no dates for this target, so the consensus overlay "
+            "cannot be drawn. The metric cards above are Mūla-only reads and remain valid.",
             eyebrow="Convergence",
             action_label="Pick a target with a resolvable Swayam view bank.",
         )
         return
 
-    # Short-history guard: z-scoring needs a stable σ. When the FULL FVO∩Swayam
+    # Short-history guard: z-scoring needs a stable σ. When the FULL Mūla∩Swayam
     # overlap is tiny (brand-new sheet target, freshly-listed basket constituents),
     # σ collapses to its 1e-10 floor and the whole normalized plot flat-lines at 0 —
     # which misreads as a confident "neutral". The cards above already show the raw
@@ -432,7 +432,7 @@ def render_convergence_tab(ts_filtered=None):
     if _n_full < MIN_CONV_NORM_POINTS:
         render_info_box(
             "Building convergence history",
-            f"Only {_n_full} overlapping session{'s' if _n_full != 1 else ''} between FVO and Swayam "
+            f"Only {_n_full} overlapping session{'s' if _n_full != 1 else ''} between Mūla and Swayam "
             f"so far — too few to z-score into a stable convergence view (the plot would flat-line at zero "
             f"and misread as neutral). The cards above reflect the latest raw reads; this view populates "
             f"once {MIN_CONV_NORM_POINTS}+ shared sessions accrue.",
@@ -515,7 +515,7 @@ def render_convergence_tab(ts_filtered=None):
     # which is repainting as far as a reader is concerned.
     #
     # `adaptive_tiers` is the column form of the same statistic and is what
-    # the FVO engine already publishes with: each row's level is built from
+    # the Mūla engine already publishes with: each row's level is built from
     # strictly earlier rows, so re-running on more data cannot move a label
     # that was already drawn.
     def _tier_at(tiermap, dates, name, fallback):
@@ -579,7 +579,7 @@ def render_convergence_tab(ts_filtered=None):
         line=dict(width=0), showlegend=False, hoverinfo="skip",
     ), row=1, col=1)
     fig.add_trace(go.Scatter(
-        x=aligned_dates, y=norm_a, mode="lines", name="FVO",
+        x=aligned_dates, y=norm_a, mode="lines", name="Mūla",
         line=dict(color=chart_rgba("slate", 0.25), width=1, dash="dot"),
     ), row=1, col=1)
     fig.add_trace(go.Scatter(

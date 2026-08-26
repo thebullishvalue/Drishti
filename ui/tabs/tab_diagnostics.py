@@ -70,7 +70,7 @@ def render_diagnostics_tab(engine, ts_filtered, x_axis, x_title, signal, model_s
 
     # ═══════════════════════════════════════════════════════════════════════
     # 5. RESIDUAL STATIONARITY (OU) — the foundation of the whole signal stack.
-    #    These run on the FVO mispricing gap, which is a candidate mean-
+    #    These run on the Mūla mispricing gap, which is a candidate mean-
     #    reverting spread, so every statistic here is interpretable. Under the
     #    forecast engine this replaced they ran on a forecast series and had to
     #    be flagged as informational (audit finding F20); that caveat is gone
@@ -91,7 +91,7 @@ def render_diagnostics_tab(engine, ts_filtered, x_axis, x_title, signal, model_s
         # Two half-lives are published. This one is the OU fit over the whole
         # valued history; the engine also carries an ONLINE AR(1) estimate
         # (`gap_half_life`) that tracks the current regime. Showing the
-        # historical fit here and the online one on the FVO tab's regime card
+        # historical fit here and the online one on the Mūla tab's regime card
         # is deliberate — a wide split between them means reversion speed
         # today is not the long-run average.
         render_metric_card(
