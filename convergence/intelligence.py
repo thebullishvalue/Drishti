@@ -14,7 +14,7 @@ when you had last calibrated. Two people with identical data could disagree.
 The replacement keeps the goal and drops the mechanism. Dimension weights are
 still LEARNED — the four agreement dimensions are still not equally
 informative, and which one matters still varies by instrument — but they are
-learned the way the FVO engine learns which of its two valuation views to
+learned the way the Mūla engine learns which of its two valuation views to
 trust: recursively, from evidence that had already resolved, discounted so the
 recent past counts for more. At date *t* the weights reflect outcomes through
 ``t - h`` and nothing later. A score published on *t* is never revised.
@@ -105,7 +105,7 @@ def _build_calibration_frame(
 
     # Reindex without forward-fill first so we can detect carry-forward rows.
     target_raw = a_dedup[target_col].astype(float).reindex(conv.index)
-    is_carried = target_raw.isna()  # True = date has no genuine FVO price
+    is_carried = target_raw.isna()  # True = date has no genuine Mūla price
     target = target_raw.ffill()
 
     # Forward log-returns at each horizon; mask rows where price was carried

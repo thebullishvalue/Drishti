@@ -13,7 +13,7 @@ Pipeline:
 
 TWO DISTINCT SIGNALS, TWO DISTINCT CLASSIFIERS (audit finding F1) ─────────────
 This module computes the NORMALIZED CONSENSUS — a causal expanding-z average
-of raw FVO/Swayam readings. It is a DIAGNOSTIC (shown on the Convergence
+of raw Mūla/Swayam readings. It is a DIAGNOSTIC (shown on the Convergence
 tab, reconciled explicitly in the hero evidence row), and it is NOT the object
 the online learner weights. ``convergence.intelligence`` learns its dimension
 weights against the DIRECTIONAL COMPOSITE
@@ -164,7 +164,7 @@ def align_fvo_swayam(
     swayam_daily: pd.DataFrame | None,
     filter_dates: Iterable[str] | None = None,
 ) -> tuple[list, list[float], list[float]]:
-    """Align FVO ``ConvictionRaw`` and Swayam average signal on overlapping dates.
+    """Align Mūla ``ConvictionRaw`` and Swayam average signal on overlapping dates.
 
     Args:
         fvo_ts: DataFrame with a ``ConvictionRaw`` column and either a
@@ -268,10 +268,10 @@ def consensus_series(
     plot's top row draws and — since the consensus-headline product decision —
     the series whose last point IS the hero card's headline value.
 
-    Columns: ``NormA`` (causal-z FVO ConvictionRaw), ``NormN`` (causal-z
+    Columns: ``NormA`` (causal-z Mūla ConvictionRaw), ``NormN`` (causal-z
     Swayam Avg_Signal), ``Consensus`` (their 50/50 mean, in [-1, +1], negative
     = bullish), indexed by DatetimeIndex. Empty frame when there is no
-    FVO∩Swayam overlap. Single source of truth — the latest-point dict
+    Mūla∩Swayam overlap. Single source of truth — the latest-point dict
     (``compute_normalized_convergence``) and the hero-history plot both
     derive from this construction, so card, plot, and hero can never drift.
     """

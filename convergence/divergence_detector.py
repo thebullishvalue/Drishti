@@ -1,5 +1,5 @@
 """
-Tattva — CrossSystemDivergenceDetector: Detects when FVO and Swayam disagree.
+Tattva — CrossSystemDivergenceDetector: Detects when Mūla and Swayam disagree.
 तत्त्व (Tattva) — "Principle / Essence"
 
 CONVERGENCE — Adaptive-weighted composite of 4 dimensions: Direction, Breadth, Magnitude, Regime — with DDM.
@@ -33,7 +33,7 @@ class DivergenceEvent:
     divergence_type : str
         One of ``FVO_LEADS``, ``SWAYAM_LEADS``, ``CONTRADICTION``.
     fvo_signal : str
-        FVO stance classification at this date.
+        Mūla stance classification at this date.
     swayam_signal : str
         Swayam stance classification at this date.
     severity : float
@@ -118,7 +118,7 @@ class CrossSystemDivergenceDetector:
             div_type = "FVO_LEADS"
             severity = min(1.0, abs(conviction) / 100.0)
             description = (
-                f"FVO shows extreme oversold (conviction={conviction:.0f}) "
+                f"Mūla shows extreme oversold (conviction={conviction:.0f}) "
                 f"but Swayam breadth hasn't turned ({swayam_os_pct:.0f}% oversold). "
                 f"Early warning: valuation dislocation not yet reflected in price structure."
             )
@@ -126,7 +126,7 @@ class CrossSystemDivergenceDetector:
             div_type = "FVO_LEADS"
             severity = min(1.0, abs(conviction) / 100.0)
             description = (
-                f"FVO shows extreme overbought (conviction={conviction:.0f}) "
+                f"Mūla shows extreme overbought (conviction={conviction:.0f}) "
                 f"but Swayam breadth hasn't turned. "
                 f"Early warning: valuation risk not yet reflected in price structure."
             )
@@ -135,21 +135,21 @@ class CrossSystemDivergenceDetector:
             severity = min(1.0, abs(swayam_avg_osc) / 10.0)
             description = (
                 f"Swayam breadth turning bullish ({swayam_os_pct:.0f}% oversold, "
-                f"avg osc={swayam_avg_osc:.1f}) but FVO valuation not yet extreme "
+                f"avg osc={swayam_avg_osc:.1f}) but Mūla valuation not yet extreme "
                 f"(conviction={conviction:.0f}). Momentum-first move."
             )
         elif swayam_stance == "BEARISH" and fvo_stance not in ("BEARISH", "EXTREME_BEARISH"):
             div_type = "SWAYAM_LEADS"
             severity = min(1.0, abs(swayam_avg_osc) / 10.0)
             description = (
-                "Swayam breadth turning bearish but FVO valuation not yet "
+                "Swayam breadth turning bearish but Mūla valuation not yet "
                 "extreme. Momentum-first move to the downside."
             )
         elif fvo_stance == "BULLISH" and swayam_stance == "BEARISH":
             div_type = "CONTRADICTION"
             severity = 0.7
             description = (
-                f"FVO says bullish (conviction={conviction:.0f}) but Swayam says "
+                f"Mūla says bullish (conviction={conviction:.0f}) but Swayam says "
                 f"bearish ({swayam_ob_pct:.0f}% overbought). Contradictory signals — "
                 f"uncertain environment."
             )
@@ -157,7 +157,7 @@ class CrossSystemDivergenceDetector:
             div_type = "CONTRADICTION"
             severity = 0.7
             description = (
-                f"FVO says bearish (conviction={conviction:.0f}) but Swayam says "
+                f"Mūla says bearish (conviction={conviction:.0f}) but Swayam says "
                 f"bullish ({swayam_os_pct:.0f}% oversold). Contradictory signals."
             )
 
@@ -211,7 +211,7 @@ class CrossSystemDivergenceDetector:
 
     @staticmethod
     def _classify_fvo_stance(conviction: float, oversold_breadth: float) -> str:
-        """Classify FVO's directional stance."""
+        """Classify Mūla's directional stance."""
         if conviction < -60 and oversold_breadth > 70:
             return "EXTREME_BULLISH"
         if conviction < -20 and oversold_breadth > 60:

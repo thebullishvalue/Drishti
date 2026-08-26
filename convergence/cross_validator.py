@@ -1,5 +1,5 @@
 """
-Tattva — CrossValidator: Cross-referencing FVOa and Swayam outputs.
+Tattva — CrossValidator: Cross-referencing Mūla and Swayam outputs.
 तत्त्व (Tattva) — "Principle / Essence"
 
 CONVERGENCE — Adaptive-weighted composite of 4 dimensions: Direction, Breadth, Magnitude, Regime — with DDM.
@@ -70,7 +70,7 @@ class ConvergenceSignal:
 
 
 class CrossValidator:
-    """Cross-references FVO and Swayam outputs per trading date.
+    """Cross-references Mūla and Swayam outputs per trading date.
 
     Computes an adaptive-weighted composite of four convergence dimensions:
 
@@ -123,7 +123,7 @@ class CrossValidator:
             Date string for this observation.
         """
         # ── Dimension 1: Direction Agreement ────────────────────────────
-        # FVO: conviction < 0 = bullish (oversold), > 0 = bearish
+        # Mūla: conviction < 0 = bullish (oversold), > 0 = bearish
         # Swayam: oversold_pct > overbought_pct = bullish bias
         fvo_direction = -np.sign(float(fvo_signal.get("conviction_score", 0)))
         swayam_os = float(swayam_day_stats.get("oversold_pct", 50))
@@ -269,7 +269,7 @@ class CrossValidator:
         # degenerate: "abs(x) > abs(y)*1.5" can only ever be true when
         # abs(y)==0 and abs(x)==1, so FVO_LEADS previously could only
         # fire when Swayam's breadth was EXACTLY split 50/50 (never in
-        # practice), never from FVO's conviction genuinely dominating
+        # practice), never from Mūla's conviction genuinely dominating
         # Swayam's (audit finding E5). Compare the actual normalized
         # MAGNITUDES instead (fvo_mag_norm/swayam_mag_norm, both in
         # [0, 1], already computed for the magnitude dimension above).
