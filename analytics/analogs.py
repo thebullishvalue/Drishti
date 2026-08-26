@@ -237,8 +237,24 @@ def _build_feature_frame(ts: pd.DataFrame, mom_window: int) -> tuple[pd.DataFram
                 _c = _c.where(df["Valid"].astype(bool))
             feat[_dst] = _c.to_numpy(dtype=np.float64)
 
+    # ── V2 engine state (MŪLA), availability-guarded ───────────────────
+    # Appended only when the columns exist (i.e. the run used the MŪLA
+    # valuation core), so a legacy ts_data produces the exact legacy set.
+    #   ExpertW   — MŪLA's pooled weight on valuation-containing designs:
+    #               distinguishes "2σ rich AND the ECM agrees it pays to fade"
+    #               from "2σ rich while momentum owns this tape"
+    #   GapSpeed  — the ECM reversion speed κ̂: fast-κ gaps are states whose
+    #               analogs resolve quickly; slow-κ ones are not the same
+    #               state even at identical FVO
+    for _src, _dst in (("WValuation", "ExpertW"), ("MulaKappa", "GapSpeed")):
+        if _src in df.columns:
+            _c = pd.to_numeric(df[_src], errors="coerce")
+            if "Valid" in df.columns:
+                _c = _c.where(df["Valid"].astype(bool))
+            feat[_dst] = _c.to_numpy(dtype=np.float64)
+
     feature_cols = [c for c in ("Momentum", "RealizedVol", "NetBreadth", "FVO",
-                                "Stress", "Confidence")
+                                "Stress", "Confidence", "ExpertW", "GapSpeed")
                     if c in feat.columns]
     feat["Price"] = price
     feat["Date"] = df["Date"].to_numpy() if "Date" in df.columns else df.index.to_numpy()

@@ -53,7 +53,8 @@ import math
 import numpy as np
 
 # One implementation of each causal primitive, in analytics/ where the generic
-# math lives. They arrived with the FVO port and briefly sat under engines/fvo/,
+# math lives. They arrived with the Mūla port and briefly sat under engines/fvo/
+# (now engines/mula/),
 # which pointed the dependency the wrong way — analytics is the layer engines
 # are built ON, so anything in it importing from an engine is a cycle waiting
 # to happen, and duly was.
